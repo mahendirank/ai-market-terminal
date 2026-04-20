@@ -2,11 +2,13 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(__file__))
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Body
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+import threading
+import time as _time
 
 from macro import get_macro_data
 from stocks import get_mag7, get_semiconductors, get_india_indices, get_gold_etfs, detect_movers
@@ -24,6 +26,7 @@ from sniper import sniper_entry
 from mtf import get_mtf_bias
 from structure import get_structure
 from earnings import get_earnings
+from sources_config import get_all_sources, approve, reject, add_pending
 from datetime import datetime, timezone, timedelta
 
 app = FastAPI(title="AI Market Terminal")
@@ -37,23 +40,61 @@ app.add_middleware(
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
+# ── In-memory cache with TTL ──────────────────────────────
+_cache = {}
+_cache_lock = threading.Lock()
+
+def _cached(key, ttl_seconds, fn):
+    with _cache_lock:
+        entry = _cache.get(key)
+        if entry and (_time.time() - entry["ts"]) < ttl_seconds:
+            return entry["data"]
+    data = fn()
+    with _cache_lock:
+        _cache[key] = {"data": data, "ts": _time.time()}
+    return data
+
+def _bg_refresh(key, ttl_seconds, fn, empty=None):
+    """Return cached immediately. If no cache yet, trigger background fetch and return empty."""
+    with _cache_lock:
+        entry = _cache.get(key)
+    if entry:
+        if (_time.time() - entry["ts"]) > ttl_seconds:
+            threading.Thread(target=_cached, args=(key, ttl_seconds, fn), daemon=True).start()
+        return entry["data"]
+    # No cache — start background fetch, return empty placeholder immediately
+    threading.Thread(target=_cached, args=(key, ttl_seconds, fn), daemon=True).start()
+    return empty if empty is not None else []
+
 
 def now_ist():
     return datetime.now(IST).strftime("%d-%b-%Y %I:%M:%S %p IST")
 
 
+# ── Warm cache on startup ─────────────────────────────────
+def _warm():
+    try: _cached("news",    60,  lambda: _build_news())
+    except: pass
+    try: _cached("indices", 60,  get_indices)
+    except: pass
+    try: _cached("macro",   60,  get_macro_data)
+    except: pass
+
+def _build_news():
+    raw = get_all_news()
+    scored = prioritize_news(raw, summarize=False)
+    return scored
+
+threading.Thread(target=_warm, daemon=True).start()
+
+
 # ─── Endpoints ────────────────────────────────────────────────
-
-@app.get("/api/indices")
-def api_indices():
-    return get_indices()
-
 
 @app.get("/api/macro")
 def api_macro():
-    data = get_macro_data()
+    data = _bg_refresh("macro", 60, get_macro_data)
     return {
-        "fx":     data.get("FX", {}),
+        "fx":          data.get("FX", {}),
         "yields": data.get("US_YIELDS", {}),
         "global_yields": data.get("GLOBAL_YIELDS", {}),
         "oil":    data.get("OIL"),
@@ -88,8 +129,7 @@ def api_econ():
 
 @app.get("/api/news")
 def api_news():
-    raw    = get_all_news()
-    scored = prioritize_news(raw)
+    scored = _bg_refresh("news", 60, _build_news)
     result = []
     for score, item in scored:
         if isinstance(item, dict):
@@ -106,6 +146,11 @@ def api_news():
             result.append({"score": score, "priority": "low", "headline": item,
                            "source": "", "time": "", "category": "MARKETS", "summarized": False})
     return result
+
+
+@app.get("/api/indices")
+def api_indices_cached():
+    return _bg_refresh("indices", 60, get_indices)
 
 
 @app.get("/api/signal")
@@ -142,6 +187,31 @@ def api_signal():
 @app.get("/api/earnings")
 def api_earnings():
     return get_earnings()
+
+
+@app.get("/api/sources")
+def api_sources():
+    return get_all_sources()
+
+
+@app.post("/api/sources/approve")
+def api_approve(payload: dict = Body(...)):
+    approve(payload["name"])
+    return {"ok": True, "name": payload["name"], "status": "approved"}
+
+
+@app.post("/api/sources/reject")
+def api_reject(payload: dict = Body(...)):
+    reject(payload["name"])
+    return {"ok": True, "name": payload["name"], "status": "rejected"}
+
+
+@app.post("/api/sources/add")
+def api_add_source(payload: dict = Body(...)):
+    add_pending(payload["name"], payload["url"],
+                payload.get("category", "MARKETS"),
+                payload.get("type", "telegram"))
+    return {"ok": True, "name": payload["name"], "status": "pending"}
 
 
 @app.get("/api/all")

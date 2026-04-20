@@ -29,9 +29,6 @@ MEDIUM_KEYWORDS = {
     "ipo": 4, "merger": 4, "acquisition": 4,
 }
 
-from summarizer import summarize_news
-
-
 def _text(item):
     return item["text"] if isinstance(item, dict) else item
 
@@ -48,12 +45,19 @@ def score_news(item):
     return score
 
 
-def prioritize_news(news_list):
-    news_list = summarize_news(news_list)
+def prioritize_news(news_list, summarize=False):
+    # Summarization is OFF by default for speed (Ollama adds 2-3 min)
+    # Set summarize=True only when running terminal.py manually
+    if summarize:
+        try:
+            from summarizer import summarize_news
+            news_list = summarize_news(news_list)
+        except:
+            pass
     scored = []
     for n in news_list:
         s = score_news(n)
-        scored.append((s, n))          # keep ALL — no score filter
+        scored.append((s, n))
     scored.sort(key=lambda x: x[0], reverse=True)
     return scored[:40]
 

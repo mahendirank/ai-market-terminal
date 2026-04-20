@@ -178,9 +178,48 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
   <div class="h-right">
     <span id="hdr-time">—</span>
     <span id="hdr-cnt" style="color:#4a5568;"></span>
+    <button onclick="openSources()" style="background:#1c2230;border:1px solid var(--border);color:var(--accent);padding:2px 8px;cursor:pointer;font-family:inherit;font-size:10px;border-radius:2px;letter-spacing:1px;">⚙ SOURCES</button>
   </div>
 </div>
 <div class="rbar"></div>
+
+<!-- SOURCES MODAL -->
+<div id="src-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:999;overflow-y:auto;">
+  <div style="max-width:900px;margin:40px auto;background:#0d1117;border:1px solid var(--accent);border-radius:4px;overflow:hidden;">
+    <div style="background:#0a0e14;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);">
+      <span style="color:var(--accent);font-weight:bold;letter-spacing:2px;font-size:12px;">⚙ NEWS SOURCE MANAGER</span>
+      <button onclick="closeSources()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;">✕</button>
+    </div>
+    <!-- Add new source form -->
+    <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <span style="color:var(--muted);font-size:10px;letter-spacing:1px;">ADD SOURCE:</span>
+      <input id="new-src-name" placeholder="Display Name" style="background:#1c2230;border:1px solid var(--border);color:var(--head);padding:3px 8px;font-family:inherit;font-size:11px;border-radius:2px;width:150px;">
+      <input id="new-src-url"  placeholder="https://t.me/s/channelname or RSS URL" style="background:#1c2230;border:1px solid var(--border);color:var(--head);padding:3px 8px;font-family:inherit;font-size:11px;border-radius:2px;width:280px;">
+      <select id="new-src-cat" style="background:#1c2230;border:1px solid var(--border);color:var(--head);padding:3px 8px;font-family:inherit;font-size:11px;border-radius:2px;">
+        <option>MARKETS</option><option>GEOPOLITICS</option><option>BONDS</option>
+        <option>FX</option><option>HNI</option><option>COMMODITIES</option>
+        <option>INDIA</option><option>TECH</option><option>MACRO</option>
+      </select>
+      <select id="new-src-type" style="background:#1c2230;border:1px solid var(--border);color:var(--head);padding:3px 8px;font-family:inherit;font-size:11px;border-radius:2px;">
+        <option value="telegram">Telegram</option><option value="rss">RSS</option>
+      </select>
+      <button onclick="addSource()" style="background:#002a14;border:1px solid var(--green);color:var(--green);padding:3px 12px;cursor:pointer;font-family:inherit;font-size:10px;border-radius:2px;">+ ADD</button>
+    </div>
+    <!-- Source table -->
+    <div style="overflow-y:auto;max-height:500px;">
+      <table style="width:100%;border-collapse:collapse;font-size:11px;" id="src-table">
+        <thead><tr style="background:#0a0e14;">
+          <th style="padding:6px 12px;text-align:left;color:var(--accent);font-size:9px;letter-spacing:1px;">SOURCE</th>
+          <th style="padding:6px 8px;color:var(--accent);font-size:9px;">TYPE</th>
+          <th style="padding:6px 8px;color:var(--accent);font-size:9px;">CATEGORY</th>
+          <th style="padding:6px 8px;color:var(--accent);font-size:9px;">STATUS</th>
+          <th style="padding:6px 8px;color:var(--accent);font-size:9px;">ACTION</th>
+        </tr></thead>
+        <tbody id="src-rows"><tr><td colspan="5" style="padding:20px;text-align:center;color:var(--muted);">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
 
 <!-- PRICE STRIP -->
 <div class="price-strip">
@@ -514,6 +553,72 @@ setInterval(loadIndices, 60000);
 setInterval(loadMacro,   60000);
 setInterval(loadSignal,  120000);
 setInterval(loadEarnings,300000);
+
+// ── Sources Manager ───────────────────────────────────────
+const CAT_COLOR = {
+  MARKETS:'#3d9cf5',GEOPOLITICS:'#ff3b5c',BONDS:'#a855f7',FX:'#00d26a',
+  HNI:'#f5a623',COMMODITIES:'#fbbf24',INDIA:'#f97316',TECH:'#06b6d4',MACRO:'#e879f9'
+};
+
+async function openSources() {
+  document.getElementById('src-modal').style.display = 'block';
+  await refreshSources();
+}
+function closeSources() {
+  document.getElementById('src-modal').style.display = 'none';
+}
+
+async function refreshSources() {
+  const data = await fetch(`${BASE}/api/sources`).then(r=>r.json());
+  const rows = data.map(s => {
+    const stCls = s.status==='approved'
+      ? 'style="color:var(--green);"'
+      : s.status==='rejected'
+        ? 'style="color:var(--red);"'
+        : 'style="color:var(--med);"';
+    const stTxt = s.status==='approved' ? '✅ ACTIVE' : s.status==='rejected' ? '❌ BLOCKED' : '⏳ PENDING';
+    const catCol = CAT_COLOR[s.category] || '#aaa';
+    const btn = s.status === 'rejected'
+      ? `<button onclick="srcApprove('${s.name}')" style="background:#002a14;border:1px solid var(--green);color:var(--green);padding:2px 8px;cursor:pointer;font-family:inherit;font-size:10px;border-radius:2px;">APPROVE</button>`
+      : `<button onclick="srcReject('${s.name}')" style="background:#2a0010;border:1px solid var(--red);color:var(--red);padding:2px 8px;cursor:pointer;font-family:inherit;font-size:10px;border-radius:2px;">BLOCK</button>`;
+    return `<tr style="border-bottom:1px solid #0d1017;">
+      <td style="padding:5px 12px;color:var(--head);font-weight:bold;">${s.name}</td>
+      <td style="padding:5px 8px;color:var(--muted);">${s.type}</td>
+      <td style="padding:5px 8px;"><span style="color:${catCol};">${s.category}</span></td>
+      <td style="padding:5px 8px;" ${stCls}>${stTxt}</td>
+      <td style="padding:5px 8px;">${btn}</td>
+    </tr>`;
+  });
+  document.getElementById('src-rows').innerHTML = rows.join('');
+}
+
+async function srcApprove(name) {
+  await fetch(`${BASE}/api/sources/approve`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+  refreshSources();
+}
+async function srcReject(name) {
+  await fetch(`${BASE}/api/sources/reject`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+  refreshSources();
+}
+async function addSource() {
+  const name = document.getElementById('new-src-name').value.trim();
+  const url  = document.getElementById('new-src-url').value.trim();
+  const cat  = document.getElementById('new-src-cat').value;
+  const type = document.getElementById('new-src-type').value;
+  if (!name || !url) { alert('Enter name and URL'); return; }
+  await fetch(`${BASE}/api/sources/add`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({name, url, category:cat, type})
+  });
+  document.getElementById('new-src-name').value='';
+  document.getElementById('new-src-url').value='';
+  refreshSources();
+}
+
+// Close modal on background click
+document.getElementById('src-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('src-modal')) closeSources();
+});
 </script>
 </body>
 </html>

@@ -6,7 +6,10 @@ import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from telegram_news import get_telegram_news
+
+FEED_TIMEOUT = 5   # seconds per RSS source
 
 IST = timezone(timedelta(hours=5, minutes=30))
 MAX_AGE_HOURS = 24
@@ -146,39 +149,53 @@ RSS_SOURCES = {
 }
 
 
-def get_rss_news():
-    news   = []
+HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; NewsBot/1.0)"}
+
+def _fetch_one(source, url):
+    """Fetch a single RSS source using requests (hard timeout) then parse."""
+    items  = []
     cutoff = datetime.now(timezone.utc) - timedelta(hours=MAX_AGE_HOURS)
+    try:
+        resp = requests.get(url, timeout=FEED_TIMEOUT, headers=HEADERS)
+        feed = feedparser.parse(resp.content)
+        for entry in feed.entries[:8]:
+            try:
+                title = entry.get("title", "").strip()
+                if not title or len(title) > 400:
+                    continue
+                pub    = entry.get("published", "") or entry.get("updated", "")
+                ts_ist = ""
+                if pub:
+                    try:
+                        dt_utc = parsedate_to_datetime(pub).astimezone(timezone.utc)
+                        if dt_utc < cutoff:
+                            continue
+                        ts_ist = _to_ist(dt_utc)
+                    except:
+                        pass
+                cat = SOURCE_CATEGORY.get(source, "MARKETS")
+                items.append({"text": title, "source": source, "time": ts_ist, "category": cat})
+            except:
+                pass
+    except:
+        pass
+    return items
 
-    for source, url in RSS_SOURCES.items():
-        try:
-            feed = feedparser.parse(url)
-            for entry in feed.entries[:8]:
-                try:
-                    title = entry.get("title", "").strip()
-                    if not title or len(title) > 400:
-                        continue
-                    pub = entry.get("published", "") or entry.get("updated", "")
-                    ts_ist = ""
-                    if pub:
-                        try:
-                            dt_utc = parsedate_to_datetime(pub).astimezone(timezone.utc)
-                            if dt_utc < cutoff:
-                                continue
-                            ts_ist = _to_ist(dt_utc)
-                        except:
-                            pass
-                    cat = SOURCE_CATEGORY.get(source, "MARKETS")
-                    news.append({"text": title, "source": source, "time": ts_ist, "category": cat})
-                except:
-                    t = entry.get("title", "")
-                    if t:
-                        cat = SOURCE_CATEGORY.get(source, "MARKETS")
-                        news.append({"text": t, "source": source, "time": "", "category": cat})
-        except:
-            pass
 
-    return news
+def get_rss_news(allowed_sources=None):
+    """Fetch all RSS sources in parallel with hard per-source timeout."""
+    sources = {k: v for k, v in RSS_SOURCES.items()
+               if allowed_sources is None or k in allowed_sources}
+    all_items = []
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        futures = {pool.submit(_fetch_one, src, url): src
+                   for src, url in sources.items()}
+        for fut in as_completed(futures, timeout=18):
+            try:
+                all_items.extend(fut.result())
+            except:
+                pass
+    return all_items
 
 
 def get_all_news():
