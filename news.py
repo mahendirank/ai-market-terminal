@@ -19,32 +19,62 @@ def _to_ist(dt):
         return ""
 
 
-# Category mapping per source
 SOURCE_CATEGORY = {
+    # Markets
     "Reuters Markets":    "MARKETS",
     "BBC Business":       "MARKETS",
     "MarketWatch":        "MARKETS",
     "CNBC Markets":       "MARKETS",
     "Yahoo Finance":      "MARKETS",
     "Investing.com":      "MARKETS",
+    "Seeking Alpha":      "MARKETS",
+    "Barrons":            "MARKETS",
+    # FX
     "ForexLive":          "FX",
+    "DailyFX":            "FX",
+    "FXStreet":           "FX",
+    # Geopolitics
     "Reuters World":      "GEOPOLITICS",
     "BBC World":          "GEOPOLITICS",
     "Sky News World":     "GEOPOLITICS",
     "Al Jazeera":         "GEOPOLITICS",
+    "AP News":            "GEOPOLITICS",
+    # Bonds / Macro
     "FT Markets":         "BONDS",
     "WSJ Markets":        "BONDS",
     "ZeroHedge":          "MACRO",
+    "Bloomberg Econ":     "BONDS",
+    "BondBuyer":          "BONDS",
+    # HNI / Institutional
     "FinancialJuice":     "HNI",
     "WalterBloomberg":    "HNI",
     "DreamCatcher":       "HNI",
+    "Unusual Whales":     "HNI",
+    # Commodities
     "Kitco Gold":         "COMMODITIES",
+    "Kitco Silver":       "COMMODITIES",
     "OilPrice.com":       "COMMODITIES",
+    "Mining.com":         "COMMODITIES",
+    "GoldSeek":           "COMMODITIES",
+    "Natural Gas Intel":  "COMMODITIES",
+    "Rigzone":            "COMMODITIES",
+    "Metal Bulletin":     "COMMODITIES",
+    # India
     "Economic Times":     "INDIA",
     "Livemint":           "INDIA",
     "MoneyControl":       "INDIA",
+    "Business Standard":  "INDIA",
+    "NDTV Profit":        "INDIA",
+    "Hindu Business":     "INDIA",
+    # Tech / Chips / Semi
     "The Register":       "TECH",
     "Ars Technica":       "TECH",
+    "SemiWiki":           "TECH",
+    "EE Times":           "TECH",
+    "Tom's Hardware":     "TECH",
+    "AnandTech":          "TECH",
+    "SemiEngineering":    "TECH",
+    "Digit":              "TECH",
 }
 
 RSS_SOURCES = {
@@ -55,38 +85,64 @@ RSS_SOURCES = {
     "CNBC Markets":       "https://www.cnbc.com/id/100003114/device/rss/rss.html",
     "Yahoo Finance":      "https://finance.yahoo.com/news/rssindex",
     "Investing.com":      "https://www.investing.com/rss/news.rss",
+    "Seeking Alpha":      "https://seekingalpha.com/feed.xml",
 
     # ── FX / Currencies ─────────────────────────────────────
     "ForexLive":          "https://www.forexlive.com/feed/news",
+    "FXStreet":           "https://www.fxstreet.com/rss/news",
+    "DailyFX":            "https://www.dailyfx.com/feeds/all",
 
     # ── Geopolitics / War ───────────────────────────────────
     "Reuters World":      "https://feeds.reuters.com/Reuters/worldNews",
     "BBC World":          "https://feeds.bbci.co.uk/news/world/rss.xml",
     "Sky News World":     "https://feeds.skynews.com/feeds/rss/world.xml",
     "Al Jazeera":         "https://www.aljazeera.com/xml/rss/all.xml",
+    "AP News":            "https://rsshub.app/apnews/topics/business",
 
-    # ── Bonds / Macro ───────────────────────────────────────
+    # ── Bonds / Rates / Macro ───────────────────────────────
     "FT Markets":         "https://www.ft.com/rss/home/uk",
     "WSJ Markets":        "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
     "ZeroHedge":          "https://nitter.net/zerohedge/rss",
+    "BondBuyer":          "https://www.bondbuyer.com/feed",
 
     # ── HNI / Institutional ─────────────────────────────────
     "FinancialJuice":     "https://nitter.net/financialjuice/rss",
     "WalterBloomberg":    "https://nitter.net/WalterBloomberg/rss",
     "DreamCatcher":       "https://nitter.net/DreamCatcher/rss",
+    "Unusual Whales":     "https://nitter.net/unusual_whales/rss",
 
-    # ── Commodities ─────────────────────────────────────────
+    # ── Gold ────────────────────────────────────────────────
     "Kitco Gold":         "https://www.kitco.com/rss/news.xml",
+    "GoldSeek":           "https://news.goldseek.com/goldseek/rss.php",
+
+    # ── Silver ──────────────────────────────────────────────
+    "Kitco Silver":       "https://www.kitco.com/rss/silver_news.xml",
+
+    # ── Crude Oil / Energy ──────────────────────────────────
     "OilPrice.com":       "https://oilprice.com/rss/main",
+    "Rigzone":            "https://www.rigzone.com/news/rss/rigzone_latest.aspx",
+
+    # ── Copper / Metals / Mining ────────────────────────────
+    "Mining.com":         "https://www.mining.com/feed/",
+
+    # ── Natural Gas ─────────────────────────────────────────
+    "Natural Gas Intel":  "https://naturalgasintel.com/feed/",
 
     # ── India ───────────────────────────────────────────────
     "Economic Times":     "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
     "Livemint":           "https://www.livemint.com/rss/markets",
     "MoneyControl":       "https://www.moneycontrol.com/rss/marketreports.xml",
+    "Business Standard":  "https://www.business-standard.com/rss/markets-106.rss",
+    "NDTV Profit":        "https://www.ndtvprofit.com/rss",
+    "Hindu Business":     "https://www.thehindubusinessline.com/markets/feeder/default.rss",
 
-    # ── Tech / Semiconductors ───────────────────────────────
+    # ── Tech / Semiconductors / Chips ──────────────────────
     "The Register":       "https://www.theregister.com/headlines.atom",
     "Ars Technica":       "https://feeds.arstechnica.com/arstechnica/technology-lab",
+    "SemiWiki":           "https://semiwiki.com/feed/",
+    "SemiEngineering":    "https://semiengineering.com/feed/",
+    "EE Times":           "https://www.eetimes.com/rss/",
+    "Tom's Hardware":     "https://www.tomshardware.com/feeds/all",
 }
 
 
@@ -103,6 +159,7 @@ def get_rss_news():
                     if not title or len(title) > 400:
                         continue
                     pub = entry.get("published", "") or entry.get("updated", "")
+                    ts_ist = ""
                     if pub:
                         try:
                             dt_utc = parsedate_to_datetime(pub).astimezone(timezone.utc)
@@ -110,9 +167,7 @@ def get_rss_news():
                                 continue
                             ts_ist = _to_ist(dt_utc)
                         except:
-                            ts_ist = ""
-                    else:
-                        ts_ist = ""
+                            pass
                     cat = SOURCE_CATEGORY.get(source, "MARKETS")
                     news.append({"text": title, "source": source, "time": ts_ist, "category": cat})
                 except:
@@ -143,16 +198,14 @@ def get_all_news():
     except:
         pass
 
-    # Deduplicate
-    seen   = set()
-    unique = []
+    seen, unique = set(), []
     for n in news:
         key = (n["text"][:60].lower() if isinstance(n, dict) else n[:60].lower())
         if key not in seen:
             seen.add(key)
             unique.append(n)
 
-    return unique[:80]
+    return unique[:100]
 
 
 def format_news(news_list):

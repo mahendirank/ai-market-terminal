@@ -23,6 +23,7 @@ from smc import get_smc_analysis
 from sniper import sniper_entry
 from mtf import get_mtf_bias
 from structure import get_structure
+from earnings import get_earnings
 from datetime import datetime, timezone, timedelta
 
 app = FastAPI(title="AI Market Terminal")
@@ -136,6 +137,11 @@ def api_signal():
         },
         "timestamp": now_ist(),
     }
+
+
+@app.get("/api/earnings")
+def api_earnings():
+    return get_earnings()
 
 
 @app.get("/api/all")
