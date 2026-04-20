@@ -73,11 +73,13 @@ def now_ist():
 
 # ── Warm cache on startup ─────────────────────────────────
 def _warm():
-    try: _cached("news",    60,  lambda: _build_news())
+    try: _cached("news",     60,  _build_news)
     except: pass
-    try: _cached("indices", 60,  get_indices)
+    try: _cached("indices",  60,  get_indices)
     except: pass
-    try: _cached("macro",   60,  get_macro_data)
+    try: _cached("macro",    60,  get_macro_data)
+    except: pass
+    try: _cached("earnings", 300, get_earnings)
     except: pass
 
 def _build_news():
@@ -186,7 +188,7 @@ def api_signal():
 
 @app.get("/api/earnings")
 def api_earnings():
-    return get_earnings()
+    return _bg_refresh("earnings", 300, get_earnings, empty=[])
 
 
 @app.get("/api/sources")

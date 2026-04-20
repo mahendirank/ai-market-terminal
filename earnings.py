@@ -5,6 +5,15 @@ import yfinance as yf
 import pandas as pd
 from datetime import datetime, timezone
 
+# Refresh yfinance session to avoid Invalid Crumb / 401 errors
+try:
+    import requests
+    _session = requests.Session()
+    _session.headers.update({"User-Agent": "Mozilla/5.0"})
+    yf.set_session(_session)
+except:
+    pass
+
 WATCH_LIST = {
     "MAG7":       ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA"],
     "FINANCIALS": ["JPM", "GS", "BAC", "MS", "V", "MA", "C"],
@@ -160,12 +169,18 @@ def get_single(sym, group):
 
 
 def get_earnings():
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    tasks   = [(sym, group) for group, syms in WATCH_LIST.items() for sym in syms]
     results = []
-    for group, syms in WATCH_LIST.items():
-        for sym in syms:
-            r = get_single(sym, group)
-            if r:
-                results.append(r)
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        futures = {pool.submit(get_single, sym, grp): sym for sym, grp in tasks}
+        for fut in as_completed(futures, timeout=30):
+            try:
+                r = fut.result()
+                if r:
+                    results.append(r)
+            except:
+                pass
     results.sort(key=lambda x: x["score"], reverse=True)
     return results
 

@@ -45,20 +45,32 @@ def score_news(item):
     return score
 
 
+def _parse_time(item):
+    """Extract sortable time value from 'HH:MM IST' or similar."""
+    try:
+        t = item.get("time", "") if isinstance(item, dict) else ""
+        if t and ":" in t:
+            parts = t.replace(" IST", "").replace(" AM", "").replace(" PM", "").strip()
+            h, m  = parts.split(":")[:2]
+            return int(h) * 60 + int(m)
+    except:
+        pass
+    return 0
+
+
 def prioritize_news(news_list, summarize=False):
     # Summarization is OFF by default for speed (Ollama adds 2-3 min)
-    # Set summarize=True only when running terminal.py manually
     if summarize:
         try:
             from summarizer import summarize_news
             news_list = summarize_news(news_list)
         except:
             pass
-    scored = []
-    for n in news_list:
-        s = score_news(n)
-        scored.append((s, n))
-    scored.sort(key=lambda x: x[0], reverse=True)
+
+    scored = [(score_news(n), n) for n in news_list]
+
+    # Sort purely by time (newest first) — priority shown as badge only
+    scored.sort(key=lambda item: -_parse_time(item[1]))
     return scored[:40]
 
 

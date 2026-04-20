@@ -490,10 +490,19 @@ async function loadSignal() {
 }
 
 // ── Load earnings ─────────────────────────────────────────
+let _earnRetry = null;
 async function loadEarnings() {
   try {
     const data = await fetch(`${BASE}/api/earnings`).then(r=>r.json());
-    if (!data.length) { document.getElementById('earn-body').innerHTML='<tr><td colspan="17" class="loading">No earnings data</td></tr>'; return; }
+    if (!data.length) {
+      document.getElementById('earn-body').innerHTML = '<tr><td colspan="17" class="loading"><span class="spinner">◌</span> Fetching 25 stocks in background — auto-refreshing...</td></tr>';
+      if (!_earnRetry) _earnRetry = setInterval(async () => {
+        const d = await fetch(`${BASE}/api/earnings`).then(r => r.json());
+        if (d.length) { clearInterval(_earnRetry); _earnRetry = null; loadEarnings(); }
+      }, 12000);
+      return;
+    }
+    if (_earnRetry) { clearInterval(_earnRetry); _earnRetry = null; }
 
     const rows = data.map(e => {
       const beatCls = e.eps_beat==null ? 'beat-neu' : e.eps_beat>0 ? 'beat-pos' : 'beat-neg';
