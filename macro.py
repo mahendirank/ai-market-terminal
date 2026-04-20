@@ -15,10 +15,12 @@ def _last(symbol, period="5d", interval="1h"):
 # 🔹 Currencies
 def get_fx_data():
     symbols = {
-        "DXY":    ("UUP",        3),   # Invesco DXY ETF proxy (tracks DX index)
+        "DXY":    ("DX-Y.NYB",  2),   # US Dollar Index (actual DXY, ~99-108)
         "EURUSD": ("EURUSD=X",  4),
         "GBPUSD": ("GBPUSD=X",  4),
         "USDJPY": ("JPY=X",     3),
+        "USDCNY": ("CNY=X",     4),
+        "USDINR": ("INR=X",     2),
     }
 
     data = {}

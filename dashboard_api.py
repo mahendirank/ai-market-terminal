@@ -87,20 +87,22 @@ def api_econ():
 
 @app.get("/api/news")
 def api_news():
-    raw  = get_all_news()
+    raw    = get_all_news()
     scored = prioritize_news(raw)
     result = []
     for score, item in scored:
         if isinstance(item, dict):
             result.append({
                 "score":      score,
+                "priority":   "high" if score >= 8 else "med" if score >= 4 else "low",
                 "headline":   item["text"],
                 "source":     item.get("source", ""),
                 "time":       item.get("time", ""),
                 "summarized": item.get("summarized", False),
             })
         else:
-            result.append({"score": score, "headline": item, "source": "", "time": "", "summarized": False})
+            result.append({"score": score, "priority": "low", "headline": item,
+                           "source": "", "time": "", "summarized": False})
     return result
 
 

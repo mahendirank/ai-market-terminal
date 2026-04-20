@@ -111,11 +111,18 @@
     padding: 7px 0;
     border-bottom: 1px solid #0d0f12;
     display: grid;
-    grid-template-columns: 90px 1fr;
+    grid-template-columns: 100px 1fr;
     gap: 8px;
     align-items: start;
   }
   .news-item:last-child { border-bottom: none; }
+  .news-item.pinned {
+    background: #130a00;
+    border-left: 3px solid var(--high);
+    padding-left: 8px;
+    margin-bottom: 2px;
+    border-bottom: 1px solid #2a1000;
+  }
   .news-badge {
     padding: 2px 6px;
     border-radius: 2px;
@@ -129,7 +136,63 @@
   .badge-low  { background: #1a1a1a; color: var(--muted);border: 1px solid var(--border);}
   .news-meta  { color: var(--muted); font-size: 10px; }
   .news-text  { color: var(--text);  font-size: 11px; margin-top: 2px; line-height: 1.4; }
+  .news-text.pinned-text { color: #ffddbb; font-size: 12px; }
   .summarized-tag { color: #555; font-size: 9px; }
+
+  /* ── News divider ── */
+  .news-divider {
+    padding: 4px 0 2px;
+    color: var(--accent);
+    font-size: 9px;
+    letter-spacing: 2px;
+    border-top: 1px solid #1e2125;
+    margin-top: 4px;
+  }
+
+  /* ── Scrolling ticker ── */
+  .ticker-wrap {
+    background: #000;
+    border-top: 1px solid var(--border);
+    overflow: hidden;
+    height: 26px;
+    display: flex;
+    align-items: center;
+  }
+  .ticker-label {
+    background: var(--accent);
+    color: #000;
+    font-weight: bold;
+    font-size: 10px;
+    padding: 0 8px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .ticker-track {
+    display: flex;
+    align-items: center;
+    animation: ticker-scroll 60s linear infinite;
+    white-space: nowrap;
+  }
+  .ticker-track:hover { animation-play-state: paused; }
+  @keyframes ticker-scroll {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+  .ticker-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 24px;
+    font-size: 11px;
+    color: var(--text);
+    border-right: 1px solid #222;
+  }
+  .ticker-item .t-src { color: var(--muted); font-size: 10px; }
+  .ticker-item .t-dot-med  { color: var(--med);  }
+  .ticker-item .t-dot-low  { color: var(--muted); }
 
   /* ── Signal ── */
   .signal-big {
@@ -253,10 +316,18 @@
   <div class="row row-full">
     <div class="panel">
       <div class="panel-header">
-        PRIORITY NEWS
-        <span style="color:var(--muted);font-size:9px;">scored · sourced · IST · AI-summarized ✂</span>
+        PRIORITY NEWS — LAST 24H
+        <span style="color:var(--muted);font-size:9px;">🔴 HIGH pinned · 🟡 MED/LOW ticker · scored · IST · ✂AI</span>
       </div>
-      <div class="panel-body scroll-panel" id="news-panel"><div class="loading"><span class="spinner">◌</span> loading</div></div>
+      <!-- Pinned HIGH priority news -->
+      <div class="panel-body" id="news-pinned"><div class="loading"><span class="spinner">◌</span> loading</div></div>
+      <!-- Scrolling ticker for MED/LOW -->
+      <div class="ticker-wrap">
+        <div class="ticker-label">LIVE FEED</div>
+        <div style="overflow:hidden;flex:1;">
+          <div class="ticker-track" id="news-ticker"></div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -385,23 +456,40 @@ async function loadMacro() {
 // ── News ──────────────────────────────────────────
 async function loadNews() {
   const news = await fetch(`${BASE}/api/news`).then(r=>r.json());
-  let html = '';
-  for (const n of news) {
-    let badgeCls, label;
-    if (n.score >= 8) { badgeCls='badge-high'; label=`🔴 HIGH [${n.score}]`; }
-    else if (n.score >= 4) { badgeCls='badge-med';  label=`🟡 MED  [${n.score}]`; }
-    else { badgeCls='badge-low';  label=`⚪ LOW  [${n.score}]`; }
-    const sumTag = n.summarized ? '<span class="summarized-tag"> ✂AI</span>' : '';
-    html += `<div class="news-item">
-      <div>
-        <span class="news-badge ${badgeCls}">${label}</span>
-        <div class="news-meta" style="margin-top:3px;">${n.source}${sumTag}</div>
-        <div class="news-meta">${n.time}</div>
-      </div>
-      <div class="news-text">${n.headline}</div>
-    </div>`;
+
+  const high = news.filter(n => n.priority === 'high');
+  const rest = news.filter(n => n.priority !== 'high');
+
+  // Pinned HIGH news
+  let pinHtml = '';
+  if (high.length === 0) {
+    pinHtml = '<div class="loading" style="padding:10px;">No HIGH priority news in last 24h</div>';
+  } else {
+    for (const n of high) {
+      const sumTag = n.summarized ? ' <span class="summarized-tag">✂AI</span>' : '';
+      pinHtml += `<div class="news-item pinned">
+        <div>
+          <span class="news-badge badge-high">🔴 HIGH [${n.score}]</span>
+          <div class="news-meta" style="margin-top:3px;">${n.source}${sumTag}</div>
+          <div class="news-meta">${n.time}</div>
+        </div>
+        <div class="news-text pinned-text">${n.headline}</div>
+      </div>`;
+    }
   }
-  document.getElementById('news-panel').innerHTML = html || '<div class="loading">No priority news</div>';
+  document.getElementById('news-pinned').innerHTML = pinHtml;
+
+  // Scrolling ticker — duplicate items for seamless loop
+  let tickerItems = '';
+  const tickerNews = rest.length ? rest : news.slice(0,10);
+  for (const n of tickerNews) {
+    const dotCls = n.priority==='med' ? 't-dot-med' : 't-dot-low';
+    const dot    = n.priority==='med' ? '🟡' : '⚪';
+    tickerItems += `<span class="ticker-item"><span class="${dotCls}">${dot}</span><span>${n.headline}</span><span class="t-src">— ${n.source} ${n.time}</span></span>`;
+  }
+  // duplicate for seamless infinite scroll
+  const ticker = document.getElementById('news-ticker');
+  if (ticker) ticker.innerHTML = tickerItems + tickerItems;
 }
 
 // ── Stocks ────────────────────────────────────────

@@ -19,83 +19,81 @@ def _to_ist(dt):
         return "unknown time"
 
 
-# 🔹 1. Reuters / Bloomberg style (RSS)
+RSS_SOURCES = {
+    # ── Global Markets ──────────────────────────────────────
+    "Reuters Markets":    "https://feeds.reuters.com/reuters/businessNews",
+    "BBC Business":       "https://feeds.bbci.co.uk/news/business/rss.xml",
+    "MarketWatch":        "https://feeds.marketwatch.com/marketwatch/topstories/",
+    "CNBC Markets":       "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+    "Yahoo Finance":      "https://finance.yahoo.com/news/rssindex",
+    "Investing.com":      "https://www.investing.com/rss/news.rss",
+    "ForexLive":          "https://www.forexlive.com/feed/news",
+
+    # ── Geopolitics / War / Politics ───────────────────────
+    "Reuters World":      "https://feeds.reuters.com/Reuters/worldNews",
+    "BBC World":          "https://feeds.bbci.co.uk/news/world/rss.xml",
+    "Sky News World":     "https://feeds.skynews.com/feeds/rss/world.xml",
+    "Al Jazeera":         "https://www.aljazeera.com/xml/rss/all.xml",
+
+    # ── Fed / Economy / Central Banks ─────────────────────
+    "FT Markets":         "https://www.ft.com/rss/home/uk",
+    "WSJ Markets":        "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
+    "ZeroHedge":          "https://nitter.net/zerohedge/rss",
+    "FinancialJuice":     "https://nitter.net/financialjuice/rss",
+
+    # ── Commodities / Gold / Oil ───────────────────────────
+    "Kitco Gold":         "https://www.kitco.com/rss/news.xml",
+    "OilPrice.com":       "https://oilprice.com/rss/main",
+
+    # ── India Markets ──────────────────────────────────────
+    "Economic Times":     "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
+    "Livemint":           "https://www.livemint.com/rss/markets",
+    "MoneyControl":       "https://www.moneycontrol.com/rss/marketreports.xml",
+
+    # ── Sectors: Tech / Chips / Semi ──────────────────────
+    "The Register":       "https://www.theregister.com/headlines.atom",
+    "Ars Technica":       "https://feeds.arstechnica.com/arstechnica/technology-lab",
+
+    # ── Banking / Finance ──────────────────────────────────
+    "Bloomberg Law":      "https://nitter.net/WalterBloomberg/rss",
+    "HNI Watch":          "https://nitter.net/DreamCatcher/rss",
+}
+
+
 def get_rss_news():
-    sources = {
-        "Reuters":       "https://www.reutersagency.com/feed/?best-topics=business-finance&post_type=best",
-        "BBC Business":  "https://feeds.bbci.co.uk/news/business/rss.xml",
-        "Sky News":      "https://feeds.skynews.com/feeds/rss/world.xml",
-        "FinancialJuice":"https://nitter.net/financialjuice/rss",
-        "ZeroHedge":     "https://nitter.net/zerohedge/rss",
-    }
+    news   = []
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=MAX_AGE_HOURS)
 
-    news    = []
-    cutoff  = datetime.now(timezone.utc) - timedelta(hours=MAX_AGE_HOURS)
-
-    for source, url in sources.items():
+    for source, url in RSS_SOURCES.items():
         try:
             feed = feedparser.parse(url)
-            for entry in feed.entries[:5]:
+            for entry in feed.entries[:6]:
                 try:
                     title = entry.get("title", "").strip()
-                    if not title or len(title) > 300:
+                    if not title or len(title) > 400:
                         continue
-                    pub = entry.get("published", "")
+                    pub = entry.get("published", "") or entry.get("updated", "")
                     if pub:
-                        dt_utc = parsedate_to_datetime(pub).astimezone(timezone.utc)
-                        if dt_utc < cutoff:
-                            continue
-                        ts_ist = _to_ist(dt_utc)
+                        try:
+                            dt_utc = parsedate_to_datetime(pub).astimezone(timezone.utc)
+                            if dt_utc < cutoff:
+                                continue
+                            ts_ist = _to_ist(dt_utc)
+                        except:
+                            ts_ist = "unknown time"
                     else:
                         ts_ist = "unknown time"
                     news.append({"text": title, "source": source, "time": ts_ist})
                 except:
-                    news.append({"text": entry.get("title", ""), "source": source, "time": "unknown time"})
+                    t = entry.get("title", "")
+                    if t:
+                        news.append({"text": t, "source": source, "time": "unknown time"})
         except:
             pass
 
     return news
 
 
-# 🔹 2. ForexFactory scraping
-def get_forex_factory_news():
-    url = "https://www.forexfactory.com/calendar"
-    headers = {"User-Agent": "Mozilla/5.0"}
-
-    res = requests.get(url, headers=headers)
-    soup = BeautifulSoup(res.text, "html.parser")
-
-    events = []
-
-    rows = soup.select("tr.calendar__row")[:10]
-
-    for row in rows:
-        title = row.select_one(".calendar__event-title")
-
-        if title:
-            events.append(title.text.strip())
-
-    return events
-
-
-# 🔹 3. Twitter/X via Nitter RSS
-def get_twitter_news():
-    accounts = ["GoldTelegraph", "KitcoNews", "zerohedge", "federalreserve", "financialjuice"]
-    news = []
-
-    for username in accounts:
-        try:
-            url = f"https://nitter.net/{username}/rss"
-            feed = feedparser.parse(url)
-            for entry in feed.entries[:3]:
-                news.append(f"[{username}] {entry.title}")
-        except:
-            pass
-
-    return news
-
-
-# 🔹 4. Combine all (Telegram first — fastest & most relevant)
 def get_all_news():
     news = []
 
@@ -109,22 +107,33 @@ def get_all_news():
     except:
         pass
 
-    try:
-        for e in get_forex_factory_news():
-            news.append({"text": e, "source": "ForexFactory", "time": "today"})
-    except:
-        pass
+    # deduplicate by headline
+    seen = set()
+    unique = []
+    for n in news:
+        key = (n["text"][:60].lower() if isinstance(n, dict) else n[:60].lower())
+        if key not in seen:
+            seen.add(key)
+            unique.append(n)
 
-    return filter_news(news)[:15]
+    return unique[:60]
 
 
-# 🔹 5. Filter by gold-relevant keywords
 def filter_news(news):
+    """Keep only market-relevant news."""
     keywords = [
-        "fed", "inflation", "interest rate", "gdp",
-        "unemployment", "war", "oil", "dollar",
-        "yen", "euro", "bond", "yield",
-        "hni", "hedge fund", "goldman", "jp morgan", "blackrock",
+        "fed", "fomc", "rate", "inflation", "cpi", "gdp", "nfp", "unemployment",
+        "war", "iran", "russia", "china", "ukraine", "israel", "conflict", "sanction",
+        "oil", "gold", "dollar", "yield", "bond", "treasury", "debt",
+        "recession", "growth", "economy", "fiscal", "monetary",
+        "hni", "hedge fund", "goldman", "jp morgan", "blackrock", "morgan stanley",
+        "nvidia", "semiconductor", "chip", "tsmc", "intel", "amd",
+        "bank", "banking", "finance", "credit", "liquidity",
+        "nifty", "sensex", "india", "rbi", "rupee",
+        "ecb", "boj", "pboc", "BoE", "central bank",
+        "earnings", "revenue", "profit", "outlook", "guidance",
+        "trump", "election", "tariff", "trade", "geopolit",
+        "tech", "ai", "artificial intelligence", "it service",
     ]
 
     def matches(item):
@@ -134,7 +143,6 @@ def filter_news(news):
     return [n for n in news if matches(n)]
 
 
-# 🔹 6. Format for AI (accepts dicts or plain strings)
 def format_news(news_list):
     lines = []
     for n in news_list:
