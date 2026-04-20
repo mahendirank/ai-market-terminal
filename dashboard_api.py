@@ -98,11 +98,12 @@ def api_news():
                 "headline":   item["text"],
                 "source":     item.get("source", ""),
                 "time":       item.get("time", ""),
+                "category":   item.get("category", "MARKETS"),
                 "summarized": item.get("summarized", False),
             })
         else:
             result.append({"score": score, "priority": "low", "headline": item,
-                           "source": "", "time": "", "summarized": False})
+                           "source": "", "time": "", "category": "MARKETS", "summarized": False})
     return result
 
 

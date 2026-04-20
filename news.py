@@ -14,49 +14,79 @@ MAX_AGE_HOURS = 24
 
 def _to_ist(dt):
     try:
-        return dt.astimezone(IST).strftime("%d-%b %I:%M%p IST")
+        return dt.astimezone(IST).strftime("%H:%M IST")
     except:
-        return "unknown time"
+        return ""
 
+
+# Category mapping per source
+SOURCE_CATEGORY = {
+    "Reuters Markets":    "MARKETS",
+    "BBC Business":       "MARKETS",
+    "MarketWatch":        "MARKETS",
+    "CNBC Markets":       "MARKETS",
+    "Yahoo Finance":      "MARKETS",
+    "Investing.com":      "MARKETS",
+    "ForexLive":          "FX",
+    "Reuters World":      "GEOPOLITICS",
+    "BBC World":          "GEOPOLITICS",
+    "Sky News World":     "GEOPOLITICS",
+    "Al Jazeera":         "GEOPOLITICS",
+    "FT Markets":         "BONDS",
+    "WSJ Markets":        "BONDS",
+    "ZeroHedge":          "MACRO",
+    "FinancialJuice":     "HNI",
+    "WalterBloomberg":    "HNI",
+    "DreamCatcher":       "HNI",
+    "Kitco Gold":         "COMMODITIES",
+    "OilPrice.com":       "COMMODITIES",
+    "Economic Times":     "INDIA",
+    "Livemint":           "INDIA",
+    "MoneyControl":       "INDIA",
+    "The Register":       "TECH",
+    "Ars Technica":       "TECH",
+}
 
 RSS_SOURCES = {
-    # ── Global Markets ──────────────────────────────────────
+    # ── Markets ─────────────────────────────────────────────
     "Reuters Markets":    "https://feeds.reuters.com/reuters/businessNews",
     "BBC Business":       "https://feeds.bbci.co.uk/news/business/rss.xml",
     "MarketWatch":        "https://feeds.marketwatch.com/marketwatch/topstories/",
     "CNBC Markets":       "https://www.cnbc.com/id/100003114/device/rss/rss.html",
     "Yahoo Finance":      "https://finance.yahoo.com/news/rssindex",
     "Investing.com":      "https://www.investing.com/rss/news.rss",
+
+    # ── FX / Currencies ─────────────────────────────────────
     "ForexLive":          "https://www.forexlive.com/feed/news",
 
-    # ── Geopolitics / War / Politics ───────────────────────
+    # ── Geopolitics / War ───────────────────────────────────
     "Reuters World":      "https://feeds.reuters.com/Reuters/worldNews",
     "BBC World":          "https://feeds.bbci.co.uk/news/world/rss.xml",
     "Sky News World":     "https://feeds.skynews.com/feeds/rss/world.xml",
     "Al Jazeera":         "https://www.aljazeera.com/xml/rss/all.xml",
 
-    # ── Fed / Economy / Central Banks ─────────────────────
+    # ── Bonds / Macro ───────────────────────────────────────
     "FT Markets":         "https://www.ft.com/rss/home/uk",
     "WSJ Markets":        "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
     "ZeroHedge":          "https://nitter.net/zerohedge/rss",
-    "FinancialJuice":     "https://nitter.net/financialjuice/rss",
 
-    # ── Commodities / Gold / Oil ───────────────────────────
+    # ── HNI / Institutional ─────────────────────────────────
+    "FinancialJuice":     "https://nitter.net/financialjuice/rss",
+    "WalterBloomberg":    "https://nitter.net/WalterBloomberg/rss",
+    "DreamCatcher":       "https://nitter.net/DreamCatcher/rss",
+
+    # ── Commodities ─────────────────────────────────────────
     "Kitco Gold":         "https://www.kitco.com/rss/news.xml",
     "OilPrice.com":       "https://oilprice.com/rss/main",
 
-    # ── India Markets ──────────────────────────────────────
+    # ── India ───────────────────────────────────────────────
     "Economic Times":     "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
     "Livemint":           "https://www.livemint.com/rss/markets",
     "MoneyControl":       "https://www.moneycontrol.com/rss/marketreports.xml",
 
-    # ── Sectors: Tech / Chips / Semi ──────────────────────
+    # ── Tech / Semiconductors ───────────────────────────────
     "The Register":       "https://www.theregister.com/headlines.atom",
     "Ars Technica":       "https://feeds.arstechnica.com/arstechnica/technology-lab",
-
-    # ── Banking / Finance ──────────────────────────────────
-    "Bloomberg Law":      "https://nitter.net/WalterBloomberg/rss",
-    "HNI Watch":          "https://nitter.net/DreamCatcher/rss",
 }
 
 
@@ -67,7 +97,7 @@ def get_rss_news():
     for source, url in RSS_SOURCES.items():
         try:
             feed = feedparser.parse(url)
-            for entry in feed.entries[:6]:
+            for entry in feed.entries[:8]:
                 try:
                     title = entry.get("title", "").strip()
                     if not title or len(title) > 400:
@@ -80,14 +110,16 @@ def get_rss_news():
                                 continue
                             ts_ist = _to_ist(dt_utc)
                         except:
-                            ts_ist = "unknown time"
+                            ts_ist = ""
                     else:
-                        ts_ist = "unknown time"
-                    news.append({"text": title, "source": source, "time": ts_ist})
+                        ts_ist = ""
+                    cat = SOURCE_CATEGORY.get(source, "MARKETS")
+                    news.append({"text": title, "source": source, "time": ts_ist, "category": cat})
                 except:
                     t = entry.get("title", "")
                     if t:
-                        news.append({"text": t, "source": source, "time": "unknown time"})
+                        cat = SOURCE_CATEGORY.get(source, "MARKETS")
+                        news.append({"text": t, "source": source, "time": "", "category": cat})
         except:
             pass
 
@@ -98,7 +130,11 @@ def get_all_news():
     news = []
 
     try:
-        news += get_telegram_news()
+        tg = get_telegram_news()
+        for item in tg:
+            if isinstance(item, dict) and "category" not in item:
+                item["category"] = "HNI"
+            news.append(item)
     except:
         pass
 
@@ -107,8 +143,8 @@ def get_all_news():
     except:
         pass
 
-    # deduplicate by headline
-    seen = set()
+    # Deduplicate
+    seen   = set()
     unique = []
     for n in news:
         key = (n["text"][:60].lower() if isinstance(n, dict) else n[:60].lower())
@@ -116,38 +152,14 @@ def get_all_news():
             seen.add(key)
             unique.append(n)
 
-    return unique[:60]
-
-
-def filter_news(news):
-    """Keep only market-relevant news."""
-    keywords = [
-        "fed", "fomc", "rate", "inflation", "cpi", "gdp", "nfp", "unemployment",
-        "war", "iran", "russia", "china", "ukraine", "israel", "conflict", "sanction",
-        "oil", "gold", "dollar", "yield", "bond", "treasury", "debt",
-        "recession", "growth", "economy", "fiscal", "monetary",
-        "hni", "hedge fund", "goldman", "jp morgan", "blackrock", "morgan stanley",
-        "nvidia", "semiconductor", "chip", "tsmc", "intel", "amd",
-        "bank", "banking", "finance", "credit", "liquidity",
-        "nifty", "sensex", "india", "rbi", "rupee",
-        "ecb", "boj", "pboc", "BoE", "central bank",
-        "earnings", "revenue", "profit", "outlook", "guidance",
-        "trump", "election", "tariff", "trade", "geopolit",
-        "tech", "ai", "artificial intelligence", "it service",
-    ]
-
-    def matches(item):
-        text = item["text"].lower() if isinstance(item, dict) else item.lower()
-        return any(k in text for k in keywords)
-
-    return [n for n in news if matches(n)]
+    return unique[:80]
 
 
 def format_news(news_list):
     lines = []
     for n in news_list:
         if isinstance(n, dict):
-            lines.append(f"- [{n['source']} | {n['time']}] {n['text']}")
+            lines.append(f"- [{n['source']} | {n.get('time','')}] {n['text']}")
         else:
             lines.append(f"- {n}")
     return "\n".join(lines)

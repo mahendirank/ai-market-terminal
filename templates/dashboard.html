@@ -5,628 +5,562 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AI Market Terminal</title>
 <style>
-  :root {
-    --bg:       #0a0a0a;
-    --panel:    #111214;
-    --border:   #1e2125;
-    --accent:   #f0a500;
-    --green:    #00c853;
-    --red:      #ff1744;
-    --blue:     #2196f3;
-    --muted:    #5a6070;
-    --text:     #d4d8e0;
-    --head:     #ffffff;
-    --high:     #ff4444;
-    --med:      #f0a500;
-    --low:      #5a6070;
-  }
+:root {
+  --bg:      #080b0f;
+  --panel:   #0d1117;
+  --border:  #1c2230;
+  --accent:  #f5a623;
+  --green:   #00d26a;
+  --red:     #ff3b5c;
+  --blue:    #3d9cf5;
+  --purple:  #a855f7;
+  --muted:   #4a5568;
+  --text:    #c9d1d9;
+  --head:    #e6edf3;
+  --high:    #ff3b5c;
+  --med:     #f5a623;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: 'Courier New', monospace; font-size: 12px; min-height: 100vh; overflow-x: hidden; }
 
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+/* ── TOP HEADER ── */
+.header {
+  background: #000;
+  border-bottom: 2px solid var(--accent);
+  padding: 0 12px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 200;
+}
+.h-left  { display: flex; align-items: center; gap: 16px; }
+.h-right { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 10px; }
+.logo { color: var(--accent); font-size: 14px; font-weight: bold; letter-spacing: 3px; white-space: nowrap; }
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 1.5s infinite; display: inline-block; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.2} }
+.gold-price { color: var(--accent); font-weight: bold; font-size: 13px; }
+.signal-badge { padding: 2px 10px; border-radius: 2px; font-weight: bold; font-size: 11px; letter-spacing: 1px; }
+.sig-buy  { background: #002a14; color: var(--green); border: 1px solid var(--green); }
+.sig-sell { background: #2a0010; color: var(--red);   border: 1px solid var(--red);   }
+.sig-wait { background: #1a1400; color: var(--med);   border: 1px solid var(--med);   }
+.refresh-bar { height: 2px; background: var(--accent); animation: shrink 60s linear infinite; transform-origin: left; }
+@keyframes shrink { from{width:100%} to{width:0} }
 
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'Courier New', monospace;
-    font-size: 12px;
-    min-height: 100vh;
-  }
+/* ── PRICE TICKER STRIP ── */
+.price-strip {
+  background: #020408;
+  border-bottom: 1px solid var(--border);
+  height: 28px;
+  display: flex;
+  overflow: hidden;
+  align-items: center;
+}
+.strip-label { background: #1c2230; color: var(--accent); font-size: 10px; font-weight: bold; padding: 0 10px; height: 28px; display: flex; align-items: center; white-space: nowrap; flex-shrink: 0; letter-spacing: 1px; }
+.strip-track { display: flex; align-items: center; animation: strip-scroll 40s linear infinite; white-space: nowrap; }
+.strip-track:hover { animation-play-state: paused; }
+@keyframes strip-scroll { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
+.strip-item { display: inline-flex; align-items: center; gap: 5px; padding: 0 18px; font-size: 11px; border-right: 1px solid #1c2230; }
+.strip-sym { color: var(--muted); font-size: 10px; }
+.strip-val { color: var(--head); font-weight: bold; }
+.strip-chg.up   { color: var(--green); }
+.strip-chg.down { color: var(--red);   }
+.strip-chg.flat { color: var(--muted); }
 
-  /* ── Header ── */
-  .header {
-    background: #000;
-    border-bottom: 2px solid var(--accent);
-    padding: 8px 16px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    position: sticky;
-    top: 0;
-    z-index: 100;
-  }
-  .header-left { display: flex; align-items: center; gap: 20px; }
-  .logo { color: var(--accent); font-size: 16px; font-weight: bold; letter-spacing: 3px; }
-  .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 1.5s infinite; display: inline-block; margin-right: 6px; }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
-  .gold-price { color: var(--accent); font-size: 14px; font-weight: bold; }
-  .header-right { color: var(--muted); font-size: 11px; }
-  .signal-badge {
-    padding: 3px 10px;
-    border-radius: 3px;
-    font-weight: bold;
-    font-size: 12px;
-    letter-spacing: 1px;
-  }
-  .signal-buy  { background: #003d1a; color: var(--green); border: 1px solid var(--green); }
-  .signal-sell { background: #3d0000; color: var(--red);   border: 1px solid var(--red);   }
-  .signal-wait { background: #2a2200; color: var(--med);   border: 1px solid var(--med);   }
+/* ── MAIN LAYOUT ── */
+.layout { display: grid; grid-template-columns: 1fr 320px; gap: 0; height: calc(100vh - 95px); }
 
-  /* ── Layout ── */
-  .main { padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+/* ── LEFT: NEWS TERMINAL ── */
+.news-terminal { display: flex; flex-direction: column; border-right: 1px solid var(--border); overflow: hidden; }
 
-  .row { display: grid; gap: 8px; }
-  .row-4 { grid-template-columns: repeat(4, 1fr); }
-  .row-3 { grid-template-columns: repeat(3, 1fr); }
-  .row-2 { grid-template-columns: repeat(2, 1fr); }
-  .row-full { grid-template-columns: 1fr; }
+.cat-tabs { display: flex; background: #0a0e14; border-bottom: 1px solid var(--border); overflow-x: auto; flex-shrink: 0; }
+.cat-tabs::-webkit-scrollbar { display: none; }
+.cat-tab {
+  padding: 6px 14px;
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  cursor: pointer;
+  border-right: 1px solid var(--border);
+  white-space: nowrap;
+  color: var(--muted);
+  transition: all 0.15s;
+  user-select: none;
+}
+.cat-tab:hover  { color: var(--text); background: #111820; }
+.cat-tab.active { color: var(--accent); background: #0d1117; border-bottom: 2px solid var(--accent); }
+.cat-tab .cnt   { background: #1c2230; color: var(--muted); font-size: 9px; padding: 1px 4px; border-radius: 2px; margin-left: 4px; }
+.cat-tab.active .cnt { background: #2a1e00; color: var(--accent); }
 
-  /* ── Panel ── */
-  .panel {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    overflow: hidden;
-  }
-  .panel-header {
-    background: #16181c;
-    border-bottom: 1px solid var(--border);
-    padding: 5px 10px;
-    color: var(--accent);
-    font-size: 10px;
-    font-weight: bold;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  .panel-body { padding: 8px 10px; }
+.news-feed { flex: 1; overflow-y: auto; }
+.news-feed::-webkit-scrollbar { width: 3px; }
+.news-feed::-webkit-scrollbar-track { background: #0a0e14; }
+.news-feed::-webkit-scrollbar-thumb { background: #2a3040; border-radius: 2px; }
 
-  /* ── Table rows ── */
-  .data-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 3px 0;
-    border-bottom: 1px solid #0d0f12;
-  }
-  .data-row:last-child { border-bottom: none; }
-  .data-label { color: var(--muted); }
-  .data-value { color: var(--head); font-weight: bold; }
-  .up   { color: var(--green); }
-  .down { color: var(--red);   }
-  .flat { color: var(--muted); }
+/* ── SINGLE LINE NEWS ROW ── */
+.n-row {
+  display: grid;
+  grid-template-columns: 62px 130px 1fr 44px;
+  align-items: center;
+  gap: 0;
+  padding: 5px 10px;
+  border-bottom: 1px solid #0d1117;
+  cursor: default;
+  transition: background 0.1s;
+  animation: fadeIn 0.4s ease;
+}
+@keyframes fadeIn { from{opacity:0; transform:translateY(-4px)} to{opacity:1; transform:translateY(0)} }
+.n-row:hover { background: #111820; }
+.n-row.is-high { border-left: 3px solid var(--high); padding-left: 7px; background: #0f0608; }
+.n-row.is-high:hover { background: #130a0d; }
+.n-row.is-new { background: #0d1a12; animation: flashNew 1s ease; }
+@keyframes flashNew { 0%{background:#1a2e1a} 100%{background:transparent} }
 
-  /* ── News ── */
-  .news-item {
-    padding: 7px 0;
-    border-bottom: 1px solid #0d0f12;
-    display: grid;
-    grid-template-columns: 100px 1fr;
-    gap: 8px;
-    align-items: start;
-  }
-  .news-item:last-child { border-bottom: none; }
-  .news-item.pinned {
-    background: #130a00;
-    border-left: 3px solid var(--high);
-    padding-left: 8px;
-    margin-bottom: 2px;
-    border-bottom: 1px solid #2a1000;
-  }
-  .news-badge {
-    padding: 2px 6px;
-    border-radius: 2px;
-    font-size: 9px;
-    font-weight: bold;
-    text-align: center;
-    white-space: nowrap;
-  }
-  .badge-high { background: #3d0000; color: var(--high); border: 1px solid var(--high); }
-  .badge-med  { background: #2a1a00; color: var(--med);  border: 1px solid var(--med);  }
-  .badge-low  { background: #1a1a1a; color: var(--muted);border: 1px solid var(--border);}
-  .news-meta  { color: var(--muted); font-size: 10px; }
-  .news-text  { color: var(--text);  font-size: 11px; margin-top: 2px; line-height: 1.4; }
-  .news-text.pinned-text { color: #ffddbb; font-size: 12px; }
-  .summarized-tag { color: #555; font-size: 9px; }
+.n-time   { color: var(--muted); font-size: 10px; }
+.n-source { font-size: 10px; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 8px; }
+.n-text   { color: var(--text); font-size: 11px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.n-text.high-txt { color: #ffccd5; }
+.n-score {
+  font-size: 9px;
+  font-weight: bold;
+  text-align: center;
+  padding: 1px 4px;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+.sc-high { background: #3d0012; color: var(--high); }
+.sc-med  { background: #2a1e00; color: var(--med);  }
+.sc-low  { background: transparent; color: var(--muted); }
 
-  /* ── News divider ── */
-  .news-divider {
-    padding: 4px 0 2px;
-    color: var(--accent);
-    font-size: 9px;
-    letter-spacing: 2px;
-    border-top: 1px solid #1e2125;
-    margin-top: 4px;
-  }
+/* Category source colors */
+.src-MARKETS    { color: #3d9cf5; }
+.src-GEOPOLITICS{ color: #ff3b5c; }
+.src-BONDS      { color: #a855f7; }
+.src-FX         { color: #00d26a; }
+.src-HNI        { color: #f5a623; }
+.src-COMMODITIES{ color: #fbbf24; }
+.src-INDIA      { color: #f97316; }
+.src-TECH       { color: #06b6d4; }
+.src-MACRO      { color: #e879f9; }
 
-  /* ── Scrolling ticker ── */
-  .ticker-wrap {
-    background: #000;
-    border-top: 1px solid var(--border);
-    overflow: hidden;
-    height: 26px;
-    display: flex;
-    align-items: center;
-  }
-  .ticker-label {
-    background: var(--accent);
-    color: #000;
-    font-weight: bold;
-    font-size: 10px;
-    padding: 0 8px;
-    height: 26px;
-    display: flex;
-    align-items: center;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-  .ticker-track {
-    display: flex;
-    align-items: center;
-    animation: ticker-scroll 60s linear infinite;
-    white-space: nowrap;
-  }
-  .ticker-track:hover { animation-play-state: paused; }
-  @keyframes ticker-scroll {
-    0%   { transform: translateX(0); }
-    100% { transform: translateX(-50%); }
-  }
-  .ticker-item {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 0 24px;
-    font-size: 11px;
-    color: var(--text);
-    border-right: 1px solid #222;
-  }
-  .ticker-item .t-src { color: var(--muted); font-size: 10px; }
-  .ticker-item .t-dot-med  { color: var(--med);  }
-  .ticker-item .t-dot-low  { color: var(--muted); }
+/* ── RIGHT SIDEBAR ── */
+.sidebar { display: flex; flex-direction: column; overflow-y: auto; background: var(--panel); }
+.sidebar::-webkit-scrollbar { width: 3px; }
+.sidebar::-webkit-scrollbar-track { background: #0a0e14; }
+.sidebar::-webkit-scrollbar-thumb { background: #2a3040; }
 
-  /* ── Signal ── */
-  .signal-big {
-    font-size: 28px;
-    font-weight: bold;
-    text-align: center;
-    padding: 10px 0 4px;
-    letter-spacing: 4px;
-  }
-  .signal-score {
-    text-align: center;
-    color: var(--muted);
-    font-size: 11px;
-    padding-bottom: 8px;
-  }
-  .insight-item {
-    padding: 3px 0;
-    color: var(--text);
-    font-size: 11px;
-    border-bottom: 1px solid #0d0f12;
-  }
-  .insight-item:before { content: "▸ "; color: var(--accent); }
+.s-panel { border-bottom: 1px solid var(--border); }
+.s-head  { background: #0a0e14; padding: 5px 10px; color: var(--accent); font-size: 9px; font-weight: bold; letter-spacing: 2px; display: flex; justify-content: space-between; }
+.s-body  { padding: 6px 10px; }
 
-  /* ── SMC ── */
-  .smc-row { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid #0d0f12; }
-  .smc-key { color: var(--muted); }
-  .smc-val { color: var(--head); font-weight: bold; }
-  .bull { color: var(--green); }
-  .bear { color: var(--red);   }
+.d-row { display: flex; justify-content: space-between; padding: 2px 0; border-bottom: 1px solid #0d1117; }
+.d-row:last-child { border: none; }
+.d-key { color: var(--muted); font-size: 10px; }
+.d-val { color: var(--head); font-size: 10px; font-weight: bold; }
+.up { color: var(--green); } .down { color: var(--red); } .flat { color: var(--muted); }
 
-  /* ── Fib levels ── */
-  .fib-bar { margin: 3px 0; }
-  .fib-label { color: var(--muted); display: inline-block; width: 50px; }
-  .fib-val   { color: var(--accent); }
+.sig-big { font-size: 32px; font-weight: bold; text-align: center; padding: 8px 0 2px; letter-spacing: 4px; }
+.sig-sub { text-align: center; color: var(--muted); font-size: 10px; padding-bottom: 6px; }
 
-  /* ── Sectors ── */
-  .sector-tag {
-    display: inline-block;
-    padding: 2px 8px;
-    margin: 2px;
-    border-radius: 2px;
-    font-size: 10px;
-    background: #1a1c20;
-    border: 1px solid var(--border);
-  }
+.insight { padding: 2px 0; color: var(--text); font-size: 10px; border-bottom: 1px solid #0d1117; }
+.insight:before { content: "▸ "; color: var(--accent); }
+.insight:last-child { border: none; }
 
-  /* ── Spinner ── */
-  .loading { color: var(--muted); text-align: center; padding: 20px; font-size: 11px; }
-  .spinner { display: inline-block; animation: spin 1s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
+.smc-row { display: flex; justify-content: space-between; padding: 2px 0; }
+.smc-k { color: var(--muted); font-size: 10px; }
+.smc-v { color: var(--head); font-size: 10px; font-weight: bold; }
+.bull { color: var(--green); } .bear { color: var(--red); }
 
-  /* ── Refresh bar ── */
-  .refresh-bar {
-    height: 2px;
-    background: var(--accent);
-    width: 100%;
-    animation: shrink 60s linear infinite;
-    transform-origin: left;
-  }
-  @keyframes shrink { from{width:100%} to{width:0} }
+.fib-row { display: flex; justify-content: space-between; padding: 2px 0; }
+.fib-k { color: var(--muted); font-size: 10px; display: inline-block; width: 40px; }
+.fib-v { color: var(--accent); font-size: 10px; }
 
-  /* ── Scrollable panel ── */
-  .scroll-panel { max-height: 320px; overflow-y: auto; }
-  .scroll-panel::-webkit-scrollbar { width: 4px; }
-  .scroll-panel::-webkit-scrollbar-track { background: #0a0a0a; }
-  .scroll-panel::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+/* ── BOTTOM DATA BAR ── */
+.data-bar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border-top: 2px solid var(--border);
+  background: #020408;
+  max-height: 180px;
+  overflow: hidden;
+}
+.db-col { border-right: 1px solid var(--border); overflow: hidden; }
+.db-col:last-child { border: none; }
+.db-head { background: #0a0e14; padding: 4px 8px; color: var(--accent); font-size: 9px; font-weight: bold; letter-spacing: 2px; }
+.db-rows { padding: 2px 8px; }
+.db-row  { display: flex; justify-content: space-between; padding: 2px 0; border-bottom: 1px solid #0d1017; font-size: 11px; }
+.db-row:last-child { border: none; }
+.db-sym { color: var(--muted); }
+.db-val { color: var(--head); font-weight: bold; }
+.db-chg { font-size: 10px; margin-left: 4px; }
 
-  /* ── Responsive ── */
-  @media (max-width: 900px) {
-    .row-4 { grid-template-columns: repeat(2, 1fr); }
-    .row-3 { grid-template-columns: 1fr; }
-    .row-2 { grid-template-columns: 1fr; }
-  }
-  @media (max-width: 500px) {
-    .row-4 { grid-template-columns: 1fr; }
-  }
+/* ── RESPONSIVE ── */
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; }
+  .sidebar { max-height: 400px; }
+  .data-bar { grid-template-columns: repeat(2,1fr); }
+}
+.loading { color: var(--muted); padding: 16px; text-align: center; font-size: 11px; }
+.spinner { animation: spin 1s linear infinite; display: inline-block; }
+@keyframes spin { to{transform:rotate(360deg)} }
 </style>
 </head>
 <body>
 
-<!-- Header -->
+<!-- HEADER -->
 <div class="header">
-  <div class="header-left">
-    <span class="logo">⬛ AI TERMINAL</span>
-    <span><span class="live-dot"></span><span style="color:#5a6070;font-size:10px;">LIVE</span></span>
-    <span class="gold-price" id="gold-price">GOLD $—</span>
-    <span id="signal-badge" class="signal-badge signal-wait">—</span>
+  <div class="h-left">
+    <span class="logo">▪ AI TERMINAL</span>
+    <span><span class="live-dot"></span> <span style="color:#4a5568;font-size:10px;margin-left:3px;">LIVE</span></span>
+    <span class="gold-price" id="hdr-gold">GOLD $—</span>
+    <span id="hdr-signal" class="signal-badge sig-wait">—</span>
+    <span id="hdr-oil" style="color:#fbbf24;font-size:11px;">OIL $—</span>
+    <span id="hdr-dxy" style="color:#00d26a;font-size:11px;">DXY —</span>
   </div>
-  <div class="header-right" id="last-update">Loading...</div>
+  <div class="h-right">
+    <span id="hdr-time">—</span>
+    <span id="hdr-ncount" style="color:#4a5568;"></span>
+  </div>
 </div>
 <div class="refresh-bar"></div>
 
-<div class="main">
+<!-- LIVE PRICE TICKER STRIP -->
+<div class="price-strip">
+  <div class="strip-label">INDICES</div>
+  <div style="overflow:hidden;flex:1;">
+    <div class="strip-track" id="strip-indices"></div>
+  </div>
+</div>
 
-  <!-- ROW 1: Indices | Currencies | Commodities | Bonds -->
-  <div class="row row-4">
+<!-- MAIN: NEWS LEFT + ANALYSIS RIGHT -->
+<div class="layout">
 
-    <div class="panel">
-      <div class="panel-header">GLOBAL INDICES</div>
-      <div class="panel-body" id="indices-panel"><div class="loading"><span class="spinner">◌</span> loading</div></div>
+  <!-- LEFT: News Terminal -->
+  <div class="news-terminal">
+    <div class="cat-tabs" id="cat-tabs">
+      <div class="cat-tab active" data-cat="ALL" onclick="filterCat(this)">ALL <span class="cnt" id="cnt-ALL">—</span></div>
+      <div class="cat-tab" data-cat="MARKETS"     onclick="filterCat(this)">MARKETS     <span class="cnt" id="cnt-MARKETS">—</span></div>
+      <div class="cat-tab" data-cat="GEOPOLITICS" onclick="filterCat(this)">GEOPOLITICS <span class="cnt" id="cnt-GEOPOLITICS">—</span></div>
+      <div class="cat-tab" data-cat="BONDS"       onclick="filterCat(this)">BONDS/YIELDS<span class="cnt" id="cnt-BONDS">—</span></div>
+      <div class="cat-tab" data-cat="FX"          onclick="filterCat(this)">FX/CURRENCY <span class="cnt" id="cnt-FX">—</span></div>
+      <div class="cat-tab" data-cat="HNI"         onclick="filterCat(this)">HNI/INST    <span class="cnt" id="cnt-HNI">—</span></div>
+      <div class="cat-tab" data-cat="COMMODITIES" onclick="filterCat(this)">COMMODITIES <span class="cnt" id="cnt-COMMODITIES">—</span></div>
+      <div class="cat-tab" data-cat="INDIA"       onclick="filterCat(this)">INDIA       <span class="cnt" id="cnt-INDIA">—</span></div>
+      <div class="cat-tab" data-cat="TECH"        onclick="filterCat(this)">TECH/CHIPS  <span class="cnt" id="cnt-TECH">—</span></div>
+      <div class="cat-tab" data-cat="MACRO"       onclick="filterCat(this)">MACRO       <span class="cnt" id="cnt-MACRO">—</span></div>
     </div>
-
-    <div class="panel">
-      <div class="panel-header">FX / CURRENCIES</div>
-      <div class="panel-body" id="fx-panel"><div class="loading"><span class="spinner">◌</span> loading</div></div>
+    <div class="news-feed" id="news-feed">
+      <div class="loading"><span class="spinner">◌</span> Fetching live news...</div>
     </div>
-
-    <div class="panel">
-      <div class="panel-header">COMMODITIES</div>
-      <div class="panel-body" id="commodities-panel"><div class="loading"><span class="spinner">◌</span> loading</div></div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-header">BOND YIELDS</div>
-      <div class="panel-body" id="yields-panel"><div class="loading"><span class="spinner">◌</span> loading</div></div>
-    </div>
-
   </div>
 
-  <!-- ROW 2: Priority News (full width) -->
-  <div class="row row-full">
-    <div class="panel">
-      <div class="panel-header">
-        PRIORITY NEWS — LAST 24H
-        <span style="color:var(--muted);font-size:9px;">🔴 HIGH pinned · 🟡 MED/LOW ticker · scored · IST · ✂AI</span>
-      </div>
-      <!-- Pinned HIGH priority news -->
-      <div class="panel-body" id="news-pinned"><div class="loading"><span class="spinner">◌</span> loading</div></div>
-      <!-- Scrolling ticker for MED/LOW -->
-      <div class="ticker-wrap">
-        <div class="ticker-label">LIVE FEED</div>
-        <div style="overflow:hidden;flex:1;">
-          <div class="ticker-track" id="news-ticker"></div>
-        </div>
+  <!-- RIGHT: Analysis Sidebar -->
+  <div class="sidebar">
+
+    <div class="s-panel">
+      <div class="s-head">TRADE SIGNAL</div>
+      <div class="s-body">
+        <div class="sig-big flat" id="sig-decision">—</div>
+        <div class="sig-sub" id="sig-sub">Loading...</div>
       </div>
     </div>
-  </div>
 
-  <!-- ROW 3: MAG7 + Semis | India + Sectors | Economic Calendar -->
-  <div class="row row-3">
-
-    <div class="panel">
-      <div class="panel-header">MAG7 + SEMICONDUCTORS</div>
-      <div class="panel-body" id="stocks-panel"><div class="loading"><span class="spinner">◌</span> loading</div></div>
+    <div class="s-panel">
+      <div class="s-head">MACRO INSIGHTS</div>
+      <div class="s-body" id="sid-insights"><div class="loading">—</div></div>
     </div>
 
-    <div class="panel">
-      <div class="panel-header">INDIA + SECTOR INDICES</div>
-      <div class="panel-body" id="india-panel"><div class="loading"><span class="spinner">◌</span> loading</div></div>
+    <div class="s-panel">
+      <div class="s-head">SMC ANALYSIS</div>
+      <div class="s-body" id="sid-smc"><div class="loading">—</div></div>
     </div>
 
-    <div class="panel">
-      <div class="panel-header">ECONOMIC CALENDAR</div>
-      <div class="panel-body" id="econ-panel"><div class="loading"><span class="spinner">◌</span> loading</div></div>
+    <div class="s-panel">
+      <div class="s-head">MTF BIAS</div>
+      <div class="s-body" id="sid-mtf"><div class="loading">—</div></div>
     </div>
 
-  </div>
-
-  <!-- ROW 4: Trade Signal | SMC + MTF | Fibonacci + Structure | Sniper -->
-  <div class="row row-4">
-
-    <div class="panel">
-      <div class="panel-header">TRADE SIGNAL</div>
-      <div class="panel-body" id="signal-panel"><div class="loading"><span class="spinner">◌</span> loading</div></div>
+    <div class="s-panel">
+      <div class="s-head">FIBONACCI + STRUCTURE</div>
+      <div class="s-body" id="sid-fib"><div class="loading">—</div></div>
     </div>
 
-    <div class="panel">
-      <div class="panel-header">SMC + MTF ANALYSIS</div>
-      <div class="panel-body" id="smc-panel"><div class="loading"><span class="spinner">◌</span> loading</div></div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-header">FIBONACCI + STRUCTURE</div>
-      <div class="panel-body" id="fib-panel"><div class="loading"><span class="spinner">◌</span> loading</div></div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-header">SNIPER ENTRY</div>
-      <div class="panel-body" id="sniper-panel"><div class="loading"><span class="spinner">◌</span> loading</div></div>
+    <div class="s-panel">
+      <div class="s-head">SNIPER ENTRY</div>
+      <div class="s-body" id="sid-sniper"><div class="loading">—</div></div>
     </div>
 
   </div>
+</div>
 
-  <!-- ROW 5: Macro Insights + HNI Opinions -->
-  <div class="row row-2">
-
-    <div class="panel">
-      <div class="panel-header">MACRO INSIGHTS</div>
-      <div class="panel-body" id="insights-panel"><div class="loading"><span class="spinner">◌</span> loading</div></div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-header">GOLD ETFs + BOND FLOWS</div>
-      <div class="panel-body" id="etf-panel"><div class="loading"><span class="spinner">◌</span> loading</div></div>
-    </div>
-
+<!-- BOTTOM DATA BAR -->
+<div class="data-bar">
+  <div class="db-col">
+    <div class="db-head">GLOBAL INDICES</div>
+    <div class="db-rows" id="db-indices"><div class="loading">—</div></div>
   </div>
-
-</div><!-- /main -->
+  <div class="db-col">
+    <div class="db-head">FX / CURRENCIES</div>
+    <div class="db-rows" id="db-fx"><div class="loading">—</div></div>
+  </div>
+  <div class="db-col">
+    <div class="db-head">BOND YIELDS</div>
+    <div class="db-rows" id="db-yields"><div class="loading">—</div></div>
+  </div>
+  <div class="db-col">
+    <div class="db-head">COMMODITIES + ETFs</div>
+    <div class="db-rows" id="db-cmdty"><div class="loading">—</div></div>
+  </div>
+</div>
 
 <script>
 const BASE = window.location.origin;
+let allNews   = [];
+let activeCat = 'ALL';
 
-function chg(v) {
-  if (v > 0)  return `<span class="up">▲ ${Math.abs(v)}%</span>`;
-  if (v < 0)  return `<span class="down">▼ ${Math.abs(v)}%</span>`;
-  return `<span class="flat">─ ${Math.abs(v)}%</span>`;
+// ── Helpers ──────────────────────────────────────────────
+function chgSpan(v) {
+  if (v > 0)  return `<span class="up">▲${Math.abs(v)}%</span>`;
+  if (v < 0)  return `<span class="down">▼${Math.abs(v)}%</span>`;
+  return `<span class="flat">─${Math.abs(v)}%</span>`;
+}
+function drow(k, v, cls='') {
+  return `<div class="d-row"><span class="d-key">${k}</span><span class="d-val ${cls}">${v}</span></div>`;
+}
+function smcr(k, v, cls='') {
+  return `<div class="smc-row"><span class="smc-k">${k}</span><span class="smc-v ${cls}">${v}</span></div>`;
 }
 
-function row(label, value, extra='') {
-  return `<div class="data-row"><span class="data-label">${label}</span><span class="data-value">${value} ${extra}</span></div>`;
+// ── Category filter ──────────────────────────────────────
+function filterCat(el) {
+  document.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  activeCat = el.dataset.cat;
+  renderNews();
 }
 
-function srow(key, val, cls='') {
-  return `<div class="smc-row"><span class="smc-key">${key}</span><span class="smc-val ${cls}">${val}</span></div>`;
-}
+// ── Render news feed ─────────────────────────────────────
+function renderNews(newItems) {
+  const feed = document.getElementById('news-feed');
+  const filtered = activeCat === 'ALL'
+    ? allNews
+    : allNews.filter(n => n.category === activeCat);
 
-// ── Indices ──────────────────────────────────────
-async function loadIndices() {
-  const data = await fetch(`${BASE}/api/indices`).then(r=>r.json());
-  let html = '';
-  for (const [k, v] of Object.entries(data)) {
-    const c = v.change > 0 ? 'up' : v.change < 0 ? 'down' : 'flat';
-    const arrow = v.change > 0 ? '▲' : v.change < 0 ? '▼' : '─';
-    html += `<div class="data-row">
-      <span class="data-label">${k}</span>
-      <span style="text-align:right">
-        <span class="data-value">${v.price.toLocaleString()}</span>
-        <span class="${c}" style="margin-left:6px;font-size:10px;">${arrow} ${Math.abs(v.change)}%</span>
-      </span>
+  if (!filtered.length) {
+    feed.innerHTML = '<div class="loading">No news in this category yet</div>';
+    return;
+  }
+
+  const rows = filtered.map((n, i) => {
+    const isHigh  = n.priority === 'high';
+    const isMed   = n.priority === 'med';
+    const isNew   = newItems && newItems.some(x => x.headline === n.headline);
+    const rowCls  = isHigh ? 'n-row is-high' : isNew ? 'n-row is-new' : 'n-row';
+    const txtCls  = isHigh ? 'n-text high-txt' : 'n-text';
+    const scCls   = isHigh ? 'n-score sc-high' : isMed ? 'n-score sc-med' : 'n-score sc-low';
+    const scLabel = n.score > 0 ? n.score : '';
+    const sumMark = n.summarized ? ' ✂' : '';
+    return `<div class="${rowCls}">
+      <span class="n-time">${n.time||'—'}</span>
+      <span class="n-source src-${n.category}">${n.source}${sumMark}</span>
+      <span class="${txtCls}" title="${n.headline}">${n.headline}</span>
+      <span class="${scCls}">${scLabel}</span>
     </div>`;
-  }
-  document.getElementById('indices-panel').innerHTML = html;
+  });
+
+  feed.innerHTML = rows.join('');
 }
 
-// ── Macro ─────────────────────────────────────────
-async function loadMacro() {
-  const d = await fetch(`${BASE}/api/macro`).then(r=>r.json());
-
-  // FX
-  let fx = '';
-  for (const [k,v] of Object.entries(d.fx||{})) fx += row(k, v);
-  document.getElementById('fx-panel').innerHTML = fx;
-
-  // Commodities
-  let com = '';
-  if (d.gold) {
-    com += row('GOLD SPOT', `<span class="up">$${d.gold}</span>`);
-    document.getElementById('gold-price').textContent = `GOLD $${d.gold}`;
-  }
-  if (d.oil)  com += row('OIL (WTI)', `$${d.oil}`);
-  document.getElementById('commodities-panel').innerHTML = com;
-
-  // Yields
-  let yld = '';
-  for (const [k,v] of Object.entries(d.yields||{})) yld += row(k, `${v}%`);
-  for (const [k,v] of Object.entries(d.global_yields||{})) yld += row(k, v);
-  document.getElementById('yields-panel').innerHTML = yld;
+// ── Update category counts ────────────────────────────────
+function updateCounts() {
+  const cats = ['ALL','MARKETS','GEOPOLITICS','BONDS','FX','HNI','COMMODITIES','INDIA','TECH','MACRO'];
+  cats.forEach(c => {
+    const el = document.getElementById(`cnt-${c}`);
+    if (!el) return;
+    el.textContent = c === 'ALL'
+      ? allNews.length
+      : allNews.filter(n => n.category === c).length;
+  });
 }
 
-// ── News ──────────────────────────────────────────
+// ── Load news ─────────────────────────────────────────────
 async function loadNews() {
-  const news = await fetch(`${BASE}/api/news`).then(r=>r.json());
+  try {
+    const data = await fetch(`${BASE}/api/news`).then(r => r.json());
+    const prev  = new Set(allNews.map(n => n.headline));
+    const fresh = data.filter(n => !prev.has(n.headline));
 
-  const high = news.filter(n => n.priority === 'high');
-  const rest = news.filter(n => n.priority !== 'high');
+    allNews = data;
+    updateCounts();
+    renderNews(fresh.length ? fresh : null);
 
-  // Pinned HIGH news
-  let pinHtml = '';
-  if (high.length === 0) {
-    pinHtml = '<div class="loading" style="padding:10px;">No HIGH priority news in last 24h</div>';
-  } else {
-    for (const n of high) {
-      const sumTag = n.summarized ? ' <span class="summarized-tag">✂AI</span>' : '';
-      pinHtml += `<div class="news-item pinned">
-        <div>
-          <span class="news-badge badge-high">🔴 HIGH [${n.score}]</span>
-          <div class="news-meta" style="margin-top:3px;">${n.source}${sumTag}</div>
-          <div class="news-meta">${n.time}</div>
-        </div>
-        <div class="news-text pinned-text">${n.headline}</div>
-      </div>`;
+    document.getElementById('hdr-ncount').textContent = `${allNews.length} stories`;
+
+    if (fresh.length) {
+      document.title = `⚡ ${fresh.length} NEW — AI Terminal`;
+      setTimeout(() => { document.title = 'AI Market Terminal'; }, 5000);
     }
-  }
-  document.getElementById('news-pinned').innerHTML = pinHtml;
-
-  // Scrolling ticker — duplicate items for seamless loop
-  let tickerItems = '';
-  const tickerNews = rest.length ? rest : news.slice(0,10);
-  for (const n of tickerNews) {
-    const dotCls = n.priority==='med' ? 't-dot-med' : 't-dot-low';
-    const dot    = n.priority==='med' ? '🟡' : '⚪';
-    tickerItems += `<span class="ticker-item"><span class="${dotCls}">${dot}</span><span>${n.headline}</span><span class="t-src">— ${n.source} ${n.time}</span></span>`;
-  }
-  // duplicate for seamless infinite scroll
-  const ticker = document.getElementById('news-ticker');
-  if (ticker) ticker.innerHTML = tickerItems + tickerItems;
+  } catch(e) { console.error('news', e); }
 }
 
-// ── Stocks ────────────────────────────────────────
+// ── Indices strip ─────────────────────────────────────────
+async function loadIndices() {
+  try {
+    const d = await fetch(`${BASE}/api/indices`).then(r => r.json());
+
+    // Top strip
+    let items = '';
+    for (const [k, v] of Object.entries(d)) {
+      const cls = v.change > 0 ? 'up' : v.change < 0 ? 'down' : 'flat';
+      const arr = v.change > 0 ? '▲' : v.change < 0 ? '▼' : '─';
+      items += `<span class="strip-item">
+        <span class="strip-sym">${k}</span>
+        <span class="strip-val">${v.price.toLocaleString()}</span>
+        <span class="strip-chg ${cls}">${arr}${Math.abs(v.change)}%</span>
+      </span>`;
+    }
+    const strip = document.getElementById('strip-indices');
+    if (strip) strip.innerHTML = items + items;
+
+    // Bottom bar indices
+    let db = '';
+    for (const [k, v] of Object.entries(d)) {
+      const cls = v.change > 0 ? 'up' : v.change < 0 ? 'down' : 'flat';
+      const arr = v.change > 0 ? '▲' : v.change < 0 ? '▼' : '─';
+      db += `<div class="db-row">
+        <span class="db-sym">${k}</span>
+        <span class="db-val">${v.price.toLocaleString()} <span class="db-chg ${cls}">${arr}${Math.abs(v.change)}%</span></span>
+      </div>`;
+    }
+    document.getElementById('db-indices').innerHTML = db;
+  } catch(e) { console.error('indices', e); }
+}
+
+// ── Macro ─────────────────────────────────────────────────
+async function loadMacro() {
+  try {
+    const d = await fetch(`${BASE}/api/macro`).then(r => r.json());
+
+    // Header
+    if (d.gold) { document.getElementById('hdr-gold').textContent = `GOLD $${d.gold}`; }
+    if (d.oil)  { document.getElementById('hdr-oil').textContent  = `OIL $${d.oil}`; }
+    if (d.fx?.DXY) { document.getElementById('hdr-dxy').textContent = `DXY ${d.fx.DXY}`; }
+
+    // FX bar
+    let fx = '';
+    for (const [k, v] of Object.entries(d.fx||{})) {
+      fx += `<div class="db-row"><span class="db-sym">${k}</span><span class="db-val">${v}</span></div>`;
+    }
+    document.getElementById('db-fx').innerHTML = fx;
+
+    // Yields bar
+    let yld = '';
+    for (const [k, v] of Object.entries(d.yields||{})) {
+      yld += `<div class="db-row"><span class="db-sym">${k}</span><span class="db-val">${v}%</span></div>`;
+    }
+    for (const [k, v] of Object.entries(d.global_yields||{})) {
+      yld += `<div class="db-row"><span class="db-sym">${k}</span><span class="db-val">${v}</span></div>`;
+    }
+    document.getElementById('db-yields').innerHTML = yld;
+
+    // Commodities bar
+    let com = '';
+    if (d.gold) com += `<div class="db-row"><span class="db-sym">GOLD</span><span class="db-val up">$${d.gold}</span></div>`;
+    if (d.oil)  com += `<div class="db-row"><span class="db-sym">OIL</span><span class="db-val">$${d.oil}</span></div>`;
+    document.getElementById('db-cmdty').innerHTML = com;
+  } catch(e) { console.error('macro', e); }
+}
+
+// ── Stocks (add ETFs to commodities bar) ─────────────────
 async function loadStocks() {
-  const d = await fetch(`${BASE}/api/stocks`).then(r=>r.json());
-
-  // MAG7 + Semis
-  let s = '<div style="color:var(--accent);font-size:10px;padding:2px 0 4px;">MAG7</div>';
-  for (const [k,v] of Object.entries(d.mag7||{})) s += row(k, `$${v}`);
-  s += '<div style="color:var(--accent);font-size:10px;padding:6px 0 4px;">SEMICONDUCTORS</div>';
-  for (const [k,v] of Object.entries(d.semis||{})) s += row(k, `$${v}`);
-
-  // Movers
-  if (d.movers?.length) {
-    s += '<div style="color:var(--accent);font-size:10px;padding:6px 0 4px;">DAILY MOVERS</div>';
-    for (const m of d.movers) {
-      const c = m.change_pct > 0 ? 'up' : 'down';
-      s += `<div class="data-row"><span class="data-label">${m.symbol}</span><span class="data-value">$${m.price} <span class="${c}">${m.arrow} ${Math.abs(m.change_pct)}%</span></span></div>`;
+  try {
+    const d = await fetch(`${BASE}/api/stocks`).then(r => r.json());
+    let com = document.getElementById('db-cmdty').innerHTML;
+    for (const [k, v] of Object.entries(d.etfs||{})) {
+      com += `<div class="db-row"><span class="db-sym">${k}</span><span class="db-val">$${v}</span></div>`;
     }
-  }
-  document.getElementById('stocks-panel').innerHTML = s;
-
-  // India + ETFs
-  let india = '<div style="color:var(--accent);font-size:10px;padding:2px 0 4px;">INDIA INDICES</div>';
-  for (const [k,v] of Object.entries(d.india||{})) india += row(k, v.toLocaleString());
-  india += '<div style="color:var(--accent);font-size:10px;padding:6px 0 4px;">GOLD ETFs</div>';
-  for (const [k,v] of Object.entries(d.etfs||{})) india += row(k, `$${v}`);
-  document.getElementById('india-panel').innerHTML = india;
-  document.getElementById('etf-panel').innerHTML   = india;
+    document.getElementById('db-cmdty').innerHTML = com;
+  } catch(e) {}
 }
 
-// ── Econ Calendar ────────────────────────────────
-async function loadEcon() {
-  const d = await fetch(`${BASE}/api/econ`).then(r=>r.json());
-  let html = '';
-
-  // Yield curve
-  const yc = d.yield_curve || {};
-  if (yc.spread_2_10 !== undefined) {
-    const spread_cls = yc.inverted ? 'bear' : 'bull';
-    html += srow('2s10s Spread', `${yc.spread_2_10}`, spread_cls);
-    html += srow('Signal', yc.signal || '', spread_cls);
-  }
-
-  // Calendar
-  if (d.calendar?.length) {
-    html += '<div style="color:var(--accent);font-size:10px;padding:6px 0 4px;margin-top:4px;">UPCOMING EVENTS</div>';
-    for (const e of d.calendar) {
-      const beat = e.actual >= e.forecast ? '✅' : '❌';
-      html += `<div class="data-row" style="flex-direction:column;align-items:flex-start;">
-        <span style="color:var(--head)">${beat} ${e.event}</span>
-        <span class="news-meta">Actual: ${e.actual} | Forecast: ${e.forecast}</span>
-      </div>`;
-    }
-  }
-  document.getElementById('econ-panel').innerHTML = html || '<div class="loading">No calendar data</div>';
-}
-
-// ── Signal ────────────────────────────────────────
+// ── Signal + Analysis ─────────────────────────────────────
 async function loadSignal() {
-  const d = await fetch(`${BASE}/api/signal`).then(r=>r.json());
-  const sig = d.signal || {};
-  const dec = sig.decision || 'WAIT';
+  try {
+    const d = await fetch(`${BASE}/api/signal`).then(r => r.json());
+    const sig = d.signal || {};
+    const dec = sig.decision || 'WAIT';
 
-  // Update header badge
-  const badge = document.getElementById('signal-badge');
-  badge.textContent = dec;
-  badge.className = 'signal-badge ' + (dec==='BUY' ? 'signal-buy' : dec==='SELL' ? 'signal-sell' : 'signal-wait');
+    // Header badge
+    const badge = document.getElementById('hdr-signal');
+    badge.textContent = dec;
+    badge.className = 'signal-badge ' + (dec==='BUY' ? 'sig-buy' : dec==='SELL' ? 'sig-sell' : 'sig-wait');
 
-  // Signal panel
-  const sigCls = dec==='BUY' ? 'up' : dec==='SELL' ? 'down' : 'flat';
-  let sp = `<div class="signal-big ${sigCls}">${dec}</div>`;
-  sp += `<div class="signal-score">Score: ${sig.score} | Session: ${sig.session} | Vol: ${sig.volatility}</div>`;
-  document.getElementById('signal-panel').innerHTML = sp;
+    // Signal panel
+    const scls = dec==='BUY' ? 'up' : dec==='SELL' ? 'down' : 'flat';
+    document.getElementById('sig-decision').className = `sig-big ${scls}`;
+    document.getElementById('sig-decision').textContent = dec;
+    document.getElementById('sig-sub').textContent = `Score: ${sig.score} | ${sig.session} | Vol: ${sig.volatility}`;
 
-  // Insights
-  let ins = '';
-  for (const i of d.insights||[]) ins += `<div class="insight-item">${i}</div>`;
-  document.getElementById('insights-panel').innerHTML = ins || '<div class="loading">No insights</div>';
+    // Insights
+    let ins = '';
+    for (const i of d.insights||[]) ins += `<div class="insight">${i}</div>`;
+    document.getElementById('sid-insights').innerHTML = ins || '<div class="loading">No insights</div>';
 
-  // SMC + MTF
-  const smc = d.smc || {};
-  const mtf = d.mtf || {};
-  const bosCls = (smc.bos||'').includes('BULL') ? 'bull' : 'bear';
-  const htfCls = mtf.htf==='BULLISH' ? 'bull' : 'bear';
-  const ltfCls = mtf.ltf==='BULLISH' ? 'bull' : 'bear';
-  let smcHtml = '';
-  smcHtml += srow('BOS', smc.bos || 'None', bosCls);
-  smcHtml += srow('Order Block', `${(smc.ob||['',''])[0]} @ ${(smc.ob||['',''])[1]}`);
-  smcHtml += srow('Liquidity', (smc.liquidity||[]).join(', ') || 'None');
-  smcHtml += `<div style="margin-top:6px;color:var(--accent);font-size:10px;padding-bottom:4px;">MTF</div>`;
-  smcHtml += srow('HTF (1h)', mtf.htf || '—', htfCls);
-  smcHtml += srow('LTF (5m)', mtf.ltf || '—', ltfCls);
-  smcHtml += srow('Confluence', mtf.confluence || '—');
-  document.getElementById('smc-panel').innerHTML = smcHtml;
+    // SMC
+    const smc = d.smc || {};
+    const bc  = (smc.bos||'').includes('BULL') ? 'bull' : 'bear';
+    let smcH  = smcr('BOS', smc.bos||'—', bc);
+    smcH += smcr('Order Block', Array.isArray(smc.ob) ? `${smc.ob[0]} @ ${smc.ob[1]}` : '—');
+    smcH += smcr('Liquidity', (smc.liquidity||[]).join(', ') || '—');
+    document.getElementById('sid-smc').innerHTML = smcH;
 
-  // Fibonacci
-  const st = d.structure || {};
-  let fib = '';
-  fib += srow('Range', `${st.high} / ${st.low}`);
-  fib += srow('Pivot', st.pivot);
-  fib += srow('R1', st.r1, 'bear');
-  fib += srow('S1', st.s1, 'bull');
-  fib += `<div style="margin-top:6px;color:var(--accent);font-size:10px;padding-bottom:4px;">FIBONACCI</div>`;
-  for (const [k,v] of Object.entries(st.fib||{})) {
-    fib += `<div class="fib-bar"><span class="fib-label">${k}</span><span class="fib-val">${v}</span></div>`;
-  }
-  document.getElementById('fib-panel').innerHTML = fib;
+    // MTF
+    const mtf = d.mtf || {};
+    const hc  = mtf.htf==='BULLISH' ? 'bull' : 'bear';
+    const lc  = mtf.ltf==='BULLISH' ? 'bull' : 'bear';
+    let mtfH  = smcr('HTF (1h)', mtf.htf||'—', hc);
+    mtfH += smcr('LTF (5m)',  mtf.ltf||'—', lc);
+    mtfH += smcr('Confluence', mtf.confluence||'—');
+    document.getElementById('sid-mtf').innerHTML = mtfH;
 
-  // Sniper
-  const sn = d.sniper || {};
-  const entryVal = sn.entry || 'No setup';
-  const entryCls = sn.entry ? 'bull' : 'bear';
-  let snHtml = '';
-  snHtml += srow('HTF Bias', sn.htf || '—', sn.htf==='BULLISH' ? 'bull' : 'bear');
-  snHtml += srow('Sweep', sn.sweep || 'None');
-  snHtml += srow('Entry', entryVal, entryCls);
-  snHtml += `<div style="margin-top:6px;color:var(--accent);font-size:10px;padding-bottom:4px;">REASON</div>`;
-  for (const r of sn.reason||[]) snHtml += `<div class="insight-item">${r}</div>`;
-  document.getElementById('sniper-panel').innerHTML = snHtml;
+    // Fibonacci
+    const st  = d.structure || {};
+    let fibH  = smcr('High', st.high) + smcr('Low', st.low);
+    fibH += smcr('Pivot', st.pivot) + smcr('R1', st.r1, 'bear') + smcr('S1', st.s1, 'bull');
+    fibH += `<div style="color:var(--accent);font-size:9px;letter-spacing:1px;padding:4px 0 2px;">FIBONACCI</div>`;
+    for (const [k, v] of Object.entries(st.fib||{})) {
+      fibH += `<div class="fib-row"><span class="fib-k">${k}</span><span class="fib-v">${v}</span></div>`;
+    }
+    document.getElementById('sid-fib').innerHTML = fibH;
 
-  // Timestamp
-  document.getElementById('last-update').textContent = `Updated: ${d.timestamp}`;
+    // Sniper
+    const sn  = d.sniper || {};
+    const ec  = sn.entry ? 'bull' : 'bear';
+    let snH   = smcr('HTF Bias', sn.htf||'—', sn.htf==='BULLISH'?'bull':'bear');
+    snH += smcr('Sweep', sn.sweep||'None');
+    snH += smcr('Entry', sn.entry||'No setup', ec);
+    for (const r of sn.reason||[]) snH += `<div class="insight">${r}</div>`;
+    document.getElementById('sid-sniper').innerHTML = snH;
+
+    // Timestamp
+    document.getElementById('hdr-time').textContent = d.timestamp || '';
+  } catch(e) { console.error('signal', e); }
 }
 
-// ── Load all ──────────────────────────────────────
+// ── Master refresh ────────────────────────────────────────
 async function loadAll() {
-  try { await loadIndices(); } catch(e) { console.error('indices', e); }
-  try { await loadMacro();   } catch(e) { console.error('macro', e);   }
-  try { await loadNews();    } catch(e) { console.error('news', e);    }
-  try { await loadStocks();  } catch(e) { console.error('stocks', e);  }
-  try { await loadEcon();    } catch(e) { console.error('econ', e);    }
-  try { await loadSignal();  } catch(e) { console.error('signal', e);  }
+  await Promise.all([loadNews(), loadIndices(), loadMacro()]);
+  loadStocks();
+  loadSignal();
 }
 
 loadAll();
-setInterval(loadAll, 60000); // refresh every 60 seconds
+setInterval(loadNews,    30000);   // news every 30s
+setInterval(loadIndices, 60000);   // prices every 60s
+setInterval(loadMacro,   60000);
+setInterval(loadSignal,  120000);  // signal every 2min (slow API)
 </script>
 </body>
 </html>
