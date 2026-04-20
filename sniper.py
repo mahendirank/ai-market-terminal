@@ -1,3 +1,6 @@
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from mtf import get_htf, get_ltf
 from liquidity import detect_sweep
 from smc import get_smc_analysis
