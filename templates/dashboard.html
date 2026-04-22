@@ -71,32 +71,67 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 /* ── NEWS ROW: single line ── */
 .nr {
   display: grid;
-  grid-template-columns: 58px 120px 1fr 38px;
+  grid-template-columns: 50px 36px 108px 1fr auto 32px;
   align-items: center;
-  gap: 0;
-  padding: 4px 10px;
+  gap: 0 5px;
+  padding: 3px 8px;
   border-bottom: 1px solid #0d1017;
   transition: background 0.1s;
   animation: fadeIn 0.4s ease;
+  min-height: 22px;
 }
 @keyframes fadeIn { from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:translateY(0)} }
 .nr:hover { background:#111820; }
-.nr.hi  { border-left:3px solid var(--high); padding-left:7px; background:#0f0608; }
+.nr.hi  { border-left:3px solid var(--high); padding-left:5px; background:#0f0608; }
 .nr.hi:hover { background:#130a0d; }
 .nr.nw  { animation:flash 1s ease; }
 @keyframes flash { 0%{background:#0d1f12}100%{background:transparent} }
-.nt    { color:var(--muted); font-size:10px; }
-.ns    { font-size:10px; font-weight:bold; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding-right:6px; }
+.nt    { color:var(--muted); font-size:10px; white-space:nowrap; }
+.ns    { font-size:9px; font-weight:bold; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .nh    { color:var(--text); font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .nh.ht { color:#ffccd5; }
 .nbg   { font-size:9px; font-weight:bold; text-align:center; padding:1px 3px; border-radius:2px; white-space:nowrap; }
 .bg-h  { background:#3d0012; color:var(--high); }
 .bg-m  { background:#2a1e00; color:var(--med);  }
 .bg-l  { color:var(--muted); }
+/* Ticker badge on news row */
+.ticker-tags { display:flex; gap:2px; align-items:center; overflow:hidden; flex-shrink:0; }
+.ticker-tag  { font-size:8px; font-weight:bold; padding:1px 4px; border-radius:2px; white-space:nowrap; letter-spacing:0.3px; line-height:1.4; }
+.t-us    { background:#0d1a2a; color:#3d9cf5; border:1px solid #1c3050; }
+.t-in    { background:#1a0d00; color:#f97316; border:1px solid #3a2000; }
+.t-idx   { background:#1a001a; color:#a855f7; border:1px solid #3a0a3a; }
+.t-com   { background:#1a1400; color:#f5a623; border:1px solid #3a2800; }
+.t-mac   { background:#001a0a; color:#00d26a; border:1px solid #003a18; }
 /* Source colors by category */
 .sc-MARKETS{color:#3d9cf5}.sc-GEOPOLITICS{color:#ff3b5c}.sc-BONDS{color:#a855f7}
 .sc-FX{color:#00d26a}.sc-HNI{color:#f5a623}.sc-COMMODITIES{color:#fbbf24}
 .sc-INDIA{color:#f97316}.sc-TECH{color:#06b6d4}.sc-MACRO{color:#e879f9}
+.sc-CRYPTO{color:#f7931a}.sc-EARNINGS{color:#00ff88}.sc-GLOBAL{color:#38bdf8}
+/* BREAKING badge */
+.brk { display:inline-block; background:#ff0033; color:#fff; font-size:7px; font-weight:900;
+       padding:1px 4px; border-radius:2px; letter-spacing:1px; margin-right:4px;
+       animation:brk-pulse 1s infinite; vertical-align:middle; flex-shrink:0; }
+@keyframes brk-pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+/* time-ago */
+.nago { font-size:8px; color:#666; white-space:nowrap; flex-shrink:0; }
+/* source merge "+N" */
+.src-extra { color:#555; font-size:8px; }
+/* NSE India panel */
+.nse-panel { background:#020c04; border-top:1px solid #0a2010; border-bottom:1px solid #0a2010; flex-shrink:0; }
+.nse-head  { display:flex; justify-content:space-between; align-items:center; padding:4px 12px;
+             background:#031408; border-bottom:1px solid #0a2010; }
+.nse-title { color:#00d26a; font-size:10px; font-weight:bold; letter-spacing:1px; }
+.nse-body  { display:grid; grid-template-columns:repeat(5,1fr); gap:0; }
+.nse-col   { padding:6px 12px; border-right:1px solid #0a1e10; }
+.nse-col:last-child { border-right:none; }
+.nse-lbl   { font-size:8px; color:#336633; letter-spacing:1px; margin-bottom:3px; }
+.nse-val   { font-size:14px; font-weight:bold; color:#00d26a; }
+.nse-sub   { font-size:9px; color:var(--muted); margin-top:1px; }
+.nse-buy   { color:#00d26a; } .nse-sell { color:#ff3b5c; }
+.fii-pos   { color:#00d26a; font-weight:bold; }
+.fii-neg   { color:#ff3b5c; font-weight:bold; }
+.pcr-bull  { color:#00d26a; } .pcr-bear { color:#ff3b5c; } .pcr-neu { color:#f5a623; }
+.vix-hi    { color:#ff3b5c; } .vix-mid  { color:#f5a623; } .vix-lo  { color:#00d26a; }
 
 /* ── SIDEBAR (RIGHT) ── */
 .sidebar { width:290px; flex-shrink:0; display:flex; flex-direction:column; overflow-y:auto; background:var(--panel); border-left:1px solid var(--border); }
@@ -117,11 +152,18 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 .insight:last-child { border:none; }
 
 /* ── EARNINGS PANEL ── */
-.earn-panel { flex-shrink:0; border-top:2px solid var(--accent); background:#020408; max-height:220px; overflow:hidden; transition:max-height 0.3s ease; }
-.earn-panel.collapsed { max-height:28px; }
-.earn-head { display:flex; align-items:center; justify-content:space-between; padding:5px 12px; background:#0a0e14; border-bottom:1px solid var(--border); cursor:pointer; }
+.earn-panel { flex-shrink:0; border-top:2px solid var(--accent); background:#020408; max-height:240px; overflow:hidden; transition:max-height 0.3s ease; }
+.earn-panel.collapsed { max-height:32px; }
+.earn-head { display:flex; align-items:center; justify-content:space-between; padding:5px 12px; background:#0a0e14; border-bottom:1px solid var(--border); flex-wrap:wrap; gap:4px; }
 .earn-head-title { color:var(--accent); font-size:10px; font-weight:bold; letter-spacing:2px; }
 .earn-head-right { color:var(--muted); font-size:10px; }
+.ertab { padding:2px 8px; border:1px solid var(--border); border-radius:2px; color:var(--muted); font-size:9px; cursor:pointer; letter-spacing:1px; transition:all 0.15s; }
+.ertab:hover { border-color:var(--accent); color:var(--accent); }
+.ertab.active { background:#1a1200; border-color:var(--accent); color:var(--accent); font-weight:bold; }
+.earn-region-usa    { color:#3d9cf5; font-size:9px; font-weight:bold; }
+.earn-region-india  { color:#f97316; font-size:9px; font-weight:bold; }
+.earn-region-europe { color:#a855f7; font-size:9px; font-weight:bold; }
+.earn-region-japan  { color:#f43f5e; font-size:9px; font-weight:bold; }
 .earn-scroll { overflow-x:auto; overflow-y:auto; max-height:192px; }
 .earn-scroll::-webkit-scrollbar { height:3px; width:3px; }
 .earn-scroll::-webkit-scrollbar-thumb { background:#2a3040; }
@@ -130,6 +172,8 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 .earn-table td { padding:3px 8px; border-bottom:1px solid #0d1017; color:var(--text); }
 .earn-table tr:hover td { background:#111820; }
 .earn-sym  { color:var(--head); font-weight:bold; }
+.live-tg   { display:inline-block; background:#00ff88; color:#000; font-size:7px; font-weight:bold; padding:1px 4px; border-radius:2px; margin-left:4px; vertical-align:middle; letter-spacing:0.5px; animation:livepulse 1.5s ease-in-out infinite; }
+@keyframes livepulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
 .earn-grp  { color:var(--muted); font-size:9px; }
 .beat-pos  { color:var(--green); font-weight:bold; }
 .beat-neg  { color:var(--red); font-weight:bold; }
@@ -143,6 +187,44 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 .rec-buy   { background:#002a14; color:var(--green); padding:1px 4px; border-radius:2px; font-size:9px; }
 .rec-hold  { background:#1a1a00; color:#f5a623; padding:1px 4px; border-radius:2px; font-size:9px; }
 .rec-sell  { background:#2a0010; color:var(--red); padding:1px 4px; border-radius:2px; font-size:9px; }
+/* Commentary metrics — one per line */
+.comm-wrap { display:flex; flex-direction:column; gap:2px; }
+.comm-part { font-size:9px; color:#888; line-height:1.3; padding:2px 0; border-bottom:1px solid #0d1017; white-space:nowrap; }
+.comm-part:last-child { border-bottom:none; padding-bottom:0; }
+.comm-pos  { color:#00d26a !important; }
+.comm-neg  { color:#ff3b5c !important; }
+.comm-neu  { color:#f5a623; }
+/* EARNINGS NEWS LIVE PANEL */
+.earn-news-panel { flex-shrink:0; border-top:2px solid #00ff88; background:#020408; max-height:240px; overflow:hidden; transition:max-height 0.3s ease; }
+.earn-news-panel.collapsed { max-height:28px; }
+.earn-news-head { display:flex; align-items:center; justify-content:space-between; padding:5px 12px; background:#041408; border-bottom:1px solid #0a2010; cursor:pointer; gap:8px; }
+.earn-news-title { color:#00ff88; font-size:10px; font-weight:bold; letter-spacing:1.5px; flex:1; }
+.earn-news-feed { overflow-y:auto; max-height:208px; }
+.earn-news-feed::-webkit-scrollbar { width:3px; }
+.earn-news-feed::-webkit-scrollbar-thumb { background:#0a3020; border-radius:2px; }
+
+/* ── SOCIAL COMMENTARY PANEL ── */
+.social-panel { flex-shrink:0; border-top:1px solid var(--border); background:#020408; max-height:200px; overflow:hidden; transition:max-height 0.3s ease; }
+.social-panel.collapsed { max-height:28px; }
+.social-head { display:flex; align-items:center; justify-content:space-between; padding:5px 12px; background:#0a0e14; border-bottom:1px solid var(--border); cursor:pointer; }
+.social-head-title { color:#00d26a; font-size:10px; font-weight:bold; letter-spacing:2px; }
+.social-scroll { overflow-x:hidden; overflow-y:auto; max-height:172px; padding:4px 0; }
+.social-scroll::-webkit-scrollbar { width:3px; }
+.social-scroll::-webkit-scrollbar-thumb { background:#2a3040; }
+.soc-row { display:grid; grid-template-columns: 52px 80px 80px 80px 1fr auto; gap:0 8px; align-items:start; padding:4px 12px; border-bottom:1px solid #0d1117; font-size:10px; }
+.soc-row:hover { background:#0d1420; }
+.soc-time  { color:var(--muted); font-size:9px; white-space:nowrap; }
+.soc-src   { font-size:9px; font-weight:bold; white-space:nowrap; }
+.soc-sym   { font-size:9px; color:var(--accent); font-weight:bold; white-space:nowrap; overflow:hidden; }
+.soc-plat  { font-size:9px; padding:1px 5px; border-radius:2px; white-space:nowrap; display:inline-block; }
+.plat-tg   { background:#0d2a40; color:#3d9cf5; }
+.plat-rd   { background:#2a1000; color:#ff4500; }
+.soc-text  { color:var(--text); line-height:1.3; }
+.soc-text a { color:var(--blue); text-decoration:none; }
+.sent-POS  { color:var(--green); font-size:9px; font-weight:bold; padding:1px 5px; background:#002a14; border-radius:2px; white-space:nowrap; }
+.sent-NEG  { color:var(--red);   font-size:9px; font-weight:bold; padding:1px 5px; background:#2a0010; border-radius:2px; white-space:nowrap; }
+.sent-NEU  { color:var(--muted); font-size:9px; padding:1px 5px; background:#111; border-radius:2px; white-space:nowrap; }
+.metric-tag { font-size:9px; color:var(--accent); background:#1a1200; border:1px solid #2a2000; padding:1px 4px; border-radius:2px; margin-right:3px; white-space:nowrap; }
 
 /* ── BOTTOM DATA BAR ── */
 .data-bar { display:grid; grid-template-columns:repeat(4,1fr); border-top:1px solid var(--border); background:#020408; flex-shrink:0; height:130px; }
@@ -233,19 +315,22 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
   <!-- NEWS TERMINAL -->
   <div class="news-col">
     <div class="cat-tabs" id="cat-tabs">
-      <div class="ctab active" data-cat="ALL"         onclick="setCat(this)">ALL         <span class="cnt" id="cnt-ALL">—</span></div>
-      <div class="ctab" data-cat="MARKETS"     onclick="setCat(this)">MARKETS     <span class="cnt" id="cnt-MARKETS">—</span></div>
-      <div class="ctab" data-cat="GEOPOLITICS" onclick="setCat(this)">GEOPOLITICS <span class="cnt" id="cnt-GEOPOLITICS">—</span></div>
-      <div class="ctab" data-cat="BONDS"       onclick="setCat(this)">BONDS/YIELDS<span class="cnt" id="cnt-BONDS">—</span></div>
-      <div class="ctab" data-cat="FX"          onclick="setCat(this)">FX/CURRENCY <span class="cnt" id="cnt-FX">—</span></div>
-      <div class="ctab" data-cat="HNI"         onclick="setCat(this)">HNI/INST    <span class="cnt" id="cnt-HNI">—</span></div>
-      <div class="ctab" data-cat="COMMODITIES" onclick="setCat(this)">GOLD/OIL/METALS<span class="cnt" id="cnt-COMMODITIES">—</span></div>
-      <div class="ctab" data-cat="INDIA"       onclick="setCat(this)">INDIA       <span class="cnt" id="cnt-INDIA">—</span></div>
-      <div class="ctab" data-cat="TECH"        onclick="setCat(this)">CHIPS/SEMI  <span class="cnt" id="cnt-TECH">—</span></div>
-      <div class="ctab" data-cat="MACRO"       onclick="setCat(this)">MACRO       <span class="cnt" id="cnt-MACRO">—</span></div>
+      <div class="ctab active" data-cat="ALL"         onclick="setCat(this)">ALL             <span class="cnt" id="cnt-ALL">—</span></div>
+      <div class="ctab" data-cat="MARKETS"     onclick="setCat(this)">MARKETS         <span class="cnt" id="cnt-MARKETS">—</span></div>
+      <div class="ctab" data-cat="INDIA"       onclick="setCat(this)">INDIA           <span class="cnt" id="cnt-INDIA">—</span></div>
+      <div class="ctab" data-cat="EARNINGS"    onclick="setCat(this)">EARNINGS        <span class="cnt" id="cnt-EARNINGS">—</span></div>
+      <div class="ctab" data-cat="GEOPOLITICS" onclick="setCat(this)">GEOPOLITICS     <span class="cnt" id="cnt-GEOPOLITICS">—</span></div>
+      <div class="ctab" data-cat="HNI"         onclick="setCat(this)">HNI/INST        <span class="cnt" id="cnt-HNI">—</span></div>
+      <div class="ctab" data-cat="MACRO"       onclick="setCat(this)">MACRO           <span class="cnt" id="cnt-MACRO">—</span></div>
+      <div class="ctab" data-cat="BONDS"       onclick="setCat(this)">BONDS/RATES     <span class="cnt" id="cnt-BONDS">—</span></div>
+      <div class="ctab" data-cat="FX"          onclick="setCat(this)">FX/CURRENCY     <span class="cnt" id="cnt-FX">—</span></div>
+      <div class="ctab" data-cat="COMMODITIES" onclick="setCat(this)">GOLD/OIL/METALS <span class="cnt" id="cnt-COMMODITIES">—</span></div>
+      <div class="ctab" data-cat="TECH"        onclick="setCat(this)">CHIPS/AI/TECH   <span class="cnt" id="cnt-TECH">—</span></div>
+      <div class="ctab" data-cat="CRYPTO"      onclick="setCat(this)">CRYPTO          <span class="cnt" id="cnt-CRYPTO">—</span></div>
+      <div class="ctab" data-cat="GLOBAL"      onclick="setCat(this)">ASIA/GLOBAL     <span class="cnt" id="cnt-GLOBAL">—</span></div>
     </div>
     <div class="news-feed" id="news-feed">
-      <div class="loading"><span class="spinner">◌</span> Fetching live news from 35+ sources...</div>
+      <div class="loading"><span class="spinner">◌</span> Fetching live news from 60+ sources...</div>
     </div>
   </div>
 
@@ -290,24 +375,77 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 
 <!-- EARNINGS PANEL -->
 <div class="earn-panel" id="earn-panel">
-  <div class="earn-head" onclick="toggleEarnings()">
-    <span class="earn-head-title">EARNINGS MONITOR — EPS · REVENUE · MARGINS · GUIDANCE · ANALYST SCORE</span>
-    <span class="earn-head-right" id="earn-toggle">▲ COLLAPSE</span>
+  <div class="earn-head">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      <span class="earn-head-title" onclick="toggleEarnings()" style="cursor:pointer;">EARNINGS MONITOR — EPS · REVENUE · MARGINS · GUIDANCE · ANALYST SCORE</span>
+      <div style="display:flex;gap:5px;">
+        <span class="ertab active" data-reg="ALL"   onclick="setEarnRegion(this)">ALL</span>
+        <span class="ertab" data-reg="USA"    onclick="setEarnRegion(this)">🇺🇸 USA</span>
+        <span class="ertab" data-reg="INDIA"  onclick="setEarnRegion(this)">🇮🇳 INDIA</span>
+        <span class="ertab" data-reg="EUROPE" onclick="setEarnRegion(this)">🇪🇺 EUROPE</span>
+        <span class="ertab" data-reg="JAPAN"  onclick="setEarnRegion(this)">🇯🇵 JAPAN</span>
+      </div>
+    </div>
+    <span class="earn-head-right" id="earn-toggle" onclick="toggleEarnings()" style="cursor:pointer;">▲ COLLAPSE</span>
   </div>
   <div class="earn-scroll">
     <table class="earn-table" id="earn-table">
       <thead>
         <tr>
-          <th>SYMBOL</th><th>GROUP</th><th>DATE</th>
-          <th>EPS EST</th><th>EPS ACT</th><th>BEAT%</th>
-          <th>REVENUE</th><th>REV GRW%</th><th>EARN GRW%</th>
-          <th>GROSS MGN</th><th>MGN ΔBPS</th>
-          <th>FWD EPS</th><th>FWD PE</th>
-          <th>PRICE TGT</th><th>ANALYST</th><th>GUIDANCE</th><th>SCORE</th>
+          <th>COMPANY</th>
+          <th>PRICE</th>
+          <th>CHG%</th>
+          <th>LAST RPT</th>
+          <th>EPS ACT</th>
+          <th>EPS PREV</th>
+          <th>EPS YoY%</th>
+          <th>REVENUE</th>
+          <th>REV QoQ%</th>
+          <th>NET MGN%</th>
+          <th>GROSS MGN%</th>
+          <th>MGN ΔBPS</th>
+          <th>NIM ΔBPS</th>
+          <th>GUIDANCE</th>
+          <th>COMMENTARY</th>
+          <th>SCORE</th>
         </tr>
       </thead>
-      <tbody id="earn-body"><tr><td colspan="17" class="loading"><span class="spinner">◌</span> Loading earnings data...</td></tr></tbody>
+      <tbody id="earn-body"><tr><td colspan="16" class="loading"><span class="spinner">◌</span> Loading earnings data...</td></tr></tbody>
     </table>
+  </div>
+</div>
+
+<!-- SOCIAL COMMENTARY PANEL -->
+<div class="social-panel" id="social-panel">
+  <div class="social-head" onclick="toggleSocial()">
+    <span class="social-head-title">LIVE EARNINGS COMMENTARY — TELEGRAM · REDDIT · MANAGEMENT INSIGHTS · MARKET SENTIMENT</span>
+    <span style="color:var(--muted);font-size:10px;" id="social-toggle">▲ COLLAPSE</span>
+  </div>
+  <div class="social-scroll" id="social-feed">
+    <div class="loading" style="padding:8px 12px;"><span class="spinner">◌</span> Loading social commentary...</div>
+  </div>
+</div>
+
+<!-- EARNINGS NEWS LIVE FEED -->
+<div class="earn-news-panel" id="earn-news-panel">
+  <div class="earn-news-head" onclick="toggleEarnNews()">
+    <span class="earn-news-title">⚡ EARNINGS NEWS LIVE — REAL-TIME RESULTS · ANALYST REACTIONS · GUIDANCE · MANAGEMENT COMMENTARY</span>
+    <span style="color:var(--muted);font-size:9px;" id="earn-news-upd"></span>
+    <span style="color:var(--muted);font-size:10px;" id="earn-news-toggle">▲ COLLAPSE</span>
+  </div>
+  <div class="earn-news-feed" id="earn-news-feed">
+    <div class="loading" style="padding:8px 12px;"><span class="spinner">◌</span> Loading earnings news from live feeds...</div>
+  </div>
+</div>
+
+<!-- NSE INDIA PANEL -->
+<div class="nse-panel" id="nse-panel">
+  <div class="nse-head">
+    <span class="nse-title">NSE INDIA — FII/DII FLOWS · NIFTY PCR · INDIA VIX · FEAR &amp; GREED</span>
+    <span id="nse-updated" style="color:var(--muted);font-size:9px;"></span>
+  </div>
+  <div class="nse-body" id="nse-body">
+    <div class="loading" style="padding:6px 12px;"><span class="spinner">◌</span> Fetching NSE data...</div>
   </div>
 </div>
 
@@ -323,13 +461,21 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 const BASE = window.location.origin;
 let allNews   = [];
 let activeCat = 'ALL';
-let earnOpen  = true;
+let earnOpen   = true;
+let socialOpen = true;
 
 // ── Earnings toggle ───────────────────────────────────────
 function toggleEarnings() {
   earnOpen = !earnOpen;
   document.getElementById('earn-panel').classList.toggle('collapsed', !earnOpen);
   document.getElementById('earn-toggle').textContent = earnOpen ? '▲ COLLAPSE' : '▼ EXPAND';
+}
+
+// ── Social toggle ─────────────────────────────────────────
+function toggleSocial() {
+  socialOpen = !socialOpen;
+  document.getElementById('social-panel').classList.toggle('collapsed', !socialOpen);
+  document.getElementById('social-toggle').textContent = socialOpen ? '▲ COLLAPSE' : '▼ EXPAND';
 }
 
 // ── Category tab filter ───────────────────────────────────
@@ -340,12 +486,138 @@ function setCat(el) {
   renderFeed();
 }
 
+// ── Ticker tag helper ─────────────────────────────────────
+const INDIA_TICKERS = new Set(['HDFCBANK','ICICIBANK','AXISBANK','KOTAKBANK','SBIN','INFY','TCS',
+  'WIPRO','HCLTECH','RELIANCE','BAJFIN','SUNPHARMA','MARUTI','HUL','ADANI','L&T','NTPC',
+  'TECHM','INDUSINDBK','TATAMOTORS','POWERGRID','BAJAJ-AUTO']);
+const INDEX_TICKERS = new Set(['NIFTY','SENSEX','SPX','NDX','DJIA','DAX','FTSE','NKY','FED','FOMC','RBI','ECB','BOJ']);
+const COMM_TICKERS  = new Set(['GOLD','SILVER','OIL','BRENT','WTI','NATGAS','COPPER','BTC']);
+
+function tickerClass(t) {
+  if (INDIA_TICKERS.has(t)) return 't-in';
+  if (INDEX_TICKERS.has(t)) return 't-mac';
+  if (COMM_TICKERS.has(t))  return 't-com';
+  return 't-us';
+}
+
+function renderTickerTags(tickers) {
+  if (!tickers || !tickers.length) return '<span></span>';
+  const tags = tickers.slice(0,3).map(t =>
+    `<span class="ticker-tag ${tickerClass(t)}">${t}</span>`
+  ).join('');
+  return `<span class="ticker-tags">${tags}</span>`;
+}
+
 // ── Render news rows ─────────────────────────────────────
+// ── Commentary renderer — one metric per line with color ──
+function buildCommentary(text) {
+  if (!text || text === 'Awaiting next report' || text === 'Data unavailable') {
+    return `<span style="color:#444;font-size:9px;">${text||'—'}</span>`;
+  }
+  const parts = text.split(' · ').filter(Boolean);
+  if (parts.length <= 1) return `<span style="color:#666;font-size:9px;">${text}</span>`;
+  return `<div class="comm-wrap">${parts.map(p => {
+    const cls = (p.includes('▲') || p.startsWith('+') || p.includes('+'))
+                  ? 'comm-pos'
+                : (p.includes('▼') || /\s-\d/.test(p))
+                  ? 'comm-neg' : '';
+    return `<div class="comm-part ${cls}">${p}</div>`;
+  }).join('')}</div>`;
+}
+
+// ── Watchlist symbols for earnings news matching ──────────
+const EARN_SYMBOLS = new Set([
+  'AAPL','MSFT','GOOGL','AMZN','NVDA','META','TSLA',
+  'JPM','GS','BAC','MS','V','MA','C','NFLX',
+  'XOM','CVX','COP','JNJ','LLY','UNH','ABBV','PFE',
+  'TSM','AMD','ASML','AVGO','QCOM',
+  'WMT','HD','COST','NKE','CAT','GE','BA','HON',
+  'HDFCBANK','ICICIBANK','KOTAKBANK','AXISBANK','SBIN','INDUSINDBK',
+  'TCS','INFY','WIPRO','HCLTECH','TECHM',
+  'RELIANCE','HUL','ITC','MARUTI','BAJFIN','BAJAJ-AUTO',
+  'SUNPHARMA','DRREDDY','CIPLA','LT','NTPC','ADANI',
+  'SAP','HSBC','UBS','AZN','TM','HMC','SONY','SMSN',
+  'NIFTY','SENSEX','SPX','NDX','DJIA','DAX',
+  'FED','FOMC','RBI','ECB','BOJ',
+]);
+
+function renderEarningsNews() {
+  const el = document.getElementById('earn-news-feed');
+  if (!el || !allNews.length) return;
+
+  // Filter: EARNINGS category, OR has a watchlist ticker, OR headline mentions results/earnings
+  const earnKw = /\b(earnings|results|revenue|profit|eps|quarter|guidance|beats?|misses?|outlook|raises?|lowers?)\b/i;
+  const relevant = allNews.filter(n =>
+    n.category === 'EARNINGS' ||
+    (n.tickers && n.tickers.some(t => EARN_SYMBOLS.has(t))) ||
+    earnKw.test(n.headline || '')
+  ).slice(0, 50);
+
+  if (!relevant.length) {
+    el.innerHTML = '<div style="padding:8px 12px;color:var(--muted);font-size:10px;">No earnings news yet — auto-updates every 30s</div>';
+    return;
+  }
+
+  const now = Date.now();
+  el.innerHTML = relevant.map(n => {
+    const ago = timeAgo(n.pub_utc);
+    const srcParts = (n.source||'').split(' +');
+    const srcBase  = srcParts[0];
+    const srcExtra = srcParts.length > 1 ? ` <span class="src-extra">+${srcParts[1]}</span>` : '';
+    let brkBadge = '';
+    if (n.pub_utc) {
+      const ageSec = (now - new Date(n.pub_utc).getTime()) / 1000;
+      if (ageSec < 300) brkBadge = '<span class="brk">BREAKING</span>';
+    }
+    const hi = n.priority === 'high';
+    const rc = hi ? 'nr hi' : 'nr';
+    const tc = hi ? 'nh ht' : 'nh';
+    return `<div class="${rc}">
+      <span class="nt">${n.time||'—'}</span>
+      <span class="nago">${ago}</span>
+      <span class="ns sc-${n.category}">${srcBase}${srcExtra}</span>
+      <span class="${tc}">${brkBadge}${n.headline||''}</span>
+      ${renderTickerTags(n.tickers||[])}
+      <span class="nbg ${hi?'bg-h':n.priority==='med'?'bg-m':'bg-l'}">${n.score>0?n.score:''}</span>
+    </div>`;
+  }).join('');
+
+  const upd = document.getElementById('earn-news-upd');
+  if (upd) upd.textContent = `${relevant.length} stories · ${new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})} IST`;
+}
+
+function toggleEarnNews() {
+  const p = document.getElementById('earn-news-panel');
+  const t = document.getElementById('earn-news-toggle');
+  if (!p) return;
+  const col = p.classList.toggle('collapsed');
+  if (t) t.textContent = col ? '▼ EXPAND' : '▲ COLLAPSE';
+}
+
+function timeAgo(pubUtc) {
+  if (!pubUtc) return '';
+  try {
+    const diff = Math.floor((Date.now() - new Date(pubUtc).getTime()) / 1000);
+    if (diff < 60)  return `${diff}s ago`;
+    if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+    return '';
+  } catch(e) { return ''; }
+}
+
 function renderFeed(freshSet) {
   const feed = document.getElementById('news-feed');
-  const list = activeCat === 'ALL' ? allNews : allNews.filter(n => n.category === activeCat);
-  if (!list.length) { feed.innerHTML = '<div class="loading">No stories in this category yet</div>'; return; }
+  const raw  = activeCat === 'ALL' ? allNews : allNews.filter(n => n.category === activeCat);
+  // Always show freshest at top
+  const list = [...raw].sort((a,b) => {
+    if (!a.pub_utc && !b.pub_utc) return 0;
+    if (!a.pub_utc) return 1;
+    if (!b.pub_utc) return -1;
+    return b.pub_utc.localeCompare(a.pub_utc);
+  });
+  if (!list.length) { feed.innerHTML = '<div class="loading" style="padding:12px;">No stories in this category yet — check back in 30s</div>'; return; }
 
+  const now = Date.now();
   feed.innerHTML = list.map(n => {
     const hi  = n.priority === 'high';
     const md  = n.priority === 'med';
@@ -354,11 +626,29 @@ function renderFeed(freshSet) {
     const tc  = hi ? 'nh ht' : 'nh';
     const bc  = hi ? 'nbg bg-h' : md ? 'nbg bg-m' : 'nbg bg-l';
     const sc  = n.score > 0 ? n.score : '';
-    const sm  = n.summarized ? '✂' : '';
+    const tickers = n.tickers || [];
+
+    // BREAKING: published within last 5 minutes
+    let brkBadge = '';
+    if (n.pub_utc) {
+      const ageSec = (now - new Date(n.pub_utc).getTime()) / 1000;
+      if (ageSec < 300) brkBadge = '<span class="brk">BREAKING</span>';
+    }
+
+    // time-ago display
+    const ago = timeAgo(n.pub_utc);
+
+    // source — split base and "+N" for styling
+    const srcParts = (n.source||'').split(' +');
+    const srcBase  = srcParts[0];
+    const srcExtra = srcParts.length > 1 ? ` <span class="src-extra">+${srcParts[1]}</span>` : '';
+
     return `<div class="${rc}">
       <span class="nt">${n.time||'—'}</span>
-      <span class="ns sc-${n.category}">${n.source}${sm?'<span style="color:#444;margin-left:2px;">✂</span>':''}</span>
-      <span class="${tc}" title="${n.headline.replace(/"/g,"'")}">${n.headline}</span>
+      <span class="nago">${ago}</span>
+      <span class="ns sc-${n.category}">${srcBase}${srcExtra}</span>
+      <span class="${tc}" title="${(n.headline||'').replace(/"/g,"'")}">${brkBadge}${n.headline||''}</span>
+      ${renderTickerTags(tickers)}
       <span class="${bc}">${sc}</span>
     </div>`;
   }).join('');
@@ -366,7 +656,8 @@ function renderFeed(freshSet) {
 
 // ── Update tab counts ─────────────────────────────────────
 function updateCounts() {
-  ['ALL','MARKETS','GEOPOLITICS','BONDS','FX','HNI','COMMODITIES','INDIA','TECH','MACRO'].forEach(c => {
+  const cats = ['ALL','MARKETS','GEOPOLITICS','BONDS','FX','HNI','COMMODITIES','INDIA','TECH','MACRO','EARNINGS','CRYPTO','GLOBAL'];
+  cats.forEach(c => {
     const el = document.getElementById(`cnt-${c}`);
     if (el) el.textContent = c==='ALL' ? allNews.length : allNews.filter(n=>n.category===c).length;
   });
@@ -381,6 +672,7 @@ async function loadNews() {
     allNews = data;
     updateCounts();
     renderFeed(fresh.size ? fresh : null);
+    renderEarningsNews();
     document.getElementById('hdr-cnt').textContent = `${allNews.length} stories`;
     if (fresh.size) { document.title=`⚡ ${fresh.size} NEW — AI Terminal`; setTimeout(()=>{document.title='AI Market Terminal'},5000); }
   } catch(e) { console.error('news',e); }
@@ -489,63 +781,247 @@ async function loadSignal() {
   } catch(e) {}
 }
 
+// ── Earnings region filter ────────────────────────────────
+let _allEarnData = [];
+let _activeRegion = 'ALL';
+function setEarnRegion(el) {
+  document.querySelectorAll('.ertab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  _activeRegion = el.dataset.reg;
+  renderEarnings();
+}
+
+function renderEarnings() {
+  const filtered = _activeRegion === 'ALL' ? _allEarnData
+                 : _allEarnData.filter(e => e.region === _activeRegion);
+  const COLS = 16;
+  if (!filtered.length) {
+    document.getElementById('earn-body').innerHTML = `<tr><td colspan="${COLS}" class="loading">No data for ${_activeRegion} yet — fetching...</td></tr>`;
+    return;
+  }
+
+  const rows = filtered.map(e => {
+    const cur    = e.currency === 'INR' ? '₹' : '$';
+    const regCls = `earn-region-${(e.region||'usa').toLowerCase()}`;
+
+    // Price + change
+    const priceTxt = e.price != null ? `${cur}${e.price.toLocaleString()}` : '—';
+    const chgTxt   = e.price_chg_pct != null
+      ? `<span class="${e.price_chg_pct>=0?'beat-pos':'beat-neg'}">${e.price_chg_pct>=0?'+':''}${e.price_chg_pct}%</span>` : '—';
+
+    // EPS
+    const epsAct  = e.eps_act  != null ? `${cur}${e.eps_act}`  : '—';
+    const epsPrev = e.eps_prev != null ? `${cur}${e.eps_prev}` : '—';
+    const epsYoyCls = e.eps_yoy == null ? '' : e.eps_yoy >= 0 ? 'beat-pos' : 'beat-neg';
+    const epsYoyTxt = e.eps_yoy != null ? `${e.eps_yoy>=0?'+':''}${e.eps_yoy}%` : '—';
+
+    // Revenue
+    const revGCls = e.rev_growth==null?'':e.rev_growth>=0?'beat-pos':'beat-neg';
+    const revGTxt = e.rev_growth!=null ? `${e.rev_growth>=0?'+':''}${e.rev_growth}%` : '—';
+
+    // Margins
+    const nmTxt  = e.net_margin   != null ? `${e.net_margin}%`   : '—';
+    const gmTxt  = e.gross_margin != null ? `${e.gross_margin}%` : '—';
+    const mbpsCls = e.margin_bps==null?'beat-neu':e.margin_bps>0?'beat-pos':'beat-neg';
+    const mbpsTxt = e.margin_bps!=null ? `${e.margin_bps>0?'+':''}${e.margin_bps}` : '—';
+    const nimCls  = e.nim_bps==null?'beat-neu':e.nim_bps>0?'beat-pos':'beat-neg';
+    const nimTxt  = e.nim_bps!=null ? `${e.nim_bps>0?'+':''}${e.nim_bps}` : '—';
+
+    // Beat/Miss badge
+    const bm = (e.beat_miss||'').toUpperCase();
+    const bmTxt = bm==='BEAT' ? '<span style="color:#00d26a;font-weight:bold;">✓BEAT</span>'
+                : bm==='MISS' ? '<span style="color:#ff3b5c;font-weight:bold;">✗MISS</span>'
+                : bm==='INLINE' ? '<span style="color:#aaa;">≈INLINE</span>' : '';
+
+    // Guidance
+    const g = (e.guidance||'').toUpperCase();
+    const guidCls = g==='RAISED'?'guide-up':g==='LOWERED'?'guide-dn':'guide-hd';
+    const guidTxt = (g==='RAISED'?'▲ RAISED':g==='LOWERED'?'▼ LOWERED':g||'—') + (bmTxt ? '<br>'+bmTxt : '');
+
+    // Score bar
+    const scoreW = Math.round((e.score||50) * 1.2);
+
+    const liveBadge = e.data_source === 'LIVE-TG' ? '<span class="live-tg">⚡LIVE</span>' : '';
+    return `<tr>
+      <td>
+        <span class="earn-sym">${e.symbol}</span>${liveBadge}
+        <span class="${regCls}" style="font-size:8px;margin-left:4px;">${e.region}</span>
+        <div style="color:var(--muted);font-size:9px;margin-top:1px;">${e.name}</div>
+      </td>
+      <td style="color:var(--head);font-weight:bold;">${priceTxt}</td>
+      <td>${chgTxt}</td>
+      <td style="color:var(--muted)">${e.earn_date||'—'}</td>
+      <td style="color:var(--head);font-weight:bold;">${epsAct}</td>
+      <td style="color:var(--muted)">${epsPrev}</td>
+      <td class="${epsYoyCls}">${epsYoyTxt}</td>
+      <td style="color:var(--head)">${e.revenue||'—'}</td>
+      <td class="${revGCls}">${revGTxt}</td>
+      <td style="color:var(--muted)">${nmTxt}</td>
+      <td style="color:var(--muted)">${gmTxt}</td>
+      <td class="${mbpsCls}">${mbpsTxt}</td>
+      <td class="${nimCls}">${nimTxt}</td>
+      <td class="${guidCls}">${guidTxt}</td>
+      <td style="max-width:230px;">${buildCommentary(e.commentary)}</td>
+      <td><div class="score-bar"><div class="sbar-fill" style="width:${scoreW}px;opacity:0.8;"></div><span style="color:var(--accent);margin-left:3px;">${e.score||'—'}</span></div></td>
+    </tr>`;
+  });
+  document.getElementById('earn-body').innerHTML = rows.join('');
+}
+
 // ── Load earnings ─────────────────────────────────────────
 let _earnRetry = null;
+let _fullEarnLoaded = false;
+
 async function loadEarnings() {
   try {
+    // Step 1: load LIVE-TG stocks instantly (available in ~15s after startup)
+    if (!_fullEarnLoaded) {
+      const live = await fetch(`${BASE}/api/earnings/live`).then(r=>r.json()).catch(()=>[]);
+      if (live.length) {
+        // Merge live into existing data (or show as initial data)
+        const liveMap = {};
+        live.forEach(e => liveMap[e.symbol] = e);
+        _allEarnData = _allEarnData.map(e => liveMap[e.symbol] || e);
+        // Add any live entries not yet in the full table
+        live.forEach(e => { if (!_allEarnData.find(x=>x.symbol===e.symbol)) _allEarnData.push(e); });
+        renderEarnings();
+      }
+    }
+
+    // Step 2: try to get full earnings table (149 stocks — may take a few minutes on cold start)
     const data = await fetch(`${BASE}/api/earnings`).then(r=>r.json());
     if (!data.length) {
-      document.getElementById('earn-body').innerHTML = '<tr><td colspan="17" class="loading"><span class="spinner">◌</span> Fetching 25 stocks in background — auto-refreshing...</td></tr>';
+      if (!_allEarnData.length)
+        document.getElementById('earn-body').innerHTML = '<tr><td colspan="16" class="loading"><span class="spinner">◌</span> Loading full earnings data (~3 min first load) — live stocks shown above...</td></tr>';
       if (!_earnRetry) _earnRetry = setInterval(async () => {
         const d = await fetch(`${BASE}/api/earnings`).then(r => r.json());
-        if (d.length) { clearInterval(_earnRetry); _earnRetry = null; loadEarnings(); }
-      }, 12000);
+        if (d.length) { clearInterval(_earnRetry); _earnRetry = null; _fullEarnLoaded = true; loadEarnings(); }
+      }, 20000);
       return;
     }
     if (_earnRetry) { clearInterval(_earnRetry); _earnRetry = null; }
-
-    const rows = data.map(e => {
-      const beatCls = e.eps_beat==null ? 'beat-neu' : e.eps_beat>0 ? 'beat-pos' : 'beat-neg';
-      const beatTxt = e.eps_beat!=null ? `${e.eps_beat>0?'+':''}${e.eps_beat}%` : '—';
-      const bpsCls  = e.margin_bps==null?'beat-neu':e.margin_bps>0?'beat-pos':'beat-neg';
-      const bpsTxt  = e.margin_bps!=null ? `${e.margin_bps>0?'+':''}${e.margin_bps}bps` : '—';
-      const revCls  = e.rev_growth==null?'':e.rev_growth>0?'beat-pos':'beat-neg';
-      const guidCls = e.guidance==='raised'?'guide-up':e.guidance==='lowered'?'guide-dn':'guide-hd';
-      const guidTxt = e.guidance==='raised'?'▲ RAISED':e.guidance==='lowered'?'▼ LOWERED':'─ MAINT';
-      const recCls  = e.analyst_rec.includes('STRONG_BUY')||e.analyst_rec==='STRONGBUY'?'rec-sb':
-                      e.analyst_rec.includes('BUY')?'rec-buy':
-                      e.analyst_rec.includes('SELL')?'rec-sell':'rec-hold';
-      const recTxt  = e.analyst_rec||'—';
-      const scoreW  = Math.round(e.score * 1.4);
-      const epsEstTxt = e.eps_est!=null ? `$${e.eps_est}` : '—';
-      const epsActTxt = e.eps_act!=null ? `$${e.eps_act}` : '—';
-      return `<tr>
-        <td><span class="earn-sym">${e.symbol}</span></td>
-        <td><span class="earn-grp">${e.group}</span></td>
-        <td>${e.earn_date}</td>
-        <td style="color:var(--muted)">${epsEstTxt}</td>
-        <td style="color:var(--head)">${epsActTxt}</td>
-        <td class="${beatCls}">${beatTxt}</td>
-        <td style="color:var(--head)">${e.revenue}</td>
-        <td class="${revCls}">${e.rev_growth!=null?`${e.rev_growth>0?'+':''}${e.rev_growth}%`:'—'}</td>
-        <td class="${e.earn_growth>0?'beat-pos':'beat-neg'}">${e.earn_growth!=null?`${e.earn_growth>0?'+':''}${e.earn_growth}%`:'—'}</td>
-        <td style="color:var(--muted)">${e.gross_margin!=null?`${e.gross_margin}%`:'—'}</td>
-        <td class="${bpsCls}">${bpsTxt}</td>
-        <td style="color:var(--blue)">${e.fwd_eps!=null?`$${e.fwd_eps}`:'—'}</td>
-        <td style="color:var(--muted)">${e.fwd_pe!=null?`${e.fwd_pe}x`:'—'}</td>
-        <td style="color:var(--blue)">${e.price_target!=null?`$${e.price_target}`:'—'}</td>
-        <td><span class="${recCls}">${recTxt}</span></td>
-        <td class="${guidCls}">${guidTxt}</td>
-        <td><div class="score-bar"><div class="sbar-fill" style="width:${scoreW}px;opacity:0.8;"></div><span style="color:var(--accent);margin-left:3px;">${e.score}</span></div></td>
-      </tr>`;
-    });
-    document.getElementById('earn-body').innerHTML = rows.join('');
+    _fullEarnLoaded = true;
+    _allEarnData = data;
+    renderEarnings();
   } catch(e) { console.error('earnings',e); }
+}
+
+// ── Load social earnings commentary ──────────────────────
+async function loadSocialEarnings() {
+  try {
+    const data = await fetch(`${BASE}/api/earnings/social`).then(r=>r.json());
+    const feed = document.getElementById('social-feed');
+    if (!data.length) {
+      feed.innerHTML = '<div class="loading" style="padding:8px 12px;"><span class="spinner">◌</span> Scanning Telegram & Reddit for earnings commentary...</div>';
+      return;
+    }
+
+    const rows = data.map(item => {
+      const platCls  = item.platform === 'telegram' ? 'plat-tg' : 'plat-rd';
+      const platTxt  = item.platform === 'telegram' ? '✈ TG' : '⬆ RD';
+      const sentCls  = `sent-${item.sentiment}`;
+      const syms     = (item.symbols||[]).join(' ');
+      const m        = item.metrics || {};
+
+      // Build metric tags
+      let metricHtml = '';
+      if (m.pat)       metricHtml += `<span class="metric-tag">PAT:${m.pat}</span>`;
+      if (m.pat_yoy!=null) metricHtml += `<span class="metric-tag">PAT YoY:${m.pat_yoy>0?'+':''}${m.pat_yoy}%</span>`;
+      if (m.nim!=null) metricHtml += `<span class="metric-tag">NIM:${m.nim}%</span>`;
+      if (m.nim_bps!=null) metricHtml += `<span class="metric-tag">NIM Δ:${m.nim_bps>0?'+':''}${m.nim_bps}bps</span>`;
+      if (m.gnpa!=null) metricHtml += `<span class="metric-tag">GNPA:${m.gnpa}%</span>`;
+      if (m.nnpa!=null) metricHtml += `<span class="metric-tag">NNPA:${m.nnpa}%</span>`;
+      if (m.eps_act!=null) metricHtml += `<span class="metric-tag">EPS:${m.eps_act}</span>`;
+      if (m.guidance)  metricHtml += `<span class="metric-tag" style="color:${m.guidance==='raised'?'var(--green)':m.guidance==='lowered'?'var(--red)':'var(--muted)'}">GUIDE:${m.guidance.toUpperCase()}</span>`;
+      if (m.beat)      metricHtml += `<span class="metric-tag" style="color:var(--green)">✓ BEAT</span>`;
+      if (m.miss)      metricHtml += `<span class="metric-tag" style="color:var(--red)">✗ MISS</span>`;
+
+      const scoreHtml = item.score!=null ? `<span style="color:var(--muted);font-size:9px;">↑${item.score} 💬${item.comments||0}</span>` : '';
+
+      return `<div class="soc-row">
+        <span class="soc-time">${item.time||'—'}</span>
+        <span class="soc-src"><span class="${platCls} soc-plat">${platTxt}</span> ${item.source}</span>
+        <span class="soc-sym">${syms||'—'}</span>
+        <span class="${sentCls}">${item.sentiment}</span>
+        <span class="soc-text">
+          ${metricHtml ? `<div style="margin-bottom:2px;">${metricHtml}</div>` : ''}
+          <a href="${item.link||'#'}" target="_blank" rel="noopener">${item.text.replace(/</g,'&lt;').substring(0,200)}</a>
+          ${scoreHtml}
+        </span>
+        <span></span>
+      </div>`;
+    });
+    feed.innerHTML = rows.join('');
+  } catch(e) { console.error('social earnings', e); }
 }
 
 // ── SMC row helper ────────────────────────────────────────
 function smcr(k,v,cls='') {
   return `<div class="dr"><span class="dk">${k}</span><span class="dv ${cls}">${v}</span></div>`;
+}
+
+// ── NSE India Panel ───────────────────────────────────────
+async function loadNSE() {
+  try {
+    const d = await fetch(`${BASE}/api/nse`).then(r=>r.json());
+    if (!d || Object.keys(d).length === 0) return;
+
+    const fii = d.fii_dii || {};
+    const vix = d.vix     || {};
+    const pcr = d.pcr     || {};
+    const fg  = d.fear_greed || {};
+
+    // FII net
+    const fiiNet  = fii.FII_net ?? null;
+    const diiNet  = fii.DII_net ?? null;
+    const fioCls  = fiiNet === null ? '' : fiiNet >= 0 ? 'fii-pos' : 'fii-neg';
+    const diiCls  = diiNet === null ? '' : diiNet >= 0 ? 'fii-pos' : 'fii-neg';
+    const fiiSign = fiiNet !== null && fiiNet >= 0 ? '+' : '';
+    const diiSign = diiNet !== null && diiNet >= 0 ? '+' : '';
+
+    // VIX level class
+    const vixVal  = vix.vix ?? null;
+    const vixCls  = vixVal === null ? '' : vixVal > 20 ? 'vix-hi' : vixVal > 14 ? 'vix-mid' : 'vix-lo';
+
+    // PCR class
+    const pcrVal  = pcr.pcr ?? null;
+    const pcrCls  = pcrVal === null ? '' : pcrVal > 1.2 ? 'pcr-bull' : pcrVal < 0.8 ? 'pcr-bear' : 'pcr-neu';
+
+    // Fear & Greed class
+    const fgVal   = fg.score ?? null;
+    const fgCls   = fgVal === null ? '' : fgVal >= 60 ? 'fii-neg' : fgVal <= 30 ? 'fii-pos' : 'pcr-neu';
+    const fgLabel = fg.label || '—';
+
+    document.getElementById('nse-body').innerHTML = `
+      <div class="nse-col">
+        <div class="nse-lbl">FII NET (₹Cr)</div>
+        <div class="nse-val ${fioCls}">${fiiNet !== null ? fiiSign+fiiNet.toLocaleString() : '—'}</div>
+        <div class="nse-sub">Buy: ${fii.FII_buy||'—'} | Sell: ${fii.FII_sell||'—'}</div>
+      </div>
+      <div class="nse-col">
+        <div class="nse-lbl">DII NET (₹Cr)</div>
+        <div class="nse-val ${diiCls}">${diiNet !== null ? diiSign+diiNet.toLocaleString() : '—'}</div>
+        <div class="nse-sub">Buy: ${fii.DII_buy||'—'} | Sell: ${fii.DII_sell||'—'}</div>
+      </div>
+      <div class="nse-col">
+        <div class="nse-lbl">INDIA VIX</div>
+        <div class="nse-val ${vixCls}">${vixVal ?? '—'}</div>
+        <div class="nse-sub">${vix.level||'—'} | Chg: ${vix.change ?? '—'} (${vix.pct ?? '—'}%)</div>
+      </div>
+      <div class="nse-col">
+        <div class="nse-lbl">NIFTY PCR</div>
+        <div class="nse-val ${pcrCls}">${pcrVal ?? '—'}</div>
+        <div class="nse-sub">Bias: ${pcr.bias||'—'} | Max Pain: ${pcr.max_pain ? pcr.max_pain.toLocaleString() : '—'}</div>
+      </div>
+      <div class="nse-col">
+        <div class="nse-lbl">FEAR &amp; GREED</div>
+        <div class="nse-val ${fgCls}">${fgVal ?? '—'}</div>
+        <div class="nse-sub">${fgLabel} | Prev: ${fg.previous ?? '—'} (${fg.change >= 0 ? '+' : ''}${fg.change ?? '—'})</div>
+      </div>`;
+
+    document.getElementById('nse-updated').textContent =
+      `Updated ${new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})} IST`;
+  } catch(e) { console.error('nse', e); }
 }
 
 // ── Boot ──────────────────────────────────────────────────
@@ -554,14 +1030,18 @@ async function boot() {
   loadStocks();
   loadSignal();
   loadEarnings();
+  loadSocialEarnings();
+  loadNSE();
 }
 
 boot();
-setInterval(loadNews,    30000);
-setInterval(loadIndices, 60000);
-setInterval(loadMacro,   60000);
-setInterval(loadSignal,  120000);
-setInterval(loadEarnings,300000);
+setInterval(loadNews,           30000);
+setInterval(loadIndices,        60000);
+setInterval(loadMacro,          60000);
+setInterval(loadSignal,        120000);
+setInterval(loadEarnings,      600000);   // full refresh every 10 min
+setInterval(loadSocialEarnings, 90000);
+setInterval(loadNSE,           300000);
 
 // ── Sources Manager ───────────────────────────────────────
 const CAT_COLOR = {

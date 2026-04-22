@@ -26,7 +26,9 @@ from sniper import sniper_entry
 from mtf import get_mtf_bias
 from structure import get_structure
 from earnings import get_earnings
+from earnings_social import get_earnings_social
 from sources_config import get_all_sources, approve, reject, add_pending
+from nse_data import get_nse_snapshot, get_bulk_deals
 from datetime import datetime, timezone, timedelta
 
 app = FastAPI(title="AI Market Terminal")
@@ -73,19 +75,59 @@ def now_ist():
 
 # ── Warm cache on startup ─────────────────────────────────
 def _warm():
-    try: _cached("news",     60,  _build_news)
+    # Stage 1: fast sources immediately (Telegram ~5s, indices, macro)
+    import threading as _t
+    def _fast():
+        try: _cached("news",    30, _build_news_fast)
+        except: pass
+        try: _cached("indices", 30, get_indices)
+        except: pass
+        try: _cached("macro",   30, get_macro_data)
+        except: pass
+        try: _cached("stocks",  120, _build_stocks)
+        except: pass
+    # Stage 2: full RSS build — force overwrites fast cache
+    def _full():
+        import time
+        time.sleep(3)  # let stage 1 complete first
+        try:
+            data = _build_news()
+            with _cache_lock:
+                _cache["news"] = {"data": data, "ts": _time.time()}
+        except: pass
+        try:
+            from earnings_telegram import get_telegram_earnings
+            get_telegram_earnings(force_refresh=True)
+        except: pass
+        try: _cached("earnings",   1800, get_earnings)   # 30-min TTL
+        except: pass
+        try: _cached("earn_social", 120, get_earnings_social)
+        except: pass
+        try: _cached("nse",         300, get_nse_snapshot)
+        except: pass
+    _t.Thread(target=_fast, daemon=True).start()
+    _t.Thread(target=_full, daemon=True).start()
+
+def _build_news_fast():
+    """Quick first-load: Telegram only (~5s)."""
+    from telegram_news import get_telegram_news
+    from news import _detect_tickers
+    tg = []
+    try:
+        items = get_telegram_news()
+        for item in items:
+            if isinstance(item, dict):
+                if "category" not in item: item["category"] = "HNI"
+                if not item.get("tickers"): item["tickers"] = _detect_tickers(item.get("text",""))
+            tg.append(item)
     except: pass
-    try: _cached("indices",  60,  get_indices)
-    except: pass
-    try: _cached("macro",    60,  get_macro_data)
-    except: pass
-    try: _cached("earnings", 300, get_earnings)
-    except: pass
+    scored = prioritize_news(tg, summarize=False)
+    return scored
 
 def _build_news():
-    raw = get_all_news()
-    scored = prioritize_news(raw, summarize=False)
-    return scored
+    from news import get_all_news
+    items = get_all_news()
+    return prioritize_news(items, summarize=False)
 
 threading.Thread(target=_warm, daemon=True).start()
 
@@ -94,18 +136,18 @@ threading.Thread(target=_warm, daemon=True).start()
 
 @app.get("/api/macro")
 def api_macro():
-    data = _bg_refresh("macro", 60, get_macro_data)
+    data = _bg_refresh("macro", 30, get_macro_data, empty={})
+    if not isinstance(data, dict): data = {}
     return {
-        "fx":          data.get("FX", {}),
-        "yields": data.get("US_YIELDS", {}),
+        "fx":            data.get("FX", {}),
+        "yields":        data.get("US_YIELDS", {}),
         "global_yields": data.get("GLOBAL_YIELDS", {}),
-        "oil":    data.get("OIL"),
-        "gold":   data.get("GOLD_SPOT"),
+        "oil":           data.get("OIL"),
+        "gold":          data.get("GOLD_SPOT"),
     }
 
 
-@app.get("/api/stocks")
-def api_stocks():
+def _build_stocks():
     return {
         "mag7":   get_mag7(),
         "semis":  get_semiconductors(),
@@ -113,6 +155,10 @@ def api_stocks():
         "etfs":   get_gold_etfs(),
         "movers": detect_movers(),
     }
+
+@app.get("/api/stocks")
+def api_stocks():
+    return _bg_refresh("stocks", 120, _build_stocks, empty={})
 
 
 @app.get("/api/econ")
@@ -131,64 +177,153 @@ def api_econ():
 
 @app.get("/api/news")
 def api_news():
-    scored = _bg_refresh("news", 60, _build_news)
+    scored = _bg_refresh("news", 30, _build_news)
     result = []
-    for score, item in scored:
-        if isinstance(item, dict):
-            result.append({
-                "score":      score,
-                "priority":   "high" if score >= 8 else "med" if score >= 4 else "low",
-                "headline":   item["text"],
-                "source":     item.get("source", ""),
-                "time":       item.get("time", ""),
-                "category":   item.get("category", "MARKETS"),
-                "summarized": item.get("summarized", False),
-            })
-        else:
-            result.append({"score": score, "priority": "low", "headline": item,
-                           "source": "", "time": "", "category": "MARKETS", "summarized": False})
+    for entry in scored:
+        try:
+            if isinstance(entry, (list, tuple)) and len(entry) == 2:
+                score, item = entry
+            else:
+                continue
+            if isinstance(item, dict):
+                result.append({
+                    "score":      score,
+                    "priority":   "high" if score >= 8 else "med" if score >= 4 else "low",
+                    "headline":   item.get("text", ""),
+                    "source":     item.get("source", ""),
+                    "time":       item.get("time", ""),
+                    "pub_utc":    item.get("pub_utc", ""),
+                    "category":   item.get("category", "MARKETS"),
+                    "summarized": item.get("summarized", False),
+                    "tickers":    item.get("tickers", []),
+                })
+            elif isinstance(item, str):
+                result.append({"score": score, "priority": "low", "headline": item,
+                               "source": "", "time": "", "pub_utc": "", "category": "MARKETS",
+                               "summarized": False, "tickers": []})
+        except Exception:
+            pass
     return result
 
 
 @app.get("/api/indices")
 def api_indices_cached():
-    return _bg_refresh("indices", 60, get_indices)
+    return _bg_refresh("indices", 30, get_indices)
 
 
-@app.get("/api/signal")
-def api_signal():
+def _build_signal():
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     macro_txt  = format_macro(get_macro_data())
     news_txt   = format_news(get_all_news())
     stocks_txt = format_stocks()
     econ       = get_economic_data()
-    signal     = generate_signal(macro_txt, news_txt, stocks_txt, econ)
-    brain      = interpret_macro(macro_txt, news_txt, stocks_txt, econ)
-    smc        = get_smc_analysis()
-    mtf        = get_mtf_bias()
-    sniper     = sniper_entry(signal)
-    structure  = get_structure()
+
+    results = {}
+    def _run(key, fn, *args):
+        try: results[key] = fn(*args)
+        except: results[key] = None
+
+    tasks = [
+        ("signal",    generate_signal,   macro_txt, news_txt, stocks_txt, econ),
+        ("brain",     interpret_macro,   macro_txt, news_txt, stocks_txt, econ),
+        ("smc",       get_smc_analysis),
+        ("mtf",       get_mtf_bias),
+        ("structure", get_structure),
+    ]
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        futs = {pool.submit(_run, t[0], t[1], *t[2:]): t[0] for t in tasks}
+        for f in as_completed(futs, timeout=15):
+            pass
+
+    signal    = results.get("signal") or {}
+    brain     = results.get("brain")  or {"insights": []}
+    smc       = results.get("smc")    or {"bos": "", "order_block": "", "liquidity": ""}
+    mtf       = results.get("mtf")    or {}
+    structure = results.get("structure") or {"high":0,"low":0,"pivot":0,"r1":0,"s1":0,"fib":{}}
+
+    sniper = {}
+    try: sniper = sniper_entry(signal)
+    except: sniper = {"entry":"—","htf":"—","sweep":"—","reason":"—"}
 
     return {
         "signal":    signal,
-        "insights":  brain["insights"],
-        "smc":       {"bos": smc["bos"], "ob": smc["order_block"], "liquidity": smc["liquidity"]},
+        "insights":  brain.get("insights", []),
+        "smc":       {"bos": smc.get("bos",""), "ob": smc.get("order_block",""), "liquidity": smc.get("liquidity","")},
         "mtf":       mtf,
-        "sniper":    {"entry": sniper["entry"], "htf": sniper["htf"], "sweep": sniper["sweep"], "reason": sniper["reason"]},
+        "sniper":    {"entry": sniper.get("entry","—"), "htf": sniper.get("htf","—"),
+                      "sweep": sniper.get("sweep","—"), "reason": sniper.get("reason","—")},
         "structure": {
-            "high":  round(float(structure["high"]), 2),
-            "low":   round(float(structure["low"]), 2),
-            "pivot": round(float(structure["pivot"]), 2),
-            "r1":    round(float(structure["r1"]), 2),
-            "s1":    round(float(structure["s1"]), 2),
-            "fib":   {k: round(float(v), 2) for k, v in structure["fib"].items()},
+            "high":  round(float(structure.get("high",0)), 2),
+            "low":   round(float(structure.get("low",0)),  2),
+            "pivot": round(float(structure.get("pivot",0)),2),
+            "r1":    round(float(structure.get("r1",0)),   2),
+            "s1":    round(float(structure.get("s1",0)),   2),
+            "fib":   {k: round(float(v), 2) for k, v in structure.get("fib",{}).items()},
         },
         "timestamp": now_ist(),
     }
 
+@app.get("/api/signal")
+def api_signal():
+    return _bg_refresh("signal", 300, _build_signal, empty={})
+
+
+@app.get("/api/nse")
+def api_nse():
+    return _cached("nse", 300, get_nse_snapshot)
+
+
+@app.get("/api/nse/bulk")
+def api_bulk_deals():
+    return _cached("bulk", 300, get_bulk_deals)
+
 
 @app.get("/api/earnings")
 def api_earnings():
-    return _bg_refresh("earnings", 300, get_earnings, empty=[])
+    return _bg_refresh("earnings", 1800, get_earnings, empty=[])
+
+
+@app.get("/api/earnings/live")
+def api_earnings_live():
+    """Fast endpoint — returns only LIVE-TG stocks from cache only (never triggers fresh fetch)."""
+    from earnings_telegram import _cache_get_all
+    from earnings import NAMES, REGION_MAP, WATCH_LIST, SECTOR_MAP
+    tg = _cache_get_all()   # read-only SQLite cache, instant
+    results = []
+    for ticker, d in tg.items():
+        name = NAMES.get(ticker, NAMES.get(ticker+".NS", ticker))
+        grp  = next((g for g, syms in WATCH_LIST.items()
+                     if ticker in syms or ticker+".NS" in syms), "")
+        region = d.get("region") or REGION_MAP.get(grp, "GLOBAL")
+        score = d.get("score", 50)
+        n = round(score / 20)
+        results.append({
+            "symbol": ticker, "name": name, "region": region,
+            "group": grp, "sector": SECTOR_MAP.get(grp,""),
+            "currency": "INR" if region=="INDIA" else "USD",
+            "earn_date": d.get("quarter","—"),
+            "eps_act": d.get("eps"), "eps_prev": None, "eps_yoy": d.get("yoy_growth"),
+            "revenue": (f"₹{d['revenue_cr']/1000:.1f}K Cr" if d.get("revenue_cr") and d["revenue_cr"]>=1000
+                       else f"₹{d['revenue_cr']:.0f} Cr" if d.get("revenue_cr")
+                       else f"${d['revenue_b']:.2f}B" if d.get("revenue_b") else "—"),
+            "rev_growth": None,
+            "net_interest_income": (f"₹{d['pat_cr']/1000:.1f}K Cr" if d.get("pat_cr") and d["pat_cr"]>=1000
+                                   else f"₹{d['pat_cr']:.0f} Cr" if d.get("pat_cr") else "—"),
+            "gross_margin": None, "margin_bps": None, "net_margin": None, "nim_bps": None,
+            "guidance": d.get("guidance","—") or "—",
+            "beat_miss": d.get("beat_miss"),
+            "commentary": d.get("commentary",""),
+            "score": score, "stars": "★"*n+"☆"*(5-n),
+            "data_source": "LIVE-TG", "price": None, "price_chg_pct": None,
+        })
+    results.sort(key=lambda x: -x["score"])
+    return results
+
+
+@app.get("/api/earnings/social")
+def api_earnings_social():
+    # Social data is fast (<25s) — fetch synchronously if no cache yet
+    return _cached("earn_social", 120, get_earnings_social)
 
 
 @app.get("/api/sources")

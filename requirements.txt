@@ -1,5 +1,5 @@
 fastapi
-uvicorn
+uvicorn[standard]
 yfinance
 pandas
 numpy
@@ -8,3 +8,5 @@ beautifulsoup4
 feedparser
 lxml
 python-multipart
+httpx
+aiohttp

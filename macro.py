@@ -1,86 +1,134 @@
+import requests
 import yfinance as yf
 
+HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; MacroBot/1.0)"}
 
-def _last(symbol, period="5d", interval="1h"):
-    """Fetch last available close for a symbol. Returns None on failure."""
+# ── Valid ranges — reject yfinance garbage outside these bands ────────────────
+VALID_RANGES = {
+    "DXY":    (80,  130),
+    "EURUSD": (0.9,  1.5),
+    "GBPUSD": (1.0,  1.6),
+    "USDJPY": (100,  165),
+    "USDCNY": (6.5,  7.5),
+    "USDINR": (75,   90),
+    "US_2Y":  (0.1,  8.0),
+    "US_10Y": (0.5,  8.0),
+    "US_30Y": (1.0,  8.0),
+    "OIL":    (40,   200),
+    "GOLD":   (1500, 6000),
+}
+
+def _in_range(name, val):
+    lo, hi = VALID_RANGES.get(name, (None, None))
+    if lo is None:
+        return True
+    return lo <= val <= hi
+
+def _yf_last(symbol, period="5d", interval="1h"):
     try:
-        df = yf.download(symbol, period=period, interval=interval, progress=False)
+        df = yf.download(symbol, period=period, interval=interval,
+                         progress=False, auto_adjust=True)
         if not df.empty:
-            return float(df["Close"].iloc[-1].item() if hasattr(df["Close"].iloc[-1], "item") else df["Close"].iloc[-1])
+            v = df["Close"].dropna().iloc[-1]
+            return float(v.item() if hasattr(v, "item") else v)
     except:
         pass
     return None
 
+# ── FRED fallback (St. Louis Fed — authoritative, free, no key) ───────────────
+_FRED_SERIES = {
+    "DXY":    "DTWEXBGS",   # Broad Dollar Index (close to DXY)
+    "US_2Y":  "DGS2",
+    "US_10Y": "DGS10",
+    "US_30Y": "DGS30",
+}
 
-# 🔹 Currencies
+def _fred(series_id):
+    try:
+        url  = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
+        resp = requests.get(url, timeout=8, headers=HEADERS)
+        lines = [l for l in resp.text.strip().splitlines() if not l.startswith("DATE") and "." in l]
+        if lines:
+            val = float(lines[-1].split(",")[1])
+            return val
+    except:
+        pass
+    return None
+
+def _get(name, yf_symbol, fred_series=None, period="5d", interval="1h", decimals=2):
+    val = _yf_last(yf_symbol, period, interval)
+    if val and _in_range(name, val):
+        return round(val, decimals)
+    # yfinance value bad — try FRED
+    if fred_series:
+        val = _fred(fred_series)
+        if val and _in_range(name, val):
+            return round(val, decimals)
+    return None
+
+
+# ── Currencies ─────────────────────────────────────────────────────────────────
 def get_fx_data():
-    symbols = {
-        "DXY":    ("DX-Y.NYB",  2),   # US Dollar Index (actual DXY, ~99-108)
-        "EURUSD": ("EURUSD=X",  4),
-        "GBPUSD": ("GBPUSD=X",  4),
-        "USDJPY": ("JPY=X",     3),
-        "USDCNY": ("CNY=X",     4),
-        "USDINR": ("INR=X",     2),
-    }
-
-    data = {}
-    for name, (ticker, decimals) in symbols.items():
-        val = _last(ticker)
-        if val:
-            data[name] = round(val, decimals)
-
-    return data
+    return {k: v for k, v in {
+        "DXY":    _get("DXY",    "DX-Y.NYB", "DTWEXBGS", decimals=2),
+        "EURUSD": _get("EURUSD", "EURUSD=X",  decimals=4),
+        "GBPUSD": _get("GBPUSD", "GBPUSD=X",  decimals=4),
+        "USDJPY": _get("USDJPY", "JPY=X",      decimals=2),
+        "USDCNY": _get("USDCNY", "CNY=X",      decimals=4),
+        "USDINR": _get("USDINR", "INR=X",      decimals=2),
+    }.items() if v is not None}
 
 
-# 🔹 US Yields
+# ── US Yields — yfinance ^TNX/^IRX return value * 10 sometimes, validate hard ─
 def get_us_yields():
-    symbols = {
-        "US_2Y":  ("^IRX", 3),
-        "US_10Y": ("^TNX", 3),
-        "US_30Y": ("^TYX", 3),
-    }
+    """FRED is authoritative for yields — use it first, yfinance as fallback."""
+    results = {}
+    for name, symbol, fred_id in [
+        ("US_2Y",  "^IRX", "DGS2"),
+        ("US_10Y", "^TNX", "DGS10"),
+        ("US_30Y", "^TYX", "DGS30"),
+    ]:
+        # Try FRED first (daily, authoritative, no auth needed)
+        val = _fred(fred_id)
+        if val and _in_range(name, val):
+            results[name] = round(val, 3)
+            continue
+        # FRED fallback — try yfinance
+        val = _yf_last(symbol)
+        if val and val > 15:
+            val = round(val / 10, 3)   # ^TNX/^TYX sometimes * 10
+        if val and _in_range(name, val):
+            results[name] = round(val, 3)
+    return results
 
-    data = {}
-    for name, (ticker, decimals) in symbols.items():
-        val = _last(ticker)
-        if val:
-            data[name] = round(val, decimals)
 
-    return data
-
-
-# 🔹 Global yields (ETF proxies — direct yield tickers not on yfinance)
+# ── Global yields (ETF proxies) ────────────────────────────────────────────────
 def get_global_yields():
-    symbols = {
-        "GER_BUND_ETF": ("IBGL.L", 3),   # iShares EUR Govt Bond 15-30yr
-        "JPN_JGB_ETF":  ("2621.T", 3),   # iShares JP Govt Bond ETF (Tokyo)
-    }
-
-    data = {}
-    for name, (ticker, decimals) in symbols.items():
-        val = _last(ticker)
-        if val:
-            data[name] = round(val, decimals)
-
-    return data
+    return {k: v for k, v in {
+        "GER_BUND_10Y": _yf_last("^IRDE10"),   # Germany 10Y
+        "UK_GILT_10Y":  _yf_last("^TNX"),       # proxy
+        "JPN_JGB_10Y":  _yf_last("^IRJP10"),    # Japan 10Y
+    }.items() if v and 0 < v < 20}
 
 
-# 🔹 Oil — try multiple symbols
+# ── Oil ────────────────────────────────────────────────────────────────────────
 def get_oil():
-    for symbol in ["CL=F", "BZ=F", "USO"]:
-        val = _last(symbol, period="5d", interval="1h")
-        if val:
+    for symbol in ["CL=F", "BZ=F"]:
+        val = _yf_last(symbol)
+        if val and _in_range("OIL", val):
             return round(val, 2)
     return None
 
 
-# 🔹 Gold spot (cross-check)
+# ── Gold spot ──────────────────────────────────────────────────────────────────
 def get_gold_spot():
-    val = _last("GC=F", period="5d", interval="1h")
-    return round(val, 2) if val else None
+    val = _yf_last("GC=F")
+    if val and _in_range("GOLD", val):
+        return round(val, 2)
+    return None
 
 
-# 🔹 Combine all macro
+# ── Combine ────────────────────────────────────────────────────────────────────
 def get_macro_data():
     return {
         "FX":            get_fx_data(),
@@ -91,41 +139,34 @@ def get_macro_data():
     }
 
 
-# 🔹 Bloomberg-style macro format
 def format_macro(data):
-    text  = f"\n{'MACRO DASHBOARD':─<44}\n"
-
+    text = f"\n{'MACRO DASHBOARD':─<44}\n"
     fx = data.get("FX", {})
     if fx:
         text += f"\n{'FX / DOLLAR':─<44}\n"
         for k, v in fx.items():
             text += f"  {k:<12} {v:>10}\n"
-
     yields = data.get("US_YIELDS", {})
     if yields:
         text += f"\n{'US YIELDS':─<44}\n"
         for k, v in yields.items():
             text += f"  {k:<12} {v:>10}%\n"
-
     gyields = data.get("GLOBAL_YIELDS", {})
     if gyields:
-        text += f"\n{'GLOBAL YIELDS (ETF)':─<44}\n"
+        text += f"\n{'GLOBAL YIELDS':─<44}\n"
         for k, v in gyields.items():
             text += f"  {k:<20} {v:>6}\n"
-
     oil = data.get("OIL")
     if oil:
         text += f"\n{'COMMODITIES':─<44}\n"
         text += f"  {'OIL (WTI)':<12} ${oil:>9}\n"
-
     gold = data.get("GOLD_SPOT")
     if gold:
         text += f"  {'GOLD SPOT':<12} ${gold:>9}\n"
-
     return text
 
 
 if __name__ == "__main__":
-    print("📡 Fetching macro data...\n")
+    print("Fetching macro data...\n")
     data = get_macro_data()
     print(format_macro(data))

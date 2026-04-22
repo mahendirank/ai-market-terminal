@@ -71,7 +71,7 @@ def prioritize_news(news_list, summarize=False):
 
     # Sort purely by time (newest first) — priority shown as badge only
     scored.sort(key=lambda item: -_parse_time(item[1]))
-    return scored[:40]
+    return scored[:350]
 
 
 def format_priority_news(news_list):
