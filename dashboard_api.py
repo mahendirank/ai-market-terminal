@@ -134,6 +134,11 @@ threading.Thread(target=_warm, daemon=True).start()
 
 # ─── Endpoints ────────────────────────────────────────────────
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
 @app.get("/api/macro")
 def api_macro():
     data = _bg_refresh("macro", 30, get_macro_data, empty={})
