@@ -12,6 +12,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Ensure SQLite cache directory exists
+RUN mkdir -p /app/db
+
 EXPOSE 8001
 
 CMD uvicorn dashboard_api:app --host 0.0.0.0 --port ${PORT:-8001}

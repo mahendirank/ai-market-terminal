@@ -354,7 +354,7 @@ def api_add_source(payload: dict = Body(...)):
 @app.get("/api/all")
 def api_all():
     return {
-        "indices": api_indices(),
+        "indices": api_indices_cached(),
         "macro":   api_macro(),
         "stocks":  api_stocks(),
         "news":    api_news(),
