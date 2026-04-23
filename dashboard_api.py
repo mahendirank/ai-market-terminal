@@ -10,26 +10,71 @@ import uvicorn
 import threading
 import time as _time
 
-from macro import get_macro_data
-from stocks import get_mag7, get_semiconductors, get_india_indices, get_gold_etfs, detect_movers
-from indices import get_indices
-from econ import get_econ_data, get_economic_data
-from news import get_all_news
-from priority import prioritize_news
-from trade_signal import generate_signal
-from interpreter import interpret_macro
-from macro import format_macro
-from news import format_news
-from stocks import format_stocks
-from smc import get_smc_analysis
-from sniper import sniper_entry
-from mtf import get_mtf_bias
-from structure import get_structure
-from earnings import get_earnings
-from earnings_social import get_earnings_social
-from sources_config import get_all_sources, approve, reject, add_pending
-from nse_data import get_nse_snapshot, get_bulk_deals
 from datetime import datetime, timezone, timedelta
+
+# Lazy import helpers — app starts even if a module has issues
+_import_errors = {}
+
+def _safe_import(name, fromlist):
+    try:
+        mod = __import__(name, fromlist=fromlist)
+        return mod
+    except Exception as e:
+        _import_errors[name] = str(e)
+        return None
+
+_macro_mod    = _safe_import("macro",          ["get_macro_data","format_macro"])
+_stocks_mod   = _safe_import("stocks",         ["get_mag7","get_semiconductors","get_india_indices","get_gold_etfs","detect_movers","format_stocks"])
+_indices_mod  = _safe_import("indices",        ["get_indices"])
+_econ_mod     = _safe_import("econ",           ["get_econ_data","get_economic_data"])
+_news_mod     = _safe_import("news",           ["get_all_news","format_news","_detect_tickers"])
+_priority_mod = _safe_import("priority",       ["prioritize_news"])
+_signal_mod   = _safe_import("trade_signal",   ["generate_signal"])
+_interp_mod   = _safe_import("interpreter",    ["interpret_macro"])
+_smc_mod      = _safe_import("smc",            ["get_smc_analysis"])
+_sniper_mod   = _safe_import("sniper",         ["sniper_entry"])
+_mtf_mod      = _safe_import("mtf",            ["get_mtf_bias"])
+_struct_mod   = _safe_import("structure",      ["get_structure"])
+_earn_mod     = _safe_import("earnings",       ["get_earnings","NAMES","REGION_MAP","WATCH_LIST","SECTOR_MAP"])
+_earn_soc_mod = _safe_import("earnings_social",["get_earnings_social"])
+_src_mod      = _safe_import("sources_config", ["get_all_sources","approve","reject","add_pending"])
+_nse_mod      = _safe_import("nse_data",       ["get_nse_snapshot","get_bulk_deals"])
+_tgnews_mod   = _safe_import("telegram_news",  ["get_telegram_news"])
+
+def _fn(mod, attr, fallback=None):
+    if mod is None: return fallback or (lambda *a, **k: {})
+    return getattr(mod, attr, fallback or (lambda *a, **k: {}))
+
+get_macro_data      = _fn(_macro_mod,    "get_macro_data")
+format_macro        = _fn(_macro_mod,    "format_macro",   lambda *a: "")
+get_mag7            = _fn(_stocks_mod,   "get_mag7",       list)
+get_semiconductors  = _fn(_stocks_mod,   "get_semiconductors", list)
+get_india_indices   = _fn(_stocks_mod,   "get_india_indices",  list)
+get_gold_etfs       = _fn(_stocks_mod,   "get_gold_etfs",      list)
+detect_movers       = _fn(_stocks_mod,   "detect_movers",      list)
+format_stocks       = _fn(_stocks_mod,   "format_stocks",  lambda: "")
+get_indices         = _fn(_indices_mod,  "get_indices",    list)
+get_econ_data       = _fn(_econ_mod,     "get_econ_data")
+get_economic_data   = _fn(_econ_mod,     "get_economic_data",  list)
+get_all_news        = _fn(_news_mod,     "get_all_news",   list)
+format_news         = _fn(_news_mod,     "format_news",    lambda *a: "")
+_detect_tickers     = _fn(_news_mod,     "_detect_tickers",    lambda *a: [])
+prioritize_news     = _fn(_priority_mod, "prioritize_news",    lambda x,**k: x)
+generate_signal     = _fn(_signal_mod,   "generate_signal")
+interpret_macro     = _fn(_interp_mod,   "interpret_macro")
+get_smc_analysis    = _fn(_smc_mod,      "get_smc_analysis")
+sniper_entry        = _fn(_sniper_mod,   "sniper_entry")
+get_mtf_bias        = _fn(_mtf_mod,      "get_mtf_bias")
+get_structure       = _fn(_struct_mod,   "get_structure")
+get_earnings        = _fn(_earn_mod,     "get_earnings",   list)
+get_earnings_social = _fn(_earn_soc_mod, "get_earnings_social", list)
+get_all_sources     = _fn(_src_mod,      "get_all_sources",     list)
+approve             = _fn(_src_mod,      "approve")
+reject              = _fn(_src_mod,      "reject")
+add_pending         = _fn(_src_mod,      "add_pending")
+get_nse_snapshot    = _fn(_nse_mod,      "get_nse_snapshot")
+get_bulk_deals      = _fn(_nse_mod,      "get_bulk_deals",      list)
+get_telegram_news   = _fn(_tgnews_mod,   "get_telegram_news",   list)
 
 app = FastAPI(title="AI Market Terminal")
 
@@ -109,9 +154,6 @@ def _warm():
     _t.Thread(target=_full, daemon=True).start()
 
 def _build_news_fast():
-    """Quick first-load: Telegram only (~5s)."""
-    from telegram_news import get_telegram_news
-    from news import _detect_tickers
     tg = []
     try:
         items = get_telegram_news()
@@ -125,7 +167,6 @@ def _build_news_fast():
     return scored
 
 def _build_news():
-    from news import get_all_news
     items = get_all_news()
     return prioritize_news(items, summarize=False)
 
@@ -136,7 +177,11 @@ threading.Thread(target=_warm, daemon=True).start()
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "import_errors": len(_import_errors)}
+
+@app.get("/api/errors")
+def api_errors():
+    return {"import_errors": _import_errors}
 
 
 @app.get("/api/macro")
@@ -290,10 +335,23 @@ def api_earnings():
 
 @app.get("/api/earnings/live")
 def api_earnings_live():
-    """Fast endpoint — returns only LIVE-TG stocks from cache only (never triggers fresh fetch)."""
-    from earnings_telegram import _cache_get_all
-    from earnings import NAMES, REGION_MAP, WATCH_LIST, SECTOR_MAP
-    tg = _cache_get_all()   # read-only SQLite cache, instant
+    try:
+        from earnings_telegram import _cache_get_all
+        tg = _cache_get_all()
+    except Exception:
+        return []
+    NAMES      = getattr(_earn_mod, "NAMES",      {}) if _earn_mod else {}
+    REGION_MAP = getattr(_earn_mod, "REGION_MAP", {}) if _earn_mod else {}
+    WATCH_LIST = getattr(_earn_mod, "WATCH_LIST", {}) if _earn_mod else {}
+    SECTOR_MAP = getattr(_earn_mod, "SECTOR_MAP", {}) if _earn_mod else {}
+    results = []
+    for ticker, d in tg.items():
+        name = NAMES.get(ticker, NAMES.get(ticker+".NS", ticker))
+        grp  = next((g for g, syms in WATCH_LIST.items()
+                     if ticker in syms or ticker+".NS" in syms), "")
+        region = d.get("region") or REGION_MAP.get(grp, "GLOBAL")
+        score = d.get("score", 50)
+        n = round(score / 20)
     results = []
     for ticker, d in tg.items():
         name = NAMES.get(ticker, NAMES.get(ticker+".NS", ticker))
