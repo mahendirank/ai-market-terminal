@@ -238,6 +238,42 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 .dbr-k { color:var(--muted); }
 .dbr-v { color:var(--head); font-weight:bold; }
 
+/* ── AI BADGES ── */
+.ai-bull { display:inline-block; background:#002a14; color:#00d26a; border:1px solid #005a28; font-size:8px; font-weight:bold; padding:1px 5px; border-radius:2px; letter-spacing:0.5px; white-space:nowrap; }
+.ai-bear { display:inline-block; background:#2a0010; color:#ff3b5c; border:1px solid #5a0020; font-size:8px; font-weight:bold; padding:1px 5px; border-radius:2px; letter-spacing:0.5px; white-space:nowrap; }
+.ai-neu  { display:inline-block; background:#111820; color:#4a5568; border:1px solid #1c2230; font-size:8px; font-weight:bold; padding:1px 5px; border-radius:2px; letter-spacing:0.5px; white-space:nowrap; }
+.impact-dot { display:inline-block; width:6px; height:6px; border-radius:50%; margin-right:2px; }
+.imp-hi { background:#ff3b5c; }
+.imp-md { background:#f5a623; }
+.imp-lo { background:#4a5568; }
+.asset-tag { display:inline-block; background:#0d1a2a; color:#3d9cf5; border:1px solid #1c3050; font-size:7px; font-weight:bold; padding:1px 3px; border-radius:2px; margin-right:2px; white-space:nowrap; }
+.why-matters { font-size:9px; color:#5a6a7a; font-style:italic; padding:1px 0 2px 0; display:none; }
+.nr:hover .why-matters { display:block; }
+/* ── DECISION PANEL ── */
+.dec-panel { border-bottom:1px solid var(--border); }
+.dec-card  { display:flex; justify-content:space-between; align-items:center; padding:4px 10px; border-bottom:1px solid #0d1017; }
+.dec-card:last-child { border:none; }
+.dec-asset { color:var(--head); font-size:10px; font-weight:bold; min-width:50px; }
+.dec-bias  { font-size:11px; font-weight:bold; letter-spacing:1px; padding:1px 6px; border-radius:2px; }
+.dec-buy   { background:#002a14; color:#00d26a; border:1px solid #00d26a; }
+.dec-sell  { background:#2a0010; color:#ff3b5c; border:1px solid #ff3b5c; }
+.dec-wait  { background:#1a1400; color:#f5a623; border:1px solid #f5a623; }
+.dec-conf  { color:var(--muted); font-size:9px; }
+.dec-type  { font-size:8px; color:#3d9cf5; letter-spacing:1px; }
+.dec-reason { font-size:8px; color:#3a4a5a; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:140px; }
+/* ── SENTIMENT BAR ── */
+.sent-bar-wrap { padding:4px 10px; border-bottom:1px solid var(--border); }
+.sent-bar { display:flex; height:4px; border-radius:2px; overflow:hidden; margin-top:3px; }
+.sent-bull-fill { background:var(--green); }
+.sent-bear-fill { background:var(--red); }
+.sent-neu-fill  { background:var(--muted); }
+.sent-labels    { display:flex; justify-content:space-between; font-size:9px; margin-top:2px; }
+/* ── ASSET FILTER ── */
+.asset-filters { display:flex; gap:4px; padding:4px 8px; background:#0a0e14; border-bottom:1px solid var(--border); overflow-x:auto; flex-shrink:0; }
+.asset-filters::-webkit-scrollbar { display:none; }
+.af-btn { padding:2px 8px; font-size:9px; font-weight:bold; letter-spacing:1px; cursor:pointer; border:1px solid var(--border); border-radius:2px; background:transparent; color:var(--muted); white-space:nowrap; font-family:inherit; transition:all 0.15s; }
+.af-btn:hover { border-color:var(--accent); color:var(--accent); }
+.af-btn.active { background:#1a1200; border-color:var(--accent); color:var(--accent); }
 /* ── RESPONSIVE ── */
 @media(max-width:900px){
   body { overflow:auto; height:auto; }
@@ -362,6 +398,20 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
       <div class="ctab" data-cat="CRYPTO"      onclick="setCat(this)">CRYPTO          <span class="cnt" id="cnt-CRYPTO">—</span></div>
       <div class="ctab" data-cat="GLOBAL"      onclick="setCat(this)">ASIA/GLOBAL     <span class="cnt" id="cnt-GLOBAL">—</span></div>
     </div>
+    <!-- ASSET QUICK FILTERS -->
+    <div class="asset-filters" id="asset-filters">
+      <span style="color:var(--muted);font-size:9px;letter-spacing:1px;white-space:nowrap;align-self:center;">ASSET:</span>
+      <button class="af-btn active" data-asset="ALL"   onclick="setAsset(this)">ALL</button>
+      <button class="af-btn" data-asset="GOLD"  onclick="setAsset(this)">GOLD</button>
+      <button class="af-btn" data-asset="OIL"   onclick="setAsset(this)">OIL</button>
+      <button class="af-btn" data-asset="BTC"   onclick="setAsset(this)">BTC</button>
+      <button class="af-btn" data-asset="SPX"   onclick="setAsset(this)">S&amp;P</button>
+      <button class="af-btn" data-asset="NDX"   onclick="setAsset(this)">NASDAQ</button>
+      <button class="af-btn" data-asset="DXY"   onclick="setAsset(this)">DXY</button>
+      <button class="af-btn" data-asset="NIFTY" onclick="setAsset(this)">NIFTY</button>
+      <button class="af-btn" data-asset="FED"   onclick="setAsset(this)">FED</button>
+      <button class="af-btn" data-asset="RATES" onclick="setAsset(this)">RATES</button>
+    </div>
     <div class="news-feed" id="news-feed">
       <div class="loading"><span class="spinner">◌</span> Fetching live news from 60+ sources...</div>
     </div>
@@ -369,6 +419,32 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 
   <!-- SIDEBAR -->
   <div class="sidebar">
+
+    <!-- AI MARKET SENTIMENT -->
+    <div class="sp dec-panel">
+      <div class="sh" style="color:#00ff88;">⚡ AI MARKET SENTIMENT</div>
+      <div class="sent-bar-wrap" id="sid-sentiment">
+        <div style="display:flex;justify-content:space-between;font-size:9px;">
+          <span id="sent-bias" style="font-weight:bold;color:var(--muted);">LOADING...</span>
+          <span id="sent-conf" style="color:var(--muted);"></span>
+        </div>
+        <div class="sent-bar">
+          <div class="sent-bull-fill" id="sent-bull-fill" style="width:33%"></div>
+          <div class="sent-bear-fill" id="sent-bear-fill" style="width:33%"></div>
+          <div class="sent-neu-fill"  id="sent-neu-fill"  style="width:34%"></div>
+        </div>
+        <div class="sent-labels">
+          <span style="color:var(--green);" id="sent-bull-pct">—% BULL</span>
+          <span style="color:var(--red);"   id="sent-bear-pct">—% BEAR</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- AI TRADE DECISIONS -->
+    <div class="sp dec-panel">
+      <div class="sh" style="color:#00ff88;">🎯 AI TRADE DECISIONS</div>
+      <div id="sid-decisions"><div class="loading" style="padding:8px;">Loading AI analysis...</div></div>
+    </div>
 
     <div class="sp">
       <div class="sh">TRADE SIGNAL</div>
@@ -512,10 +588,20 @@ function toggleSocial() {
 }
 
 // ── Category tab filter ───────────────────────────────────
+let activeAsset = 'ALL';
+let aiNewsMap   = {};   // headline → {sentiment, impact, assets, summary, why}
+
 function setCat(el) {
   document.querySelectorAll('.ctab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
   activeCat = el.dataset.cat;
+  renderFeed();
+}
+
+function setAsset(el) {
+  document.querySelectorAll('.af-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  activeAsset = el.dataset.asset;
   renderFeed();
 }
 
@@ -640,15 +726,36 @@ function timeAgo(pubUtc) {
 
 function renderFeed(freshSet) {
   const feed = document.getElementById('news-feed');
-  const raw  = activeCat === 'ALL' ? allNews : allNews.filter(n => n.category === activeCat);
-  // Always show freshest at top
+  let raw = activeCat === 'ALL' ? allNews : allNews.filter(n => n.category === activeCat);
+
+  // Asset filter
+  if (activeAsset !== 'ALL') {
+    raw = raw.filter(n => {
+      const ai = aiNewsMap[n.headline];
+      if (ai && ai.assets && ai.assets.includes(activeAsset)) return true;
+      const txt = (n.headline||'').toLowerCase();
+      const assetWords = {
+        'GOLD':['gold','xauusd'],'OIL':['oil','crude','brent','wti'],
+        'BTC':['bitcoin','btc','crypto'],'SPX':['s&p','spx','s&p 500'],
+        'NDX':['nasdaq','ndx','tech stocks'],'DXY':['dollar','dxy','usd index'],
+        'NIFTY':['nifty','sensex','india index'],'FED':['fed','fomc','powell','rate'],
+        'RATES':['yield','bond','treasury','rates']
+      };
+      return (assetWords[activeAsset]||[]).some(w => txt.includes(w));
+    });
+  }
+
   const list = [...raw].sort((a,b) => {
     if (!a.pub_utc && !b.pub_utc) return 0;
     if (!a.pub_utc) return 1;
     if (!b.pub_utc) return -1;
     return b.pub_utc.localeCompare(a.pub_utc);
   });
-  if (!list.length) { feed.innerHTML = '<div class="loading" style="padding:12px;">No stories in this category yet — check back in 30s</div>'; return; }
+
+  if (!list.length) {
+    feed.innerHTML = '<div class="loading" style="padding:12px;">No stories matching this filter yet</div>';
+    return;
+  }
 
   const now = Date.now();
   feed.innerHTML = list.map(n => {
@@ -661,27 +768,41 @@ function renderFeed(freshSet) {
     const sc  = n.score > 0 ? n.score : '';
     const tickers = n.tickers || [];
 
-    // BREAKING: published within last 5 minutes
+    // BREAKING badge
     let brkBadge = '';
     if (n.pub_utc) {
       const ageSec = (now - new Date(n.pub_utc).getTime()) / 1000;
       if (ageSec < 300) brkBadge = '<span class="brk">BREAKING</span>';
     }
 
-    // time-ago display
     const ago = timeAgo(n.pub_utc);
-
-    // source — split base and "+N" for styling
     const srcParts = (n.source||'').split(' +');
     const srcBase  = srcParts[0];
     const srcExtra = srcParts.length > 1 ? ` <span class="src-extra">+${srcParts[1]}</span>` : '';
+
+    // AI badges
+    const ai = aiNewsMap[n.headline];
+    let aiBadge = '', impDot = '', whyLine = '';
+    if (ai) {
+      const sentClass = ai.sentiment==='BULL' ? 'ai-bull' : ai.sentiment==='BEAR' ? 'ai-bear' : 'ai-neu';
+      const sentLabel = ai.sentiment==='BULL' ? '▲BULL' : ai.sentiment==='BEAR' ? '▼BEAR' : '◆NEU';
+      aiBadge = `<span class="${sentClass}">${sentLabel}</span>`;
+      if (ai.impact >= 8)      impDot = '<span class="impact-dot imp-hi" title="High Impact"></span>';
+      else if (ai.impact >= 5) impDot = '<span class="impact-dot imp-md" title="Medium Impact"></span>';
+      if (ai.why) whyLine = `<div class="why-matters">💡 ${ai.why}</div>`;
+    }
 
     return `<div class="${rc}">
       <span class="nt">${n.time||'—'}</span>
       <span class="nago">${ago}</span>
       <span class="ns sc-${n.category}">${srcBase}${srcExtra}</span>
-      <span class="${tc}" title="${(n.headline||'').replace(/"/g,"'")}">${brkBadge}${n.headline||''}</span>
-      ${renderTickerTags(tickers)}
+      <span class="${tc}" title="${(n.headline||'').replace(/"/g,"'")}">
+        ${impDot}${brkBadge}${n.headline||''}
+        ${whyLine}
+      </span>
+      <span style="display:inline-flex;gap:2px;align-items:center;flex-shrink:0;">
+        ${aiBadge}${renderTickerTags(tickers)}
+      </span>
       <span class="${bc}">${sc}</span>
     </div>`;
   }).join('');
@@ -1057,6 +1178,85 @@ async function loadNSE() {
   } catch(e) { console.error('nse', e); }
 }
 
+// ── Load AI news intelligence ─────────────────────────────
+async function loadAINews() {
+  try {
+    const d = await fetch(`${BASE}/api/news/ai`).then(r=>r.json());
+    const news = d.news || [];
+
+    // Build aiNewsMap: headline → AI enrichment
+    aiNewsMap = {};
+    news.forEach(n => { if (n.headline || n.text) aiNewsMap[n.headline||n.text] = n; });
+
+    // Re-render feed with new AI badges
+    renderFeed();
+
+    // Update sentiment bar
+    const s = d.sentiment || {};
+    const bias = s.bias || 'NEU';
+    const bullPct = s.bull_pct || 33;
+    const bearPct = s.bear_pct || 33;
+    const neuPct  = 100 - bullPct - bearPct;
+    const biasEl  = document.getElementById('sent-bias');
+    const confEl  = document.getElementById('sent-conf');
+    if (biasEl) {
+      biasEl.textContent = bias === 'BULL' ? '▲ BULLISH' : bias === 'BEAR' ? '▼ BEARISH' : '◆ NEUTRAL';
+      biasEl.style.color = bias==='BULL' ? 'var(--green)' : bias==='BEAR' ? 'var(--red)' : 'var(--muted)';
+    }
+    if (confEl) confEl.textContent = `${s.confidence||50}% confidence`;
+    const bf = document.getElementById('sent-bull-fill');
+    const rf = document.getElementById('sent-bear-fill');
+    const nf = document.getElementById('sent-neu-fill');
+    if (bf) bf.style.width = bullPct + '%';
+    if (rf) rf.style.width = bearPct + '%';
+    if (nf) nf.style.width = Math.max(0, neuPct) + '%';
+    const bpEl = document.getElementById('sent-bull-pct');
+    const rpEl = document.getElementById('sent-bear-pct');
+    if (bpEl) bpEl.textContent = `${bullPct}% BULL`;
+    if (rpEl) rpEl.textContent = `${bearPct}% BEAR`;
+  } catch(e) { console.error('ai_news', e); }
+}
+
+// ── Load AI trade decisions ───────────────────────────────
+async function loadDecisions() {
+  try {
+    const d = await fetch(`${BASE}/api/decisions`).then(r=>r.json());
+    const decisions = d.decisions || [];
+    const overall   = d.overall   || {};
+    const el = document.getElementById('sid-decisions');
+    if (!el) return;
+
+    if (!decisions.length) {
+      el.innerHTML = '<div style="padding:8px;color:var(--muted);font-size:9px;">Loading AI analysis...</div>';
+      return;
+    }
+
+    // Overall bias at top
+    const ob = overall.bias || 'WAIT';
+    const oc = overall.confidence || 50;
+    const obClass = ob==='BUY' ? 'dec-buy' : ob==='SELL' ? 'dec-sell' : 'dec-wait';
+    let html = `<div style="padding:5px 10px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+      <span style="color:var(--muted);font-size:9px;">MARKET BIAS</span>
+      <span class="dec-bias ${obClass}">${ob}</span>
+      <span style="color:var(--muted);font-size:9px;">${oc}% conf · ${overall.summary||''}</span>
+    </div>`;
+
+    html += decisions.slice(0, 7).map(d => {
+      const bClass = d.bias==='BUY' ? 'dec-buy' : d.bias==='SELL' ? 'dec-sell' : 'dec-wait';
+      const tColor = d.trade_type==='SWING' ? '#00d26a' : d.trade_type==='SCALP' ? '#3d9cf5' : '#4a5568';
+      return `<div class="dec-card">
+        <span class="dec-asset">${d.asset}</span>
+        <span class="dec-bias ${bClass}">${d.bias}</span>
+        <span class="dec-conf">${d.confidence}%</span>
+        <span class="dec-type" style="color:${tColor}">${d.trade_type}</span>
+        <span class="dec-reason" title="${d.reason}">${d.reason}</span>
+      </div>`;
+    }).join('');
+
+    el.innerHTML = html;
+  } catch(e) { console.error('decisions', e); }
+}
+
 // ── Boot ──────────────────────────────────────────────────
 async function boot() {
   await Promise.all([loadNews(), loadIndices(), loadMacro()]);
@@ -1065,6 +1265,9 @@ async function boot() {
   loadEarnings();
   loadSocialEarnings();
   loadNSE();
+  // AI layer — load after news is ready
+  setTimeout(loadAINews,   8000);
+  setTimeout(loadDecisions, 12000);
 }
 
 boot();
@@ -1072,9 +1275,11 @@ setInterval(loadNews,           30000);
 setInterval(loadIndices,        60000);
 setInterval(loadMacro,          60000);
 setInterval(loadSignal,        120000);
-setInterval(loadEarnings,      600000);   // full refresh every 10 min
+setInterval(loadEarnings,      600000);
 setInterval(loadSocialEarnings, 90000);
 setInterval(loadNSE,           300000);
+setInterval(loadAINews,        600000);   // AI refresh every 10 min
+setInterval(loadDecisions,     300000);   // decisions every 5 min
 
 // ── Sources Manager ───────────────────────────────────────
 const CAT_COLOR = {

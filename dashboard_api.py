@@ -198,6 +198,54 @@ def health():
     return {"status": "ok"}
 
 
+def _build_ai_news():
+    """Enrich top high-impact news with Groq AI sentiment + summary."""
+    try:
+        from ai_layer import enrich_news, get_market_sentiment
+        from priority import prioritize_news
+        # Get cached news
+        scored = _cache.get("news", {}).get("data") or []
+        # Take top 30 by score for AI enrichment
+        top = []
+        for entry in scored[:60]:
+            if isinstance(entry, (list,tuple)) and len(entry)==2:
+                score, item = entry
+                if isinstance(item, dict) and score >= 3:
+                    top.append(item)
+        if not top:
+            return {"news": [], "sentiment": {}, "source": "none"}
+        enriched  = enrich_news(top[:30])
+        sentiment = get_market_sentiment(enriched)
+        return {"news": enriched, "sentiment": sentiment, "source": "ai"}
+    except Exception as e:
+        return {"news": [], "sentiment": {}, "error": str(e)}
+
+
+def _build_decisions():
+    """Generate AI trade decisions for key assets."""
+    try:
+        from decision_engine import generate_decisions, get_overall_bias
+        ai_data  = _cache.get("ai_news", {}).get("data") or {}
+        enriched = ai_data.get("news", [])
+        decisions = generate_decisions(enriched_news=enriched)
+        overall   = get_overall_bias(decisions)
+        return {"decisions": decisions, "overall": overall}
+    except Exception as e:
+        return {"decisions": [], "overall": {}, "error": str(e)}
+
+
+@app.get("/api/news/ai")
+def api_news_ai():
+    """AI-enriched news: sentiment, summary, impact, affected assets."""
+    return _bg_refresh("ai_news", 600, _build_ai_news, empty={"news":[],"sentiment":{}})
+
+
+@app.get("/api/decisions")
+def api_decisions():
+    """Trade decisions per asset combining AI news + technicals."""
+    return _bg_refresh("decisions", 300, _build_decisions, empty={"decisions":[],"overall":{}})
+
+
 @app.get("/api/macro")
 def api_macro():
     data = _bg_refresh("macro", 30, lambda: _lazy("macro", "get_macro_data"), empty={})
