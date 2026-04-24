@@ -301,6 +301,7 @@ def api_news():
                     "category":   item.get("category", "MARKETS"),
                     "summarized": item.get("summarized", False),
                     "tickers":    item.get("tickers", []),
+                    "url":        item.get("url", ""),
                 })
         except: pass
     return result
@@ -418,6 +419,16 @@ def api_add_source(payload: dict = Body(...)):
                     payload.get("type", "telegram"))
     except: pass
     return {"ok": True, "name": payload["name"], "status": "pending"}
+
+
+@app.get("/api/article")
+def api_article(url: str):
+    """Fetch full article text from a news URL."""
+    try:
+        from news_fetch import fetch_article
+        return fetch_article(url)
+    except Exception as e:
+        return {"error": str(e), "paywall": False}
 
 
 @app.get("/api/all")

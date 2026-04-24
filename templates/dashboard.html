@@ -249,6 +249,24 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 .asset-tag { display:inline-block; background:#0d1a2a; color:#3d9cf5; border:1px solid #1c3050; font-size:7px; font-weight:bold; padding:1px 3px; border-radius:2px; margin-right:2px; white-space:nowrap; }
 .why-matters { font-size:9px; color:#5a6a7a; font-style:italic; padding:1px 0 2px 0; display:none; }
 .nr:hover .why-matters { display:block; }
+/* ── READ FULL STORY ── */
+.read-btn { background:#0d1a2a; color:#3d9cf5; border:1px solid #1c3050; font-size:8px; font-weight:bold; padding:1px 5px; border-radius:2px; cursor:pointer; white-space:nowrap; flex-shrink:0; }
+.read-btn:hover { background:#1c3050; color:#fff; }
+/* Story modal */
+.story-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.82); z-index:9999; overflow-y:auto; }
+.story-overlay.open { display:flex; align-items:flex-start; justify-content:center; padding:20px 10px; }
+.story-modal { background:#0c1117; border:1px solid #1c2a3a; border-radius:6px; width:100%; max-width:760px; padding:20px 24px; position:relative; }
+.story-modal h2 { font-size:15px; color:#e8eaf0; font-weight:600; margin:0 0 10px 0; line-height:1.4; }
+.story-meta { font-size:10px; color:#5a6a7a; margin-bottom:12px; display:flex; gap:12px; flex-wrap:wrap; }
+.story-body { font-size:12px; color:#aab; line-height:1.8; white-space:pre-wrap; max-height:65vh; overflow-y:auto; }
+.story-body::-webkit-scrollbar { width:4px; } .story-body::-webkit-scrollbar-thumb { background:#2a3040; }
+.story-img  { width:100%; max-height:200px; object-fit:cover; border-radius:4px; margin-bottom:12px; }
+.story-close { position:absolute; top:10px; right:14px; background:none; border:none; color:#5a6a7a; font-size:18px; cursor:pointer; line-height:1; }
+.story-close:hover { color:#fff; }
+.story-loading { text-align:center; color:#3d9cf5; font-size:12px; padding:40px 0; }
+.story-actions { display:flex; gap:8px; margin-top:14px; padding-top:12px; border-top:1px solid #1c2a3a; }
+.story-open-btn { background:#0d1a2a; color:#3d9cf5; border:1px solid #3d9cf5; font-size:11px; padding:5px 14px; border-radius:3px; cursor:pointer; text-decoration:none; }
+.story-open-btn:hover { background:#3d9cf5; color:#000; }
 /* ── DECISION PANEL ── */
 .dec-panel { border-bottom:1px solid var(--border); }
 .dec-card  { display:flex; justify-content:space-between; align-items:center; padding:4px 10px; border-bottom:1px solid #0d1017; }
@@ -792,6 +810,11 @@ function renderFeed(freshSet) {
       if (ai.why) whyLine = `<div class="why-matters">💡 ${ai.why}</div>`;
     }
 
+    const hasUrl = n.url && n.url.startsWith('http');
+    const readBtn = hasUrl
+      ? `<button class="read-btn" onclick="openStory(${JSON.stringify(n.url)},${JSON.stringify(n.headline||'')},${JSON.stringify(n.source||'')})">▶ Read</button>`
+      : '';
+
     return `<div class="${rc}">
       <span class="nt">${n.time||'—'}</span>
       <span class="nago">${ago}</span>
@@ -801,7 +824,7 @@ function renderFeed(freshSet) {
         ${whyLine}
       </span>
       <span style="display:inline-flex;gap:2px;align-items:center;flex-shrink:0;">
-        ${aiBadge}${renderTickerTags(tickers)}
+        ${aiBadge}${renderTickerTags(tickers)}${readBtn}
       </span>
       <span class="${bc}">${sc}</span>
     </div>`;
@@ -1346,6 +1369,66 @@ async function addSource() {
 document.getElementById('src-modal').addEventListener('click', e => {
   if (e.target === document.getElementById('src-modal')) closeSources();
 });
+
+// ── STORY READER ──────────────────────────────────────────────
+let _storyUrl = '';
+
+async function openStory(url, headline, source) {
+  _storyUrl = url;
+  const overlay = document.getElementById('story-overlay');
+  const body    = document.getElementById('story-body');
+  const title   = document.getElementById('story-title');
+  const meta    = document.getElementById('story-meta');
+  const img     = document.getElementById('story-img');
+  const openBtn = document.getElementById('story-open-btn');
+
+  title.textContent = headline;
+  meta.textContent  = source;
+  img.style.display = 'none';
+  body.innerHTML    = '<div class="story-loading">Loading article…</div>';
+  openBtn.href      = url;
+  overlay.classList.add('open');
+  document.body.style.overflow = 'hidden';
+
+  try {
+    const data = await fetch(`${BASE}/api/article?url=${encodeURIComponent(url)}`).then(r=>r.json());
+    if (data.image) {
+      img.src = data.image;
+      img.style.display = 'block';
+    }
+    if (data.title) title.textContent = data.title;
+    const authors = data.authors && data.authors.length ? '  ✍ ' + data.authors.join(', ') : '';
+    meta.textContent = source + authors;
+    body.textContent = data.text || 'Could not load article content.';
+  } catch(e) {
+    body.textContent = 'Failed to load article. Click "Open Article" to read on the original site.';
+  }
+}
+
+function closeStory() {
+  document.getElementById('story-overlay').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+document.getElementById('story-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('story-overlay')) closeStory();
+});
 </script>
+
+<!-- Story Reader Modal -->
+<div class="story-overlay" id="story-overlay">
+  <div class="story-modal">
+    <button class="story-close" onclick="closeStory()">✕</button>
+    <h2 id="story-title"></h2>
+    <div class="story-meta" id="story-meta"></div>
+    <img id="story-img" class="story-img" style="display:none" alt="article image" onerror="this.style.display='none'">
+    <div class="story-body" id="story-body"></div>
+    <div class="story-actions">
+      <a id="story-open-btn" class="story-open-btn" href="#" target="_blank" rel="noopener">↗ Open Article in New Tab</a>
+      <button class="story-open-btn" onclick="closeStory()" style="border-color:#2a3040;color:#5a6a7a;">Close</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>

@@ -75,7 +75,9 @@ def _fetch_channel(source, url):
                 else:
                     ts_ist = ""
                 cat = SOURCE_CATEGORY.get(source, "MARKETS")
-                news.append({"text": text, "source": source, "time": ts_ist, "category": cat})
+                msg_link = msg.select_one("a.tgme_widget_message_date")
+                msg_url  = msg_link["href"] if msg_link and msg_link.get("href") else ""
+                news.append({"text": text, "source": source, "time": ts_ist, "category": cat, "url": msg_url})
             except:
                 pass
     except:

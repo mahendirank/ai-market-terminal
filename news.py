@@ -329,6 +329,7 @@ def _fetch_one(source, url):
                         pass
                 cat     = SOURCE_CATEGORY.get(source, "MARKETS")
                 tickers = _detect_tickers(title)
+                item_url = entry.get("link", "") or entry.get("id", "")
                 items.append({
                     "text":     title,
                     "source":   source,
@@ -336,6 +337,7 @@ def _fetch_one(source, url):
                     "pub_utc":  pub_utc,
                     "category": cat,
                     "tickers":  tickers,
+                    "url":      item_url,
                 })
             except:
                 pass
@@ -394,6 +396,7 @@ def get_alpaca_news():
                     "pub_utc":  pub_utc,
                     "category": "MARKETS",
                     "tickers":  tickers,
+                    "url":      art.get("url", ""),
                 })
             except:
                 pass
