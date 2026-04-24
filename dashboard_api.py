@@ -421,35 +421,40 @@ def api_add_source(payload: dict = Body(...)):
     return {"ok": True, "name": payload["name"], "status": "pending"}
 
 
+def _get_news_cache():
+    """Return raw news cache list for research context."""
+    return _cache.get("news", {}).get("data") or []
+
+
 @app.get("/api/research/{asset}")
 def api_research_asset(asset: str):
-    """Perplexity live research for a specific asset panel."""
+    """Groq deep analysis for a specific asset segment using live news feed."""
     try:
-        from perplexity import research_asset
-        return research_asset(asset.upper())
+        from groq_research import research_asset
+        return research_asset(asset.upper(), all_news=_get_news_cache())
     except Exception as e:
         return {"error": str(e), "asset": asset}
 
 
 @app.post("/api/research/query")
 def api_research_query(payload: dict = Body(...)):
-    """Perplexity free-form market research query."""
+    """Groq free-form market research query against live news feed."""
     try:
-        from perplexity import research_query
+        from groq_research import research_query
         q = payload.get("query", "").strip()
         if not q:
             return {"error": "No query provided"}
-        return research_query(q)
+        return research_query(q, all_news=_get_news_cache())
     except Exception as e:
         return {"error": str(e)}
 
 
 @app.get("/api/research")
 def api_research_all():
-    """Research all asset panels (uses cache, max 1 Perplexity call per panel per 15 min)."""
+    """Research all asset panels via Groq (cached 15 min per panel)."""
     try:
-        from perplexity import research_all, get_cache_status
-        return {"panels": research_all(), "cache": get_cache_status()}
+        from groq_research import get_cache_status
+        return {"cache": get_cache_status()}
     except Exception as e:
         return {"error": str(e)}
 

@@ -484,7 +484,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
         </div>
       </div>
       <div style="text-align:center;color:#2a3a4a;font-size:9px;margin-top:12px;letter-spacing:1px;">
-        POWERED BY PERPLEXITY SONAR-PRO · LIVE WEB SEARCH · REFRESHES EVERY 15 MIN
+        POWERED BY GROQ llama-3.1-8b · YOUR LIVE NEWS FEED · REFRESHES EVERY 15 MIN · FREE
       </div>
     </div>
   </div>
@@ -1487,7 +1487,7 @@ function renderResearchCard(asset, data) {
 
   if (data.error || data.no_key) {
     const msg = data.no_key
-      ? '⚙ Add PERPLEXITY_API_KEY in Railway → Variables to enable live research.'
+      ? '⚙ Add GROQ_API_KEY in Railway → Variables tab (free at console.groq.com).'
       : `Error: ${data.error}`;
     el.className = 'rp-card neu';
     el.innerHTML = `
@@ -1499,23 +1499,27 @@ function renderResearchCard(asset, data) {
     return;
   }
 
-  const sent  = (data.sentiment||'NEU').toUpperCase();
+  const sent      = (data.sentiment||'NEU').toUpperCase();
   const sentClass = sent==='BULL' ? 'bull' : sent==='BEAR' ? 'bear' : 'neu';
   const sentLabel = sent==='BULL' ? '▲ BULLISH' : sent==='BEAR' ? '▼ BEARISH' : '◆ NEUTRAL';
   const bullets   = (data.bullets||[]).slice(0,6);
-  const citations = (data.citations||[]).slice(0,4);
+  const sources   = data.sources || [];       // source names (strings)
+  const newsCount = data.news_count || 0;
   const cached    = data.cached ? `<span style="color:#2a3a4a;">CACHED</span>` : `<span style="color:#00d26a;">LIVE</span>`;
 
   const bulletHtml = bullets.length
     ? `<ul class="rp-bullets">${bullets.map(b=>`<li>${b}</li>`).join('')}</ul>`
-    : `<p style="font-size:10px;color:#5a6a7a;">No data available. API key may be missing.</p>`;
+    : `<p style="font-size:10px;color:#5a6a7a;">No relevant news found for this segment yet — refreshes as news arrives.</p>`;
 
-  const sourcesHtml = citations.length
-    ? `<div class="rp-sources">${citations.map(url => {
-        try { const h = new URL(url).hostname.replace('www.',''); return `<a class="rp-source" href="${url}" target="_blank" rel="noopener" title="${url}">${h}</a>`; }
-        catch { return ''; }
-      }).join('')}</div>`
+  const sourcesHtml = sources.length
+    ? `<div class="rp-sources" style="margin-top:4px;">${sources.map(s =>
+        `<span class="rp-source" style="cursor:default;">${s}</span>`
+      ).join('')}</div>`
     : '';
+
+  const newsCtx = newsCount > 0
+    ? `<span style="color:#3a4a5a;">${newsCount} headlines analyzed</span>`
+    : `<span style="color:#2a3a4a;">general analysis</span>`;
 
   el.className = `rp-card ${sentClass}`;
   el.innerHTML = `
@@ -1526,7 +1530,7 @@ function renderResearchCard(asset, data) {
     ${bulletHtml}
     ${sourcesHtml}
     <div class="rp-meta">
-      <span>${cached} · ${data.timestamp||''}</span>
+      <span>${cached} · ${newsCtx} · ${data.timestamp||''}</span>
       <button class="rp-refresh" onclick="refreshResearchCard('${asset}')">↺ Refresh</button>
     </div>`;
 }
@@ -1548,14 +1552,13 @@ async function runResearchQuery() {
     }).then(r=>r.json());
 
     if (data.error || data.no_key) {
-      result.innerHTML = `<p style="color:#ff3b5c;font-size:11px;">${data.error || 'Add PERPLEXITY_API_KEY to enable search.'}</p>`;
+      result.innerHTML = `<p style="color:#ff3b5c;font-size:11px;">${data.error || 'Add GROQ_API_KEY to Railway → Variables to enable search.'}</p>`;
       return;
     }
 
     const sentClass = data.sentiment==='BULL' ? 'bull' : data.sentiment==='BEAR' ? 'bear' : 'neu';
     const sentLabel = data.sentiment==='BULL' ? '▲ BULLISH' : data.sentiment==='BEAR' ? '▼ BEARISH' : '◆ NEUTRAL';
     const bullets   = (data.bullets||[]).slice(0,8);
-    const citations = (data.citations||[]).slice(0,5);
 
     result.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
@@ -1563,10 +1566,7 @@ async function runResearchQuery() {
         <span class="rp-sent ${sentClass}" style="font-size:8px;">${sentLabel}</span>
       </div>
       <ul class="qr-bullets">${bullets.map(b=>`<li>${b}</li>`).join('')}</ul>
-      ${citations.length ? `<div class="rp-sources">${citations.map(url=>{
-        try{const h=new URL(url).hostname.replace('www.','');return`<a class="rp-source" href="${url}" target="_blank" rel="noopener">${h}</a>`}catch{return''}
-      }).join('')}</div>` : ''}
-      <div style="font-size:8px;color:#2a3a4a;margin-top:6px;">${data.timestamp||''} · Perplexity Sonar-Pro</div>`;
+      <div style="font-size:8px;color:#2a3a4a;margin-top:6px;">${data.timestamp||''} · Groq llama-3.1-8b · Your live news feed</div>`;
   } catch(e) {
     result.innerHTML = `<p style="color:#ff3b5c;font-size:11px;">Search failed. Try again.</p>`;
   }
