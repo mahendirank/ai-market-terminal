@@ -7,10 +7,12 @@ Results cached 15 minutes in SQLite.
 import os, re, json, time, sqlite3, threading, requests
 from datetime import datetime, timezone, timedelta
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-GROQ_URL     = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL   = "llama-3.1-8b-instant"
-CACHE_TTL    = 900   # 15 minutes
+GROQ_API_KEY    = os.environ.get("GROQ_API_KEY", "")
+GROQ_URL        = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL      = "llama-3.1-8b-instant"
+TAVILY_API_KEY  = os.environ.get("TAVILY_API_KEY", "")
+TAVILY_URL      = "https://api.tavily.com/search"
+CACHE_TTL       = 900   # 15 minutes
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -94,6 +96,60 @@ SEGMENT_CONTEXT = {
     "MACRO":       "Global macro themes, Fed/ECB/RBI policy, inflation, GDP growth, trade policy, geopolitics",
 }
 
+TAVILY_QUERIES = {
+    "GOLD":        "gold price today market news analysis",
+    "OIL":         "crude oil WTI Brent price today news",
+    "BTC":         "bitcoin price today crypto market news",
+    "NIFTY":       "Nifty 50 India stock market news today",
+    "SPX":         "S&P 500 US stock market news today",
+    "BONDS":       "US treasury yield bond market news today",
+    "FX":          "US dollar DXY currency forex news today",
+    "CRYPTO":      "cryptocurrency bitcoin ethereum market news today",
+    "COMMODITIES": "silver copper natural gas commodity prices today",
+    "MACRO":       "global macro Fed interest rates economic news today",
+}
+
+
+# ── Tavily web search ─────────────────────────────────────────
+def _fetch_tavily(segment, max_results=6):
+    """
+    Fetch live web search results from Tavily for a segment.
+    Returns list of {title, url, content, score} dicts.
+    Free tier: 1000 searches/month — safe with 15-min cache.
+    """
+    if not TAVILY_API_KEY:
+        return []
+    query = TAVILY_QUERIES.get(segment, f"{segment} market news today")
+    try:
+        resp = requests.post(
+            TAVILY_URL,
+            json={
+                "api_key":              TAVILY_API_KEY,
+                "query":                query,
+                "search_depth":         "basic",   # faster, uses fewer credits
+                "max_results":          max_results,
+                "include_answer":       False,
+                "include_raw_content":  False,
+                "topic":                "finance",
+            },
+            timeout=12,
+        )
+        if resp.status_code == 200:
+            data    = resp.json()
+            results = data.get("results", [])
+            return [
+                {
+                    "title":   r.get("title", ""),
+                    "url":     r.get("url", ""),
+                    "content": r.get("content", "")[:300],
+                    "score":   round(r.get("score", 0), 2),
+                }
+                for r in results if r.get("title")
+            ]
+    except Exception:
+        pass
+    return []
+
 
 # ── News filter: extract segment-relevant headlines ───────────
 def _filter_news(all_news, segment, max_items=20):
@@ -122,34 +178,47 @@ def _filter_news(all_news, segment, max_items=20):
 
 
 # ── Groq analysis prompt ──────────────────────────────────────
-def _make_research_prompt(segment, news_items):
-    context = SEGMENT_CONTEXT.get(segment, segment)
-    if not news_items:
-        return f"""You are a senior market analyst. Based on your general knowledge, provide a brief analysis of {context} RIGHT NOW.
-Give:
-1. Current market direction (bullish/bearish/neutral)
-2. Key drivers to watch
-3. Important price levels
-4. Short-term outlook for traders
+def _make_research_prompt(segment, news_items, tavily_results=None):
+    context  = SEGMENT_CONTEXT.get(segment, segment)
+    sections = []
 
-Be concise, use bullet points, trader-focused."""
+    if news_items:
+        headlines = "\n".join(
+            f"• [{src}] {headline} ({t})"
+            for _, headline, src, t in news_items[:15]
+        )
+        sections.append(f"YOUR LIVE NEWS FEED ({len(news_items)} headlines):\n{headlines}")
 
-    headlines = "\n".join(
-        f"• [{src}] {headline} ({t})"
-        for _, headline, src, t in news_items[:15]
-    )
-    return f"""You are a senior market analyst. Analyze these recent news headlines about {context}:
+    if tavily_results:
+        web_items = "\n".join(
+            f"• [{r['url'].split('/')[2] if r.get('url') else 'web'}] {r['title']} — {r['content'][:150]}"
+            for r in tavily_results[:6]
+        )
+        sections.append(f"LIVE WEB SEARCH RESULTS (Tavily):\n{web_items}")
 
-{headlines}
+    if not sections:
+        return (
+            f"You are a senior market analyst. Based on your general knowledge, "
+            f"provide a brief analysis of {context} RIGHT NOW.\n"
+            "Give: (1) current direction, (2) key drivers, (3) price levels, (4) short-term outlook.\n"
+            "Be concise, use bullet points, trader-focused."
+        )
 
-Based on these headlines, provide a comprehensive market analysis:
-1. DIRECTION: What is the current market direction/sentiment? (Bullish/Bearish/Neutral)
+    combined = "\n\n".join(sections)
+    source_note = " + Tavily live web search" if tavily_results else ""
+    return f"""You are a senior market analyst. Analyze this data about {context}:
+
+{combined}
+
+Provide comprehensive market analysis:
+1. DIRECTION: Current market direction/sentiment (Bullish/Bearish/Neutral)
 2. KEY DRIVERS: Top 3 factors moving this market right now
-3. PRICE IMPACT: Specific price levels, % moves, or targets mentioned
+3. PRICE IMPACT: Specific price levels, % moves, targets mentioned
 4. RISK FACTORS: What could reverse this move?
-5. TRADER ACTION: What should traders watch in the next 24 hours?
+5. TRADER ACTION: What to watch in next 24 hours
 
-Be concise. Use bullet points. Mention specific numbers when available. Trader-focused analysis only."""
+Be concise. Bullet points. Specific numbers when available. Trader-focused.
+Data sources: live news feed{source_note}."""
 
 
 def _call_groq_research(prompt):
@@ -245,29 +314,50 @@ def research_asset(asset, all_news=None):
             "no_key":    True,
         }
 
-    # Filter relevant news
+    # Filter relevant news from internal feed
     filtered = _filter_news(all_news or [], asset)
-    prompt   = _make_research_prompt(asset, filtered)
-    content  = _call_groq_research(prompt)
+
+    # Tavily live web search (runs if key is set, adds real-time web context)
+    tavily  = _fetch_tavily(asset) if TAVILY_API_KEY else []
+
+    prompt  = _make_research_prompt(asset, filtered, tavily_results=tavily)
+    content = _call_groq_research(prompt)
 
     if not content:
         return {
             "asset": asset, "label": SEGMENT_LABELS.get(asset, asset),
             "error": "Groq API call failed — rate limited or timeout",
             "bullets": [], "sentiment": "NEU", "sources": [], "news_count": 0,
-            "cached": False, "timestamp": datetime.now(IST).strftime("%H:%M IST"),
+            "tavily_count": 0, "cached": False,
+            "timestamp": datetime.now(IST).strftime("%H:%M IST"),
         }
 
+    # Collect sources: internal feed names + Tavily domains
+    feed_sources = _parse_sources(filtered)
+    web_sources  = []
+    web_urls     = []
+    for r in tavily:
+        try:
+            domain = r["url"].split("/")[2].replace("www.", "")
+            if domain not in web_sources:
+                web_sources.append(domain)
+                web_urls.append({"name": domain, "url": r["url"], "title": r["title"]})
+        except Exception:
+            pass
+
     result = {
-        "asset":      asset,
-        "label":      SEGMENT_LABELS.get(asset, asset),
-        "content":    content,
-        "bullets":    _parse_bullets(content),
-        "sentiment":  _parse_sentiment(content),
-        "sources":    _parse_sources(filtered),
-        "news_count": len(filtered),
-        "cached":     False,
-        "timestamp":  datetime.now(IST).strftime("%H:%M IST"),
+        "asset":        asset,
+        "label":        SEGMENT_LABELS.get(asset, asset),
+        "content":      content,
+        "bullets":      _parse_bullets(content),
+        "sentiment":    _parse_sentiment(content),
+        "sources":      feed_sources,
+        "web_sources":  web_urls[:5],
+        "news_count":   len(filtered),
+        "tavily_count": len(tavily),
+        "has_tavily":   bool(tavily),
+        "cached":       False,
+        "timestamp":    datetime.now(IST).strftime("%H:%M IST"),
     }
     _cache_set(cache_key, result)
     return result
@@ -297,24 +387,59 @@ def research_query(query, all_news=None):
 
     news_ctx = ""
     if relevant:
-        news_ctx = "\n\nRecent relevant headlines:\n" + "\n".join(f"• {h}" for h in relevant[:12])
+        news_ctx = "\n\nRelevant headlines from your live feed:\n" + "\n".join(f"• {h}" for h in relevant[:12])
+
+    # Tavily web search for this custom query
+    tavily_ctx  = ""
+    web_sources = []
+    if TAVILY_API_KEY:
+        try:
+            resp = requests.post(
+                TAVILY_URL,
+                json={
+                    "api_key":             TAVILY_API_KEY,
+                    "query":               query,
+                    "search_depth":        "basic",
+                    "max_results":         5,
+                    "include_answer":      False,
+                    "include_raw_content": False,
+                    "topic":               "finance",
+                },
+                timeout=12,
+            )
+            if resp.status_code == 200:
+                results = resp.json().get("results", [])
+                if results:
+                    tavily_ctx = "\n\nLIVE WEB SEARCH RESULTS (Tavily):\n" + "\n".join(
+                        f"• [{r['url'].split('/')[2] if r.get('url') else 'web'}] {r.get('title','')} — {r.get('content','')[:200]}"
+                        for r in results[:5]
+                    )
+                    for r in results:
+                        try:
+                            d = r["url"].split("/")[2].replace("www.","")
+                            web_sources.append({"name": d, "url": r["url"], "title": r.get("title","")})
+                        except Exception:
+                            pass
+        except Exception:
+            pass
 
     prompt = (
-        f"Market research question: {query}{news_ctx}\n\n"
+        f"Market research question: {query}{news_ctx}{tavily_ctx}\n\n"
         "Answer as a professional trader/analyst. Be specific with price levels and % moves. "
         "Use bullet points for key findings. Focus on actionable insights."
     )
 
     content = _call_groq_research(prompt)
     if not content:
-        return {"error": "API call failed", "content": "", "bullets": [], "sources": []}
+        return {"error": "API call failed", "content": "", "bullets": [], "web_sources": []}
 
     return {
-        "content":   content,
-        "bullets":   _parse_bullets(content),
-        "sentiment": _parse_sentiment(content),
-        "sources":   [],
-        "timestamp": datetime.now(IST).strftime("%H:%M IST"),
+        "content":     content,
+        "bullets":     _parse_bullets(content),
+        "sentiment":   _parse_sentiment(content),
+        "web_sources": web_sources[:5],
+        "has_tavily":  bool(web_sources),
+        "timestamp":   datetime.now(IST).strftime("%H:%M IST"),
     }
 
 

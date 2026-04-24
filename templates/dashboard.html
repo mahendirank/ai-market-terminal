@@ -1503,32 +1503,47 @@ function renderResearchCard(asset, data) {
   const sentClass = sent==='BULL' ? 'bull' : sent==='BEAR' ? 'bear' : 'neu';
   const sentLabel = sent==='BULL' ? '▲ BULLISH' : sent==='BEAR' ? '▼ BEARISH' : '◆ NEUTRAL';
   const bullets   = (data.bullets||[]).slice(0,6);
-  const sources   = data.sources || [];       // source names (strings)
-  const newsCount = data.news_count || 0;
-  const cached    = data.cached ? `<span style="color:#2a3a4a;">CACHED</span>` : `<span style="color:#00d26a;">LIVE</span>`;
+  const sources    = data.sources    || [];
+  const webSources = data.web_sources|| [];
+  const newsCount  = data.news_count || 0;
+  const hasTavily  = data.has_tavily || false;
+  const cached     = data.cached ? `<span style="color:#2a3a4a;">CACHED</span>` : `<span style="color:#00d26a;">LIVE</span>`;
+  const tavilyBadge = hasTavily
+    ? `<span style="background:#1a0a2e;color:#a78bfa;border:1px solid #7c3aed;font-size:7px;font-weight:bold;padding:1px 5px;border-radius:2px;margin-left:4px;">⚡TAVILY</span>`
+    : '';
 
   const bulletHtml = bullets.length
     ? `<ul class="rp-bullets">${bullets.map(b=>`<li>${b}</li>`).join('')}</ul>`
-    : `<p style="font-size:10px;color:#5a6a7a;">No relevant news found for this segment yet — refreshes as news arrives.</p>`;
+    : `<p style="font-size:10px;color:#5a6a7a;">No relevant news yet — refreshes as news arrives.</p>`;
 
-  const sourcesHtml = sources.length
-    ? `<div class="rp-sources" style="margin-top:4px;">${sources.map(s =>
-        `<span class="rp-source" style="cursor:default;">${s}</span>`
-      ).join('')}</div>`
+  // Feed source tags
+  const feedHtml = sources.length
+    ? sources.map(s => `<span class="rp-source" style="cursor:default;">${s}</span>`).join('')
+    : '';
+
+  // Tavily web source links (clickable)
+  const webHtml = webSources.length
+    ? webSources.map(w => `<a class="rp-source" href="${w.url}" target="_blank" rel="noopener" title="${w.title}" style="border-color:#4a2080;">${w.name}</a>`).join('')
+    : '';
+
+  const allSourcesHtml = (feedHtml || webHtml)
+    ? `<div class="rp-sources" style="margin-top:6px;">${feedHtml}${webHtml}</div>`
     : '';
 
   const newsCtx = newsCount > 0
-    ? `<span style="color:#3a4a5a;">${newsCount} headlines analyzed</span>`
-    : `<span style="color:#2a3a4a;">general analysis</span>`;
+    ? `<span style="color:#3a4a5a;">${newsCount} feed + ${data.tavily_count||0} web</span>`
+    : hasTavily
+      ? `<span style="color:#3a4a5a;">${data.tavily_count||0} web results</span>`
+      : `<span style="color:#2a3a4a;">knowledge only</span>`;
 
   el.className = `rp-card ${sentClass}`;
   el.innerHTML = `
     <div class="rp-header">
-      <span class="rp-label">${data.label||asset}</span>
+      <span class="rp-label">${data.label||asset}${tavilyBadge}</span>
       <span class="rp-sent ${sentClass}">${sentLabel}</span>
     </div>
     ${bulletHtml}
-    ${sourcesHtml}
+    ${allSourcesHtml}
     <div class="rp-meta">
       <span>${cached} · ${newsCtx} · ${data.timestamp||''}</span>
       <button class="rp-refresh" onclick="refreshResearchCard('${asset}')">↺ Refresh</button>
@@ -1556,17 +1571,23 @@ async function runResearchQuery() {
       return;
     }
 
-    const sentClass = data.sentiment==='BULL' ? 'bull' : data.sentiment==='BEAR' ? 'bear' : 'neu';
-    const sentLabel = data.sentiment==='BULL' ? '▲ BULLISH' : data.sentiment==='BEAR' ? '▼ BEARISH' : '◆ NEUTRAL';
-    const bullets   = (data.bullets||[]).slice(0,8);
+    const sentClass  = data.sentiment==='BULL' ? 'bull' : data.sentiment==='BEAR' ? 'bear' : 'neu';
+    const sentLabel  = data.sentiment==='BULL' ? '▲ BULLISH' : data.sentiment==='BEAR' ? '▼ BEARISH' : '◆ NEUTRAL';
+    const bullets    = (data.bullets||[]).slice(0,8);
+    const webSources = (data.web_sources||[]).slice(0,5);
+    const tBadge     = data.has_tavily ? ' <span style="background:#1a0a2e;color:#a78bfa;border:1px solid #7c3aed;font-size:7px;font-weight:bold;padding:1px 5px;border-radius:2px;">⚡TAVILY</span>' : '';
+    const srcHtml    = webSources.length
+      ? `<div class="rp-sources" style="margin-top:6px;">${webSources.map(w=>`<a class="rp-source" href="${w.url}" target="_blank" rel="noopener" title="${w.title}" style="border-color:#4a2080;">${w.name}</a>`).join('')}</div>`
+      : '';
 
     result.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-        <span style="font-size:11px;color:#a78bfa;font-weight:bold;">⚡ ${q}</span>
+        <span style="font-size:11px;color:#a78bfa;font-weight:bold;">⚡ ${q}${tBadge}</span>
         <span class="rp-sent ${sentClass}" style="font-size:8px;">${sentLabel}</span>
       </div>
       <ul class="qr-bullets">${bullets.map(b=>`<li>${b}</li>`).join('')}</ul>
-      <div style="font-size:8px;color:#2a3a4a;margin-top:6px;">${data.timestamp||''} · Groq llama-3.1-8b · Your live news feed</div>`;
+      ${srcHtml}
+      <div style="font-size:8px;color:#2a3a4a;margin-top:6px;">${data.timestamp||''} · Groq llama-3.1-8b · news feed + Tavily web</div>`;
   } catch(e) {
     result.innerHTML = `<p style="color:#ff3b5c;font-size:11px;">Search failed. Try again.</p>`;
   }
