@@ -54,26 +54,40 @@ def _lazy(module_name, fn_name, *args, **kwargs):
         return {}
 
 
-# ── Background warm-up (starts 2s after server binds) ─────────
+# Detect Railway cloud environment
+ON_RAILWAY = bool(os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("RAILWAY_SERVICE_NAME"))
+
+# ── Background warm-up — gentle sequential loading ────────────
 def _warm():
-    _time.sleep(2)
-    for key, mod, fn, ttl in [
-        ("macro",   "macro",   "get_macro_data",  30),
-        ("indices", "indices", "get_indices",      30),
-    ]:
-        try: _cached(key, ttl, lambda m=mod, f=fn: _lazy(m, f))
-        except: pass
+    # On Railway: load one module at a time with long gaps to stay under 512MB RAM
+    # Locally: load everything quickly
+    gap = 8 if ON_RAILWAY else 2
 
-    _time.sleep(5)
-    for key, fn, ttl in [
-        ("news",     _build_news,     30),
-        ("stocks",   _build_stocks,   120),
-        ("earnings", _build_earnings, 1800),
-        ("nse",      _build_nse,      300),
-    ]:
-        try: _cached(key, ttl, fn)
-        except: pass
+    _time.sleep(gap)
+    try: _cached("macro",   30,  lambda: _lazy("macro",   "get_macro_data"))
+    except: pass
 
+    _time.sleep(gap)
+    try: _cached("indices", 30,  lambda: _lazy("indices", "get_indices"))
+    except: pass
+
+    _time.sleep(gap)
+    try: _cached("news",    30,  _build_news)
+    except: pass
+
+    if ON_RAILWAY:
+        # On Railway skip heavy modules that push RAM over limit
+        return
+
+    _time.sleep(3)
+    try: _cached("stocks",   120,  _build_stocks)
+    except: pass
+    _time.sleep(3)
+    try: _cached("earnings", 1800, _build_earnings)
+    except: pass
+    _time.sleep(3)
+    try: _cached("nse",      300,  _build_nse)
+    except: pass
     try:
         from earnings_telegram import get_telegram_earnings
         get_telegram_earnings(force_refresh=True)
@@ -199,7 +213,8 @@ def api_macro():
 
 @app.get("/api/stocks")
 def api_stocks():
-    return _bg_refresh("stocks", 120, _build_stocks, empty={})
+    ttl = 300 if ON_RAILWAY else 120
+    return _bg_refresh("stocks", ttl, _build_stocks, empty={})
 
 
 @app.get("/api/econ")
