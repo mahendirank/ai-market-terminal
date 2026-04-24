@@ -10,7 +10,7 @@ from datetime import datetime, timezone, timedelta
 GROQ_API_KEY    = os.environ.get("GROQ_API_KEY", "")
 GROQ_URL        = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL      = "llama-3.1-8b-instant"
-TAVILY_API_KEY  = os.environ.get("TAVILY_API_KEY", "")
+TAVILY_API_KEY  = os.environ.get("TAVILY_API_KEY") or os.environ.get("Tavily_API_KEY", "")
 TAVILY_URL      = "https://api.tavily.com/search"
 CACHE_TTL       = 900   # 15 minutes
 
