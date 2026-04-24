@@ -5,12 +5,12 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; MacroBot/1.0)"}
 
 # ── Valid ranges — reject yfinance garbage outside these bands ────────────────
 VALID_RANGES = {
-    "DXY":    (80,  130),
+    "DXY":    (80,  115),
     "EURUSD": (0.9,  1.5),
     "GBPUSD": (1.0,  1.6),
-    "USDJPY": (100,  165),
+    "USDJPY": (100,  175),
     "USDCNY": (6.5,  7.5),
-    "USDINR": (75,   90),
+    "USDINR": (75,  110),
     "US_2Y":  (0.1,  8.0),
     "US_10Y": (0.5,  8.0),
     "US_30Y": (1.0,  8.0),
@@ -25,13 +25,23 @@ def _in_range(name, val):
     return lo <= val <= hi
 
 def _yf_last(symbol, period="5d", interval="1h"):
+    """Use fast_info for live price — yf.download returns stale/incorrect data for many symbols."""
     try:
+        fi = yf.Ticker(symbol).fast_info
+        v = fi.last_price
+        if v and float(v) > 0:
+            return float(v)
+    except Exception:
+        pass
+    # fallback to download
+    try:
+        import pandas as pd
         df = yf.download(symbol, period=period, interval=interval,
                          progress=False, auto_adjust=True)
         if not df.empty:
             v = df["Close"].dropna().iloc[-1]
             return float(v.item() if hasattr(v, "item") else v)
-    except:
+    except Exception:
         pass
     return None
 
@@ -73,9 +83,9 @@ def get_fx_data():
         "DXY":    _get("DXY",    "DX-Y.NYB", "DTWEXBGS", decimals=2),
         "EURUSD": _get("EURUSD", "EURUSD=X",  decimals=4),
         "GBPUSD": _get("GBPUSD", "GBPUSD=X",  decimals=4),
-        "USDJPY": _get("USDJPY", "JPY=X",      decimals=2),
-        "USDCNY": _get("USDCNY", "CNY=X",      decimals=4),
-        "USDINR": _get("USDINR", "INR=X",      decimals=2),
+        "USDJPY": _get("USDJPY", "USDJPY=X",  decimals=2),
+        "USDCNY": _get("USDCNY", "USDCNY=X",  decimals=4),
+        "USDINR": _get("USDINR", "USDINR=X",  decimals=2),
     }.items() if v is not None}
 
 
@@ -102,13 +112,20 @@ def get_us_yields():
     return results
 
 
-# ── Global yields (ETF proxies) ────────────────────────────────────────────────
+# ── Global yields — FRED CSV (free, no key, monthly) ─────────────────────────
+_GLOBAL_YIELD_FRED = {
+    "GER_BUND_10Y": "IRLTLT01DEM156N",
+    "UK_GILT_10Y":  "IRLTLT01GBM156N",
+    "JPN_JGB_10Y":  "IRLTLT01JPM156N",
+}
+
 def get_global_yields():
-    return {k: v for k, v in {
-        "GER_BUND_10Y": _yf_last("^IRDE10"),   # Germany 10Y
-        "UK_GILT_10Y":  _yf_last("^TNX"),       # proxy
-        "JPN_JGB_10Y":  _yf_last("^IRJP10"),    # Japan 10Y
-    }.items() if v and 0 < v < 20}
+    results = {}
+    for name, series in _GLOBAL_YIELD_FRED.items():
+        v = _fred(series)
+        if v and 0 < v < 20:
+            results[name] = round(v, 3)
+    return results
 
 
 # ── Oil ────────────────────────────────────────────────────────────────────────
