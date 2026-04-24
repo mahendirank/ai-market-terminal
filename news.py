@@ -59,8 +59,8 @@ SOURCE_CATEGORY = {
     "MarketCurrents":   "HNI",
     "ZeroHedgeTG":      "HNI",
     # Commodities
-    "Kitco Gold":       "COMMODITIES",
-    "Kitco Silver":     "COMMODITIES",
+    "Kitco News":       "COMMODITIES",
+    "Hellenic Ship":    "COMMODITIES",
     "OilPrice.com":     "COMMODITIES",
     "Mining.com":       "COMMODITIES",
     "GoldSeek":         "COMMODITIES",
@@ -155,8 +155,8 @@ RSS_SOURCES = {
     "Unusual Whales":   "https://nitter.net/unusual_whales/rss",
 
     # ── Commodities ─────────────────────────────────────────
-    "Kitco Gold":       "https://www.kitco.com/rss/news.xml",
-    "Kitco Silver":     "https://www.kitco.com/rss/silver_news.xml",
+    "Kitco News":       "https://news.google.com/rss/search?q=site:kitco.com+gold+silver&hl=en-US&gl=US&ceid=US:en",
+    "Hellenic Ship":    "https://www.hellenicshippingnews.com/feed/",
     "OilPrice.com":     "https://oilprice.com/rss/main",
     "Rigzone":          "https://www.rigzone.com/news/rss/rigzone_latest.aspx",
     "Mining.com":       "https://www.mining.com/feed/",
