@@ -330,6 +330,60 @@ def api_bulk_deals():
     except: return []
 
 
+@app.get("/api/nse/pcr")
+def api_pcr():
+    try:
+        from nse_data import get_nifty_pcr, get_banknifty_pcr
+        return {
+            "nifty":     _cached("pcr_nifty", 300, get_nifty_pcr),
+            "banknifty": _cached("pcr_bnf",   300, get_banknifty_pcr),
+        }
+    except Exception as e: return {"error": str(e)}
+
+
+@app.get("/api/nse/fii")
+def api_fii():
+    try:
+        from nse_data import get_fii_dii, get_fii_cumulative
+        return {
+            "today":      _cached("fii_today", 900,  get_fii_dii),
+            "cumulative": _cached("fii_cumul", 3600, get_fii_cumulative),
+        }
+    except Exception as e: return {"error": str(e)}
+
+
+@app.get("/api/cot")
+def api_cot():
+    try:
+        from cot_data import get_cot
+        return _cached("cot", 86400, get_cot)
+    except Exception as e: return {"error": str(e)}
+
+
+@app.get("/api/insider")
+def api_insider():
+    try:
+        from insider_tracker import get_insider_data
+        return _cached("insider", 1800, get_insider_data)
+    except Exception as e: return {"error": str(e)}
+
+
+@app.get("/api/correlations")
+def api_correlations():
+    try:
+        from correlations import get_correlations
+        return _cached("correlations", 3600, get_correlations)
+    except Exception as e: return {"error": str(e)}
+
+
+@app.get("/api/liquidity")
+def api_liquidity():
+    try:
+        from fred_data import get_liquidity
+        return _cached("liquidity", 21600, get_liquidity)
+    except Exception as e: return {"error": str(e)}
+
+
 @app.get("/api/earnings")
 def api_earnings():
     return _bg_refresh("earnings", 1800, _build_earnings, empty=[])

@@ -78,36 +78,110 @@ def get_india_vix():
     return {}
 
 
-# ── Nifty PCR (Put-Call Ratio) ────────────────────────────────────────────────
-def get_nifty_pcr():
-    """
-    PCR < 0.8  → Bearish (too many calls, complacency)
-    PCR 0.8–1.2 → Neutral
-    PCR > 1.2  → Bullish squeeze (hedged, wall of worry)
-    """
+# ── Nifty PCR (Put-Call Ratio) + Max Pain ────────────────────────────────────
+def _parse_option_chain(symbol="NIFTY"):
+    """Parse NSE option chain — returns PCR, proper Max Pain, top OI strikes."""
     try:
         s    = _nse_session()
         resp = s.get(
-            "https://www.nseindia.com/api/option-chain-indices?symbol=NIFTY",
+            f"https://www.nseindia.com/api/option-chain-indices?symbol={symbol}",
             timeout=12
         )
-        oc   = resp.json().get("filtered", {}).get("data", [])
-        total_pe_oi = sum(row.get("PE", {}).get("openInterest", 0) for row in oc)
-        total_ce_oi = sum(row.get("CE", {}).get("openInterest", 0) for row in oc)
+        data = resp.json()
+        oc   = data.get("filtered", {}).get("data", [])
+        spot = float(data.get("records", {}).get("underlyingValue", 0))
+
+        total_pe_oi = sum(r.get("PE", {}).get("openInterest", 0) for r in oc)
+        total_ce_oi = sum(r.get("CE", {}).get("openInterest", 0) for r in oc)
         pcr = round(total_pe_oi / total_ce_oi, 3) if total_ce_oi else None
 
-        # Max pain — strike with maximum OI on both sides
-        pain = {}
+        # Proper Max Pain calculation:
+        # For each strike, calculate total loss if price expires at that strike
+        strikes_data = {}
         for row in oc:
             strike = row.get("strikePrice", 0)
             ce_oi  = row.get("CE", {}).get("openInterest", 0)
             pe_oi  = row.get("PE", {}).get("openInterest", 0)
-            pain[strike] = ce_oi + pe_oi
-        max_pain = max(pain, key=pain.get) if pain else None
+            ce_iv  = row.get("CE", {}).get("impliedVolatility", 0)
+            pe_iv  = row.get("PE", {}).get("impliedVolatility", 0)
+            strikes_data[strike] = {"ce_oi": ce_oi, "pe_oi": pe_oi,
+                                     "ce_iv": ce_iv, "pe_iv": pe_iv}
+
+        all_strikes = sorted(strikes_data.keys())
+        pain = {}
+        for test_strike in all_strikes:
+            loss = 0
+            for s_price, d in strikes_data.items():
+                # Call writers lose when price > strike
+                if test_strike > s_price:
+                    loss += (test_strike - s_price) * d["ce_oi"]
+                # Put writers lose when price < strike
+                if test_strike < s_price:
+                    loss += (s_price - test_strike) * d["pe_oi"]
+            pain[test_strike] = loss
+        max_pain = min(pain, key=pain.get) if pain else None
+
+        # Top OI concentrations near spot (key support/resistance)
+        near_strikes = sorted(strikes_data.keys(),
+                              key=lambda x: abs(x - spot))[:10] if spot else []
+        oi_levels = sorted(
+            [{"strike": s, "ce_oi": strikes_data[s]["ce_oi"],
+              "pe_oi": strikes_data[s]["pe_oi"],
+              "total": strikes_data[s]["ce_oi"] + strikes_data[s]["pe_oi"]}
+             for s in near_strikes],
+            key=lambda x: -x["total"]
+        )[:5]
 
         bias = "BULLISH" if pcr and pcr > 1.2 else "BEARISH" if pcr and pcr < 0.8 else "NEUTRAL"
-        return {"pcr": pcr, "max_pain": max_pain, "bias": bias,
-                "total_ce_oi": total_ce_oi, "total_pe_oi": total_pe_oi}
+        return {
+            "symbol":       symbol,
+            "pcr":          pcr,
+            "max_pain":     max_pain,
+            "spot":         round(spot, 2),
+            "bias":         bias,
+            "total_ce_oi":  total_ce_oi,
+            "total_pe_oi":  total_pe_oi,
+            "oi_levels":    oi_levels,
+        }
+    except Exception as e:
+        return {"symbol": symbol, "error": str(e)}
+
+
+def get_nifty_pcr():
+    return _parse_option_chain("NIFTY")
+
+
+def get_banknifty_pcr():
+    return _parse_option_chain("BANKNIFTY")
+
+
+# ── FII Cumulative 5-day flow ─────────────────────────────────────────────────
+def get_fii_cumulative():
+    """Last 5 days FII/DII flows — trend is more important than single day."""
+    try:
+        s    = _nse_session()
+        resp = s.get("https://www.nseindia.com/api/fiidiiTradeReact", timeout=10)
+        data = resp.json()
+        rows = []
+        for row in data[:10]:
+            try:
+                net = float(str(row.get("netValue", "0")).replace(",", ""))
+                rows.append({
+                    "category": row.get("category", ""),
+                    "net":      round(net, 2),
+                    "date":     row.get("date", ""),
+                })
+            except: pass
+        fii_rows = [r for r in rows if "FII" in r["category"].upper() or "FPI" in r["category"].upper()]
+        dii_rows = [r for r in rows if "DII" in r["category"].upper()]
+        fii_5d = sum(r["net"] for r in fii_rows[:5])
+        dii_5d = sum(r["net"] for r in dii_rows[:5])
+        return {
+            "fii_5d_net": round(fii_5d, 2),
+            "dii_5d_net": round(dii_5d, 2),
+            "trend":      "BUYING" if fii_5d > 3000 else "SELLING" if fii_5d < -3000 else "MIXED",
+            "rows":       rows[:10],
+        }
     except Exception as e:
         return {"error": str(e)}
 
@@ -167,14 +241,16 @@ def get_nse_snapshot():
         try: results[key] = fn()
         except: results[key] = {}
 
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    with ThreadPoolExecutor(max_workers=6) as pool:
         futs = [
-            pool.submit(_run, "fii_dii",    get_fii_dii),
-            pool.submit(_run, "vix",        get_india_vix),
-            pool.submit(_run, "pcr",        get_nifty_pcr),
-            pool.submit(_run, "fear_greed", get_fear_greed),
+            pool.submit(_run, "fii_dii",      get_fii_dii),
+            pool.submit(_run, "fii_cumul",    get_fii_cumulative),
+            pool.submit(_run, "vix",          get_india_vix),
+            pool.submit(_run, "pcr",          get_nifty_pcr),
+            pool.submit(_run, "banknifty_pcr",get_banknifty_pcr),
+            pool.submit(_run, "fear_greed",   get_fear_greed),
         ]
-        for f in futs: f.result(timeout=20)
+        for f in futs: f.result(timeout=25)
 
     return results
 

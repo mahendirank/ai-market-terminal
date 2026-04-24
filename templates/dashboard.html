@@ -356,6 +356,35 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 .loading { color:var(--muted); padding:12px; text-align:center; font-size:11px; }
 .spinner { animation:spin 1s linear infinite; display:inline-block; }
 @keyframes spin { to{transform:rotate(360deg)} }
+/* ── SIGNALS PANEL ── */
+#signals-panel { display:none; flex:1; overflow-y:auto; padding:12px; background:#070b10; flex-direction:column; gap:12px; }
+.sig-section { background:#0d1117; border:1px solid #1c2a3a; border-radius:6px; padding:12px; }
+.sig-section-title { font-size:10px; font-weight:bold; letter-spacing:2px; color:#5a7a9a; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; }
+.sig-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:8px; }
+.sig-card { background:#080d13; border:1px solid #1c2a3a; border-radius:4px; padding:8px 10px; }
+.sig-card-label { font-size:8px; letter-spacing:1px; color:#4a5a6a; margin-bottom:3px; }
+.sig-card-val { font-size:15px; font-weight:bold; color:#e8eaf0; }
+.sig-card-sub { font-size:9px; color:#5a6a7a; margin-top:2px; }
+.sig-badge { font-size:8px; font-weight:bold; padding:1px 6px; border-radius:2px; letter-spacing:1px; }
+.sig-badge.bull { background:#002a14; color:#00d26a; border:1px solid #00d26a; }
+.sig-badge.bear { background:#2a0010; color:#ff3b5c; border:1px solid #ff3b5c; }
+.sig-badge.neu  { background:#1a1200; color:#f5a623; border:1px solid #f5a623; }
+.sig-badge.alert { background:#2a1000; color:#ff8c00; border:1px solid #ff8c00; }
+/* COT table */
+.cot-table { width:100%; border-collapse:collapse; font-size:9px; }
+.cot-table th { color:#3a5a7a; font-weight:normal; letter-spacing:1px; padding:3px 6px; border-bottom:1px solid #1c2a3a; text-align:left; }
+.cot-table td { padding:4px 6px; border-bottom:1px solid #0d1520; color:#aab; }
+.cot-table tr:hover td { background:#0a0f16; }
+/* Correlation table */
+.corr-table { width:100%; border-collapse:collapse; font-size:9px; }
+.corr-table th { color:#3a5a7a; font-weight:normal; letter-spacing:1px; padding:3px 6px; border-bottom:1px solid #1c2a3a; text-align:left; }
+.corr-table td { padding:4px 6px; border-bottom:1px solid #0d1520; color:#aab; }
+.corr-table tr.break-row td { background:#1a0a00; color:#ff8c00; }
+.corr-table tr.strong-break-row td { background:#2a0a00; color:#ff3b5c; }
+/* FII bar */
+.fii-bar-wrap { margin-top:6px; }
+.fii-bar { height:4px; border-radius:2px; background:#1c2a3a; margin:2px 0; position:relative; overflow:hidden; }
+.fii-bar-fill { height:100%; border-radius:2px; transition:width 0.5s; }
 </style>
 </head>
 <body>
@@ -443,6 +472,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
       <div class="ctab" data-cat="CRYPTO"      onclick="setCat(this)">CRYPTO          <span class="cnt" id="cnt-CRYPTO">—</span></div>
       <div class="ctab" data-cat="GLOBAL"      onclick="setCat(this)">ASIA/GLOBAL     <span class="cnt" id="cnt-GLOBAL">—</span></div>
       <div class="ctab" data-cat="AI_RESEARCH" onclick="showResearch(this)" id="ai-research-tab" style="color:#a78bfa;border-left:2px solid #7c3aed;">⚡ AI RESEARCH</div>
+      <div class="ctab" data-cat="SIGNALS" onclick="showSignals(this)" id="signals-tab" style="color:#f59e0b;border-left:2px solid #d97706;">📊 SIGNALS</div>
     </div>
     <!-- ASSET QUICK FILTERS -->
     <div class="asset-filters" id="asset-filters">
@@ -485,6 +515,79 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
       </div>
       <div style="text-align:center;color:#2a3a4a;font-size:9px;margin-top:12px;letter-spacing:1px;">
         POWERED BY GROQ llama-3.1-8b · YOUR LIVE NEWS FEED · REFRESHES EVERY 15 MIN · FREE
+      </div>
+    </div>
+
+    <!-- SIGNALS PANEL -->
+    <div id="signals-panel">
+      <!-- Row 1: FII/DII + VIX + Fear & Greed -->
+      <div class="sig-section">
+        <div class="sig-section-title">
+          <span>FII / DII FLOWS &amp; MARKET SENTIMENT</span>
+          <span id="sig-fii-ts" style="font-size:8px;color:#2a3a4a;font-weight:normal;"></span>
+        </div>
+        <div class="sig-grid" id="sig-fii-grid">
+          <div class="sig-card"><div class="sig-card-label">LOADING…</div></div>
+        </div>
+      </div>
+
+      <!-- Row 2: Nifty + BankNifty PCR + Max Pain -->
+      <div class="sig-section">
+        <div class="sig-section-title">
+          <span>OPTIONS: PCR + MAX PAIN</span>
+          <span id="sig-pcr-ts" style="font-size:8px;color:#2a3a4a;font-weight:normal;"></span>
+        </div>
+        <div class="sig-grid" id="sig-pcr-grid">
+          <div class="sig-card"><div class="sig-card-label">LOADING…</div></div>
+        </div>
+      </div>
+
+      <!-- Row 3: COT Positioning -->
+      <div class="sig-section">
+        <div class="sig-section-title">
+          <span>CFTC COT POSITIONING (HEDGE FUNDS — CONTRARIAN SIGNAL)</span>
+          <span id="sig-cot-ts" style="font-size:8px;color:#2a3a4a;font-weight:normal;"></span>
+        </div>
+        <div id="sig-cot-body" style="overflow-x:auto;">
+          <div class="loading"><span class="spinner">◌</span> Loading COT data…</div>
+        </div>
+      </div>
+
+      <!-- Row 4: Cross-Asset Correlations -->
+      <div class="sig-section">
+        <div class="sig-section-title">
+          <span>CROSS-ASSET CORRELATIONS (BREAKS = OPPORTUNITY)</span>
+          <span id="sig-corr-ts" style="font-size:8px;color:#2a3a4a;font-weight:normal;"></span>
+        </div>
+        <div id="sig-corr-body" style="overflow-x:auto;">
+          <div class="loading"><span class="spinner">◌</span> Loading correlations…</div>
+        </div>
+      </div>
+
+      <!-- Row 5: Insider Activity + Liquidity side-by-side -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="sig-section">
+          <div class="sig-section-title">
+            <span>INSIDER ACTIVITY</span>
+            <span id="sig-ins-ts" style="font-size:8px;color:#2a3a4a;font-weight:normal;"></span>
+          </div>
+          <div id="sig-ins-body">
+            <div class="loading"><span class="spinner">◌</span> Loading…</div>
+          </div>
+        </div>
+        <div class="sig-section">
+          <div class="sig-section-title">
+            <span>GLOBAL LIQUIDITY</span>
+            <span id="sig-liq-ts" style="font-size:8px;color:#2a3a4a;font-weight:normal;"></span>
+          </div>
+          <div id="sig-liq-body">
+            <div class="loading"><span class="spinner">◌</span> Loading…</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="text-align:center;color:#2a3a4a;font-size:9px;letter-spacing:1px;padding:4px 0;">
+        DATA: NSE · CFTC · OPENINSIDER · FRED/YFINANCE · REFRESHES EVERY 5–30 MIN
       </div>
     </div>
   </div>
@@ -665,6 +768,7 @@ let aiNewsMap   = {};   // headline → {sentiment, impact, assets, summary, why
 
 function setCat(el) {
   hideResearch();
+  hideSignals();
   document.querySelectorAll('.ctab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
   activeCat = el.dataset.cat;
@@ -1429,10 +1533,9 @@ document.getElementById('src-modal').addEventListener('click', e => {
 let _researchActive = false;
 
 function showResearch(tab) {
-  // Deactivate all category tabs
+  hideSignals();
   document.querySelectorAll('.ctab').forEach(t => t.classList.remove('active'));
   tab.classList.add('active');
-  // Hide news feed, asset filters; show research panel
   document.getElementById('news-feed').style.display    = 'none';
   document.getElementById('asset-filters').style.display = 'none';
   document.getElementById('ai-research-panel').style.display = 'flex';
@@ -1449,6 +1552,345 @@ function hideResearch() {
   const af = document.getElementById('asset-filters');
   if (af) af.style.display = 'flex';
   _researchActive = false;
+}
+
+// ── SIGNALS PANEL ─────────────────────────────────────────────
+let _signalsActive = false;
+let _signalsLoaded = false;
+
+function showSignals(tab) {
+  hideResearch();
+  document.querySelectorAll('.ctab').forEach(t => t.classList.remove('active'));
+  tab.classList.add('active');
+  document.getElementById('news-feed').style.display     = 'none';
+  document.getElementById('asset-filters').style.display = 'none';
+  const sp = document.getElementById('signals-panel');
+  sp.style.display = 'flex';
+  _signalsActive = true;
+  if (!_signalsLoaded) { loadSignals(); _signalsLoaded = true; }
+}
+
+function hideSignals() {
+  const sp = document.getElementById('signals-panel');
+  if (sp) sp.style.display = 'none';
+  const nf = document.getElementById('news-feed');
+  if (nf) nf.style.display = 'flex';
+  const af = document.getElementById('asset-filters');
+  if (af) af.style.display = 'flex';
+  _signalsActive = false;
+}
+
+async function loadSignals() {
+  // Fetch all in parallel
+  const [fiiData, pcrData, cotData, corrData, insData, liqData, nseData] = await Promise.allSettled([
+    fetch(`${BASE}/api/nse/fii`).then(r=>r.json()),
+    fetch(`${BASE}/api/nse/pcr`).then(r=>r.json()),
+    fetch(`${BASE}/api/cot`).then(r=>r.json()),
+    fetch(`${BASE}/api/correlations`).then(r=>r.json()),
+    fetch(`${BASE}/api/insider`).then(r=>r.json()),
+    fetch(`${BASE}/api/liquidity`).then(r=>r.json()),
+    fetch(`${BASE}/api/nse`).then(r=>r.json()),
+  ]);
+
+  const fii  = fiiData.status  === 'fulfilled' ? fiiData.value  : {};
+  const pcr  = pcrData.status  === 'fulfilled' ? pcrData.value  : {};
+  const cot  = cotData.status  === 'fulfilled' ? cotData.value  : {};
+  const corr = corrData.status === 'fulfilled' ? corrData.value : {};
+  const ins  = insData.status  === 'fulfilled' ? insData.value  : {};
+  const liq  = liqData.status  === 'fulfilled' ? liqData.value  : {};
+  const nse  = nseData.status  === 'fulfilled' ? nseData.value  : {};
+
+  renderSigFII(fii, nse);
+  renderSigPCR(pcr);
+  renderSigCOT(cot);
+  renderSigCorr(corr);
+  renderSigInsider(ins);
+  renderSigLiquidity(liq);
+}
+
+function _sigBadge(val, pos, neg, cls_pos, cls_neg) {
+  if (val > pos) return `<span class="sig-badge ${cls_pos}">${val > pos*1.5 ? '▲▲' : '▲'} ${val.toLocaleString('en-IN')}</span>`;
+  if (val < neg) return `<span class="sig-badge ${cls_neg}">${'▼'} ${Math.abs(val).toLocaleString('en-IN')}</span>`;
+  return `<span class="sig-badge neu">◆ ${val.toLocaleString('en-IN')}</span>`;
+}
+
+function renderSigFII(fii, nse) {
+  const today  = fii.today      || {};
+  const cumul  = fii.cumulative || {};
+  const vix    = (nse.vix || {});
+  const fg     = (nse.fear_greed || {});
+
+  const fiiNet = today.FII_net || 0;
+  const diiNet = today.DII_net || 0;
+  const fii5d  = cumul.fii_5d_net || 0;
+  const dii5d  = cumul.dii_5d_net || 0;
+  const trend  = cumul.trend || '—';
+
+  const fiiCls = fiiNet > 0 ? 'bull' : fiiNet < 0 ? 'bear' : 'neu';
+  const diiCls = diiNet > 0 ? 'bull' : diiNet < 0 ? 'bear' : 'neu';
+  const f5Cls  = fii5d  > 0 ? 'bull' : fii5d  < 0 ? 'bear' : 'neu';
+  const vixLvl = vix.level || '—';
+  const vixCls = vixLvl==='HIGH' ? 'bear' : vixLvl==='ELEVATED' ? 'alert' : 'bull';
+  const fgScore = fg.score || 0;
+  const fgLabel = fg.label || '—';
+  const fgCls   = fgScore >= 60 ? 'bull' : fgScore <= 40 ? 'bear' : 'neu';
+
+  document.getElementById('sig-fii-ts').textContent = today.date || '';
+  document.getElementById('sig-fii-grid').innerHTML = `
+    <div class="sig-card">
+      <div class="sig-card-label">FII TODAY (₹ Cr)</div>
+      <div class="sig-card-val" style="color:${fiiNet>=0?'#00d26a':'#ff3b5c'}">${fiiNet>=0?'+':''}${fiiNet.toLocaleString('en-IN')}</div>
+      <div class="sig-card-sub">Buy ${today.FII_buy||'—'} · Sell ${today.FII_sell||'—'}</div>
+    </div>
+    <div class="sig-card">
+      <div class="sig-card-label">DII TODAY (₹ Cr)</div>
+      <div class="sig-card-val" style="color:${diiNet>=0?'#00d26a':'#ff3b5c'}">${diiNet>=0?'+':''}${diiNet.toLocaleString('en-IN')}</div>
+      <div class="sig-card-sub">Buy ${today.DII_buy||'—'} · Sell ${today.DII_sell||'—'}</div>
+    </div>
+    <div class="sig-card">
+      <div class="sig-card-label">FII 5-DAY NET (₹ Cr)</div>
+      <div class="sig-card-val" style="color:${fii5d>=0?'#00d26a':'#ff3b5c'}">${fii5d>=0?'+':''}${fii5d.toLocaleString('en-IN')}</div>
+      <div class="sig-card-sub">Trend: <span class="sig-badge ${f5Cls}" style="vertical-align:middle;">${trend}</span></div>
+    </div>
+    <div class="sig-card">
+      <div class="sig-card-label">DII 5-DAY NET (₹ Cr)</div>
+      <div class="sig-card-val" style="color:${dii5d>=0?'#00d26a':'#ff3b5c'}">${dii5d>=0?'+':''}${dii5d.toLocaleString('en-IN')}</div>
+      <div class="sig-card-sub">Counter to FII selling</div>
+    </div>
+    <div class="sig-card">
+      <div class="sig-card-label">INDIA VIX</div>
+      <div class="sig-card-val">${vix.vix||'—'}</div>
+      <div class="sig-card-sub"><span class="sig-badge ${vixCls}">${vixLvl}</span> ${vix.pct!=null?'('+vix.pct+'%)':''}</div>
+    </div>
+    <div class="sig-card">
+      <div class="sig-card-label">FEAR &amp; GREED</div>
+      <div class="sig-card-val">${fgScore}</div>
+      <div class="sig-card-sub"><span class="sig-badge ${fgCls}">${fgLabel.toUpperCase()}</span> prev ${fg.previous||'—'}</div>
+    </div>
+  `;
+}
+
+function renderSigPCR(pcr) {
+  const nf = pcr.nifty     || {};
+  const bn = pcr.banknifty || {};
+
+  const nfCls = nf.bias==='BULLISH' ? 'bull' : nf.bias==='BEARISH' ? 'bear' : 'neu';
+  const bnCls = bn.bias==='BULLISH' ? 'bull' : bn.bias==='BEARISH' ? 'bear' : 'neu';
+
+  document.getElementById('sig-pcr-grid').innerHTML = `
+    <div class="sig-card">
+      <div class="sig-card-label">NIFTY PCR</div>
+      <div class="sig-card-val">${nf.pcr||'—'}</div>
+      <div class="sig-card-sub">Bias: <span class="sig-badge ${nfCls}">${nf.bias||'—'}</span></div>
+    </div>
+    <div class="sig-card">
+      <div class="sig-card-label">NIFTY MAX PAIN</div>
+      <div class="sig-card-val">${nf.max_pain ? nf.max_pain.toLocaleString('en-IN') : '—'}</div>
+      <div class="sig-card-sub">Spot: ${nf.spot ? nf.spot.toLocaleString('en-IN') : '—'}</div>
+    </div>
+    <div class="sig-card">
+      <div class="sig-card-label">NIFTY TOTAL CE OI</div>
+      <div class="sig-card-val" style="font-size:11px;">${nf.total_ce_oi ? (nf.total_ce_oi/1e6).toFixed(2)+'M' : '—'}</div>
+      <div class="sig-card-sub">PE: ${nf.total_pe_oi ? (nf.total_pe_oi/1e6).toFixed(2)+'M' : '—'}</div>
+    </div>
+    <div class="sig-card">
+      <div class="sig-card-label">BANKNIFTY PCR</div>
+      <div class="sig-card-val">${bn.pcr||'—'}</div>
+      <div class="sig-card-sub">Bias: <span class="sig-badge ${bnCls}">${bn.bias||'—'}</span></div>
+    </div>
+    <div class="sig-card">
+      <div class="sig-card-label">BANKNIFTY MAX PAIN</div>
+      <div class="sig-card-val">${bn.max_pain ? bn.max_pain.toLocaleString('en-IN') : '—'}</div>
+      <div class="sig-card-sub">Spot: ${bn.spot ? bn.spot.toLocaleString('en-IN') : '—'}</div>
+    </div>
+    ${(nf.oi_levels||[]).slice(0,1).map(lvl=>`
+    <div class="sig-card">
+      <div class="sig-card-label">TOP OI STRIKE (NIFTY)</div>
+      <div class="sig-card-val">${lvl.strike.toLocaleString('en-IN')}</div>
+      <div class="sig-card-sub">CE: ${(lvl.ce_oi/1e3).toFixed(0)}K · PE: ${(lvl.pe_oi/1e3).toFixed(0)}K</div>
+    </div>`).join('')}
+  `;
+}
+
+function renderSigCOT(cot) {
+  const ASSETS = ['GOLD','OIL','DXY','SPX','SILVER','COPPER'];
+  const sigColor = s => s==='EXTREME_LONG'?'#ff3b5c':s==='NET_LONG'?'#f59e0b':s==='EXTREME_SHORT'?'#00d26a':s==='NET_SHORT'?'#3d9cf5':'#5a6a7a';
+  const contraColor = s => s==='SELL'?'#ff3b5c':s==='BUY'?'#00d26a':'#5a6a7a';
+
+  document.getElementById('sig-cot-ts').textContent = cot.timestamp || '';
+
+  let rows = '';
+  for (const asset of ASSETS) {
+    const d = cot[asset];
+    if (!d) continue;
+    rows += `<tr>
+      <td style="color:#e8eaf0;font-weight:bold;">${asset}</td>
+      <td>${d.date||'—'}</td>
+      <td>${d.ls_long ? d.ls_long.toLocaleString() : '—'}</td>
+      <td>${d.ls_short ? d.ls_short.toLocaleString() : '—'}</td>
+      <td style="color:${d.net>=0?'#00d26a':'#ff3b5c'};font-weight:bold;">${d.net>=0?'+':''}${d.net ? d.net.toLocaleString() : '—'}</td>
+      <td style="color:${d.net>=0?'#00d26a':'#ff3b5c'};">${d.net_pct!=null ? d.net_pct+'%' : '—'}</td>
+      <td><span style="color:${sigColor(d.signal)};font-weight:bold;">${d.signal||'—'}</span></td>
+      <td><span style="color:${contraColor(d.contrarian)};font-weight:bold;">${d.contrarian||'—'}</span></td>
+    </tr>`;
+  }
+
+  if (!rows) {
+    document.getElementById('sig-cot-body').innerHTML = '<div style="color:#5a6a7a;font-size:10px;padding:8px;">No COT data loaded. CFTC publishes weekly on Friday.</div>';
+    return;
+  }
+
+  document.getElementById('sig-cot-body').innerHTML = `
+    <table class="cot-table">
+      <thead><tr>
+        <th>ASSET</th><th>DATE</th><th>LONGS</th><th>SHORTS</th><th>NET</th><th>NET%OI</th><th>SIGNAL</th><th>CONTRARIAN</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div style="font-size:8px;color:#2a3a4a;margin-top:6px;">Source: CFTC · Hedge Fund (Leveraged Money) positioning · EXTREME = contrarian signal</div>
+  `;
+}
+
+function renderSigCorr(corr) {
+  const pairs = corr.pairs || [];
+  document.getElementById('sig-corr-ts').textContent = corr.timestamp || '';
+
+  if (!pairs.length) {
+    document.getElementById('sig-corr-body').innerHTML = '<div style="color:#5a6a7a;font-size:10px;padding:8px;">Loading correlation data…</div>';
+    return;
+  }
+
+  const rows = pairs.map(p => {
+    const rowCls = p.signal==='STRONG_BREAK' ? 'strong-break-row' : p.signal==='BREAK' ? 'break-row' : '';
+    const alertIcon = p.alert ? '🔴 ' : '';
+    const shiftCol = p.corr_shift > 0.4 ? `<span style="color:#ff8c00;">${p.corr_shift}</span>` : p.corr_shift;
+    const sigCol = p.signal==='STRONG_BREAK' ? `<span style="color:#ff3b5c;font-weight:bold;">${p.signal}</span>`
+                 : p.signal==='BREAK' ? `<span style="color:#ff8c00;font-weight:bold;">${p.signal}</span>`
+                 : p.signal==='WEAKENING' ? `<span style="color:#f59e0b;">${p.signal}</span>`
+                 : `<span style="color:#3a5a3a;">${p.signal}</span>`;
+    return `<tr class="${rowCls}">
+      <td style="color:#e8eaf0;">${alertIcon}${p.pair}</td>
+      <td>${p.normal}</td>
+      <td style="color:${p.corr_30d>=0?'#00d26a':'#ff3b5c'}">${p.corr_30d!=null?p.corr_30d:'—'}</td>
+      <td style="color:${p.corr_7d>=0?'#00d26a':'#ff3b5c'}">${p.corr_7d!=null?p.corr_7d:'—'}</td>
+      <td>${shiftCol}</td>
+      <td>${sigCol}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('sig-corr-body').innerHTML = `
+    <table class="corr-table">
+      <thead><tr>
+        <th>PAIR</th><th>NORMAL</th><th>CORR 30D</th><th>CORR 7D</th><th>SHIFT</th><th>SIGNAL</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div style="font-size:8px;color:#2a3a4a;margin-top:6px;">🔴 = BREAK ALERT · Shift &gt;0.4 = significant divergence · STRONG_BREAK = contrarian opportunity</div>
+  `;
+}
+
+function renderSigInsider(ins) {
+  const usBuys   = ins.us_buys   || [];
+  const clusters = ins.clusters  || [];
+  const bulk     = ins.india_bulk|| [];
+  const block    = ins.india_block|| [];
+
+  let html = '';
+
+  if (clusters.length) {
+    html += `<div style="margin-bottom:8px;"><div style="font-size:8px;letter-spacing:1px;color:#f59e0b;margin-bottom:4px;">🔥 CLUSTER BUYS (≥2 insiders)</div>`;
+    clusters.slice(0,5).forEach(c => {
+      html += `<div style="display:flex;justify-content:space-between;font-size:9px;padding:2px 0;border-bottom:1px solid #0d1520;">
+        <span style="color:#e8eaf0;font-weight:bold;">${c.ticker}</span>
+        <span style="color:#00d26a;">${c.count} insiders · $${(c.total_value/1e6).toFixed(1)}M</span>
+      </div>`;
+    });
+    html += '</div>';
+  }
+
+  if (usBuys.length) {
+    html += `<div style="margin-bottom:8px;"><div style="font-size:8px;letter-spacing:1px;color:#3d9cf5;margin-bottom:4px;">US INSIDER PURCHASES</div>`;
+    usBuys.slice(0,5).forEach(b => {
+      html += `<div style="font-size:9px;padding:2px 0;border-bottom:1px solid #0d1520;">
+        <span style="color:#e8eaf0;">${b.ticker}</span>
+        <span style="color:#5a6a7a;"> · ${b.owner||b.insider||''} · </span>
+        <span style="color:#00d26a;">$${b.value_formatted||'—'}</span>
+      </div>`;
+    });
+    html += '</div>';
+  }
+
+  if (bulk.length) {
+    html += `<div><div style="font-size:8px;letter-spacing:1px;color:#a78bfa;margin-bottom:4px;">INDIA BULK DEALS</div>`;
+    bulk.slice(0,5).forEach(d => {
+      const col = d.type==='B'||d.type==='BUY' ? '#00d26a' : '#ff3b5c';
+      html += `<div style="font-size:9px;padding:2px 0;border-bottom:1px solid #0d1520;">
+        <span style="color:#e8eaf0;">${d.symbol}</span>
+        <span style="color:#5a6a7a;"> · ${d.client||''} · </span>
+        <span style="color:${col};">${d.type} @ ₹${d.price||'—'}</span>
+      </div>`;
+    });
+    html += '</div>';
+  }
+
+  if (!html) html = '<div style="color:#2a3a4a;font-size:9px;padding:8px;">No insider activity found today.</div>';
+
+  document.getElementById('sig-ins-ts').textContent = ins.timestamp || '';
+  document.getElementById('sig-ins-body').innerHTML = html;
+}
+
+function renderSigLiquidity(liq) {
+  const hasKey = liq.has_key;
+  let html = '';
+
+  if (liq.REGIME) {
+    const r = liq.REGIME;
+    const rc = r.signal==='EXPANDING'?'bull':r.signal==='CONTRACTING'?'bear':'neu';
+    html += `<div style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-size:10px;color:#aab;">Regime:</span>
+      <span class="sig-badge ${rc}" style="font-size:10px;padding:3px 10px;">${r.signal} · ${r.bias}</span>
+    </div>`;
+  }
+
+  if (liq.YIELD_CURVE) {
+    const yc = liq.YIELD_CURVE;
+    const ycc = yc.signal==='NORMAL'?'bull':yc.signal==='INVERTED'?'bear':'alert';
+    html += `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #0d1520;">
+      <span style="font-size:9px;color:#5a6a7a;">${yc.label||'Yield Curve'}</span>
+      <span style="font-size:9px;color:#e8eaf0;">${yc.spread>=0?'+':''}${yc.spread} <span class="sig-badge ${ycc}" style="margin-left:4px;">${yc.signal}</span></span>
+    </div>`;
+  }
+
+  const KEYS = ['FED_BALANCE','M2','REVERSE_REPO','YIELD_10Y','YIELD_2Y','REAL_RATE'];
+  for (const k of KEYS) {
+    const d = liq[k];
+    if (!d || !d.value) continue;
+    const dc = d.direction==='UP'?'#00d26a':'#ff3b5c';
+    html += `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #0d1520;">
+      <span style="font-size:9px;color:#5a6a7a;">${d.label||k}</span>
+      <span style="font-size:9px;color:#e8eaf0;">${d.value} <span style="color:${dc};font-size:8px;">${d.direction==='UP'?'▲':'▼'} ${Math.abs(d.change_pct)}%</span></span>
+    </div>`;
+  }
+
+  // Fallback proxy yields (no FRED key)
+  if (!hasKey && liq.yield_10y) {
+    html += `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #0d1520;">
+      <span style="font-size:9px;color:#5a6a7a;">US 10Y Yield</span>
+      <span style="font-size:9px;color:#e8eaf0;">${liq.yield_10y}%</span>
+    </div>`;
+  }
+  if (!hasKey && liq.yield_3m) {
+    html += `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #0d1520;">
+      <span style="font-size:9px;color:#5a6a7a;">US 3M Yield</span>
+      <span style="font-size:9px;color:#e8eaf0;">${liq.yield_3m}%</span>
+    </div>`;
+  }
+
+  if (liq.note) html += `<div style="font-size:8px;color:#3a5a3a;margin-top:8px;">${liq.note}</div>`;
+  if (!html) html = '<div style="color:#2a3a4a;font-size:9px;padding:8px;">Loading liquidity data…</div>';
+
+  document.getElementById('sig-liq-ts').textContent = liq.timestamp || '';
+  document.getElementById('sig-liq-body').innerHTML = html;
 }
 
 const RESEARCH_ASSETS = ['GOLD','OIL','BTC','NIFTY','SPX','BONDS','FX','CRYPTO','COMMODITIES','MACRO'];
