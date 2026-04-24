@@ -279,6 +279,33 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 .dec-conf  { color:var(--muted); font-size:9px; }
 .dec-type  { font-size:8px; color:#3d9cf5; letter-spacing:1px; }
 .dec-reason { font-size:8px; color:#3a4a5a; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:140px; }
+/* ── AI RESEARCH PANELS ── */
+.rp-card { background:#0d1117; border:1px solid #1c2a3a; border-radius:6px; padding:12px; }
+.rp-card.bull { border-left:3px solid #00d26a; }
+.rp-card.bear { border-left:3px solid #ff3b5c; }
+.rp-card.neu  { border-left:3px solid #f5a623; }
+.rp-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+.rp-label  { font-size:11px; font-weight:bold; color:#e8eaf0; letter-spacing:1px; }
+.rp-sent   { font-size:9px; font-weight:bold; padding:2px 7px; border-radius:2px; letter-spacing:1px; }
+.rp-sent.bull { background:#002a14; color:#00d26a; border:1px solid #00d26a; }
+.rp-sent.bear { background:#2a0010; color:#ff3b5c; border:1px solid #ff3b5c; }
+.rp-sent.neu  { background:#1a1400; color:#f5a623; border:1px solid #f5a623; }
+.rp-bullets { list-style:none; padding:0; margin:0 0 8px 0; }
+.rp-bullets li { font-size:10px; color:#aab; line-height:1.7; padding:2px 0; border-bottom:1px solid #0d1520; }
+.rp-bullets li:last-child { border:none; }
+.rp-bullets li::before { content:"▸ "; color:#7c3aed; }
+.rp-sources { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
+.rp-source  { font-size:8px; color:#3d9cf5; background:#0d1a2a; border:1px solid #1c3050; padding:1px 5px; border-radius:2px; text-decoration:none; white-space:nowrap; overflow:hidden; max-width:140px; text-overflow:ellipsis; }
+.rp-source:hover { background:#1c3050; color:#fff; }
+.rp-meta   { font-size:8px; color:#2a3a4a; margin-top:6px; display:flex; justify-content:space-between; }
+.rp-refresh { background:none; border:1px solid #1c2a3a; color:#3d9cf5; font-size:8px; padding:1px 6px; border-radius:2px; cursor:pointer; }
+.rp-refresh:hover { background:#0d1a2a; }
+.rp-loading { text-align:center; color:#5a6a7a; font-size:11px; padding:20px; }
+/* Query result */
+.qr-bullets { list-style:none; padding:0; margin:8px 0; }
+.qr-bullets li { font-size:11px; color:#aab; line-height:1.8; padding:2px 0; border-bottom:1px solid #0d1520; }
+.qr-bullets li:last-child { border:none; }
+.qr-bullets li::before { content:"▸ "; color:#a78bfa; }
 /* ── SENTIMENT BAR ── */
 .sent-bar-wrap { padding:4px 10px; border-bottom:1px solid var(--border); }
 .sent-bar { display:flex; height:4px; border-radius:2px; overflow:hidden; margin-top:3px; }
@@ -415,6 +442,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
       <div class="ctab" data-cat="TECH"        onclick="setCat(this)">CHIPS/AI/TECH   <span class="cnt" id="cnt-TECH">—</span></div>
       <div class="ctab" data-cat="CRYPTO"      onclick="setCat(this)">CRYPTO          <span class="cnt" id="cnt-CRYPTO">—</span></div>
       <div class="ctab" data-cat="GLOBAL"      onclick="setCat(this)">ASIA/GLOBAL     <span class="cnt" id="cnt-GLOBAL">—</span></div>
+      <div class="ctab" data-cat="AI_RESEARCH" onclick="showResearch(this)" id="ai-research-tab" style="color:#a78bfa;border-left:2px solid #7c3aed;">⚡ AI RESEARCH</div>
     </div>
     <!-- ASSET QUICK FILTERS -->
     <div class="asset-filters" id="asset-filters">
@@ -432,6 +460,32 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
     </div>
     <div class="news-feed" id="news-feed">
       <div class="loading"><span class="spinner">◌</span> Fetching live news from 60+ sources...</div>
+    </div>
+
+    <!-- AI RESEARCH PANEL -->
+    <div id="ai-research-panel" style="display:none;flex:1;overflow-y:auto;padding:12px;background:#070b10;">
+      <!-- Search bar -->
+      <div style="display:flex;gap:6px;margin-bottom:14px;">
+        <input id="research-query-input" type="text" placeholder="Ask anything… e.g. Why is Gold rising today? Impact of Fed on Nifty?"
+          style="flex:1;background:#0d1117;border:1px solid #1c2a3a;color:#e8eaf0;font-size:11px;padding:7px 10px;border-radius:4px;outline:none;"
+          onkeydown="if(event.key==='Enter')runResearchQuery()"
+        >
+        <button onclick="runResearchQuery()"
+          style="background:#7c3aed;color:#fff;border:none;padding:7px 14px;border-radius:4px;font-size:11px;font-weight:bold;cursor:pointer;white-space:nowrap;">
+          ⚡ Ask
+        </button>
+      </div>
+      <!-- Query result -->
+      <div id="research-query-result" style="display:none;background:#0d1117;border:1px solid #3a1f6e;border-radius:6px;padding:12px;margin-bottom:14px;"></div>
+      <!-- Asset panels grid -->
+      <div id="research-panels" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px;">
+        <div class="rp-loading" style="grid-column:1/-1;text-align:center;color:#5a6a7a;padding:40px;">
+          <span class="spinner">◌</span> Loading AI Research panels…
+        </div>
+      </div>
+      <div style="text-align:center;color:#2a3a4a;font-size:9px;margin-top:12px;letter-spacing:1px;">
+        POWERED BY PERPLEXITY SONAR-PRO · LIVE WEB SEARCH · REFRESHES EVERY 15 MIN
+      </div>
     </div>
   </div>
 
@@ -610,6 +664,7 @@ let activeAsset = 'ALL';
 let aiNewsMap   = {};   // headline → {sentiment, impact, assets, summary, why}
 
 function setCat(el) {
+  hideResearch();
   document.querySelectorAll('.ctab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
   activeCat = el.dataset.cat;
@@ -1369,6 +1424,153 @@ async function addSource() {
 document.getElementById('src-modal').addEventListener('click', e => {
   if (e.target === document.getElementById('src-modal')) closeSources();
 });
+
+// ── AI RESEARCH ──────────────────────────────────────────────
+let _researchActive = false;
+
+function showResearch(tab) {
+  // Deactivate all category tabs
+  document.querySelectorAll('.ctab').forEach(t => t.classList.remove('active'));
+  tab.classList.add('active');
+  // Hide news feed, asset filters; show research panel
+  document.getElementById('news-feed').style.display    = 'none';
+  document.getElementById('asset-filters').style.display = 'none';
+  document.getElementById('ai-research-panel').style.display = 'flex';
+  document.getElementById('ai-research-panel').style.flexDirection = 'column';
+  _researchActive = true;
+  loadResearchPanels();
+}
+
+function hideResearch() {
+  const rp = document.getElementById('ai-research-panel');
+  if (rp) rp.style.display = 'none';
+  const nf = document.getElementById('news-feed');
+  if (nf) nf.style.display = 'flex';
+  const af = document.getElementById('asset-filters');
+  if (af) af.style.display = 'flex';
+  _researchActive = false;
+}
+
+const RESEARCH_ASSETS = ['GOLD','OIL','BTC','NIFTY','SPX','BONDS','FX','CRYPTO','COMMODITIES','MACRO'];
+
+async function loadResearchPanels(forceAsset) {
+  const grid = document.getElementById('research-panels');
+  if (!forceAsset) {
+    grid.innerHTML = RESEARCH_ASSETS.map(a =>
+      `<div class="rp-card neu" id="rp-${a}"><div class="rp-loading"><span class="spinner">◌</span> Loading ${a}…</div></div>`
+    ).join('');
+  }
+  // Load all panels in parallel
+  await Promise.all(RESEARCH_ASSETS.map(async asset => {
+    try {
+      const data = await fetch(`${BASE}/api/research/${asset}`).then(r=>r.json());
+      renderResearchCard(asset, data);
+    } catch(e) {
+      document.getElementById(`rp-${asset}`).innerHTML =
+        `<div class="rp-loading" style="color:#ff3b5c;">Failed to load ${asset}</div>`;
+    }
+  }));
+}
+
+async function refreshResearchCard(asset) {
+  const el = document.getElementById(`rp-${asset}`);
+  if (el) el.innerHTML = `<div class="rp-loading"><span class="spinner">◌</span> Refreshing…</div>`;
+  try {
+    const data = await fetch(`${BASE}/api/research/${asset}?_t=${Date.now()}`).then(r=>r.json());
+    renderResearchCard(asset, data);
+  } catch(e) {}
+}
+
+function renderResearchCard(asset, data) {
+  const el = document.getElementById(`rp-${asset}`);
+  if (!el) return;
+
+  if (data.error || data.no_key) {
+    const msg = data.no_key
+      ? '⚙ Add PERPLEXITY_API_KEY in Railway → Variables to enable live research.'
+      : `Error: ${data.error}`;
+    el.className = 'rp-card neu';
+    el.innerHTML = `
+      <div class="rp-header">
+        <span class="rp-label">${data.label || asset}</span>
+        <span class="rp-sent neu">◆ NEU</span>
+      </div>
+      <p style="font-size:10px;color:#5a6a7a;">${msg}</p>`;
+    return;
+  }
+
+  const sent  = (data.sentiment||'NEU').toUpperCase();
+  const sentClass = sent==='BULL' ? 'bull' : sent==='BEAR' ? 'bear' : 'neu';
+  const sentLabel = sent==='BULL' ? '▲ BULLISH' : sent==='BEAR' ? '▼ BEARISH' : '◆ NEUTRAL';
+  const bullets   = (data.bullets||[]).slice(0,6);
+  const citations = (data.citations||[]).slice(0,4);
+  const cached    = data.cached ? `<span style="color:#2a3a4a;">CACHED</span>` : `<span style="color:#00d26a;">LIVE</span>`;
+
+  const bulletHtml = bullets.length
+    ? `<ul class="rp-bullets">${bullets.map(b=>`<li>${b}</li>`).join('')}</ul>`
+    : `<p style="font-size:10px;color:#5a6a7a;">No data available. API key may be missing.</p>`;
+
+  const sourcesHtml = citations.length
+    ? `<div class="rp-sources">${citations.map(url => {
+        try { const h = new URL(url).hostname.replace('www.',''); return `<a class="rp-source" href="${url}" target="_blank" rel="noopener" title="${url}">${h}</a>`; }
+        catch { return ''; }
+      }).join('')}</div>`
+    : '';
+
+  el.className = `rp-card ${sentClass}`;
+  el.innerHTML = `
+    <div class="rp-header">
+      <span class="rp-label">${data.label||asset}</span>
+      <span class="rp-sent ${sentClass}">${sentLabel}</span>
+    </div>
+    ${bulletHtml}
+    ${sourcesHtml}
+    <div class="rp-meta">
+      <span>${cached} · ${data.timestamp||''}</span>
+      <button class="rp-refresh" onclick="refreshResearchCard('${asset}')">↺ Refresh</button>
+    </div>`;
+}
+
+async function runResearchQuery() {
+  const input  = document.getElementById('research-query-input');
+  const result = document.getElementById('research-query-result');
+  const q = input.value.trim();
+  if (!q) return;
+
+  result.style.display = 'block';
+  result.innerHTML = `<div style="color:#a78bfa;font-size:11px;"><span class="spinner">◌</span> Searching the web for: <em>${q}</em>…</div>`;
+
+  try {
+    const data = await fetch(`${BASE}/api/research/query`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({query: q})
+    }).then(r=>r.json());
+
+    if (data.error || data.no_key) {
+      result.innerHTML = `<p style="color:#ff3b5c;font-size:11px;">${data.error || 'Add PERPLEXITY_API_KEY to enable search.'}</p>`;
+      return;
+    }
+
+    const sentClass = data.sentiment==='BULL' ? 'bull' : data.sentiment==='BEAR' ? 'bear' : 'neu';
+    const sentLabel = data.sentiment==='BULL' ? '▲ BULLISH' : data.sentiment==='BEAR' ? '▼ BEARISH' : '◆ NEUTRAL';
+    const bullets   = (data.bullets||[]).slice(0,8);
+    const citations = (data.citations||[]).slice(0,5);
+
+    result.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span style="font-size:11px;color:#a78bfa;font-weight:bold;">⚡ ${q}</span>
+        <span class="rp-sent ${sentClass}" style="font-size:8px;">${sentLabel}</span>
+      </div>
+      <ul class="qr-bullets">${bullets.map(b=>`<li>${b}</li>`).join('')}</ul>
+      ${citations.length ? `<div class="rp-sources">${citations.map(url=>{
+        try{const h=new URL(url).hostname.replace('www.','');return`<a class="rp-source" href="${url}" target="_blank" rel="noopener">${h}</a>`}catch{return''}
+      }).join('')}</div>` : ''}
+      <div style="font-size:8px;color:#2a3a4a;margin-top:6px;">${data.timestamp||''} · Perplexity Sonar-Pro</div>`;
+  } catch(e) {
+    result.innerHTML = `<p style="color:#ff3b5c;font-size:11px;">Search failed. Try again.</p>`;
+  }
+}
 
 // ── STORY READER ──────────────────────────────────────────────
 let _storyUrl = '';
