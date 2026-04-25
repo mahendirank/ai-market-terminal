@@ -147,13 +147,16 @@ def get_gold_spot():
 
 # ── Combine ────────────────────────────────────────────────────────────────────
 def get_macro_data():
-    return {
+    import gc
+    data = {
         "FX":            get_fx_data(),
         "US_YIELDS":     get_us_yields(),
         "GLOBAL_YIELDS": get_global_yields(),
         "OIL":           get_oil(),
         "GOLD_SPOT":     get_gold_spot(),
     }
+    gc.collect()
+    return data
 
 
 def format_macro(data):

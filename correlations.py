@@ -63,17 +63,26 @@ def _cache_set(key, data):
     except: pass
 
 
-def _download_prices(symbols, period="30d", interval="1d"):
+def _download_prices(symbols, period="20d", interval="1d"):
+    """Download one symbol at a time to keep peak memory low (Railway 512MB limit)."""
     try:
+        import gc
         import yfinance as yf
-        data = yf.download(symbols, period=period, interval=interval,
-                           auto_adjust=True, progress=False)
-        if hasattr(data.columns, "levels"):
-            closes = data["Close"]
-        else:
-            closes = data[["Close"]]
-            closes.columns = symbols
-        return closes.dropna(how="all")
+        import pandas as pd
+        frames = {}
+        for sym in symbols:
+            try:
+                t   = yf.Ticker(sym)
+                df  = t.history(period=period, interval=interval, auto_adjust=True)
+                if not df.empty:
+                    frames[sym] = df["Close"].dropna()
+                del df
+            except Exception:
+                pass
+        gc.collect()
+        if not frames:
+            return None
+        return pd.DataFrame(frames).dropna(how="all")
     except Exception:
         return None
 
@@ -94,6 +103,7 @@ def _corr_signal(corr, normal_dir):
 
 
 def get_correlations():
+    import gc
     cached = _cache_get("correlations")
     if cached:
         cached["cached"] = True
@@ -143,6 +153,9 @@ def get_correlations():
 
     # Sort: breaks first
     results.sort(key=lambda x: (0 if x.get("alert") else 1, -abs(x.get("corr_shift", 0))))
+
+    del prices
+    gc.collect()
 
     data = {
         "pairs":     results,

@@ -31,11 +31,13 @@ def _price_change(sym):
 
 
 def get_indices():
+    import gc
     data = {}
     for k, sym in SYMBOLS.items():
         result = _price_change(sym)
         if result:
             data[k] = result
+    gc.collect()
     return data
 
 

@@ -57,9 +57,9 @@ def _cache_set(key, data):
     except: pass
 
 
-def _parse_zip(url, long_col, short_col, oi_col):
-    """Download a CFTC zip, parse CSV, return latest row per contract code."""
-    import zipfile
+def _parse_zip(url, long_col, short_col, oi_col, keep_codes=None):
+    """Download CFTC zip, parse CSV — only keeps rows for needed codes to save memory."""
+    import zipfile, gc
     resp = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
     if resp.status_code != 200:
         return {}
@@ -68,14 +68,25 @@ def _parse_zip(url, long_col, short_col, oi_col):
     if not fname:
         return {}
     content = zf.read(fname[0]).decode("latin-1")
+    zf.close()
     reader  = csv.DictReader(io.StringIO(content))
     latest  = {}
+    needed_cols = {"CFTC_Contract_Market_Code", "As_of_Date_In_Form_YYMMDD",
+                   long_col, short_col, oi_col}
     for row in reader:
-        code     = row.get("CFTC_Contract_Market_Code", "").strip()
+        code = row.get("CFTC_Contract_Market_Code", "").strip()
+        if keep_codes and code not in keep_codes:
+            continue
         date_str = row.get("As_of_Date_In_Form_YYMMDD", "")
         if code not in latest or date_str > latest[code]["_date"]:
-            latest[code] = {**row, "_date": date_str,
-                            "_long": long_col, "_short": short_col, "_oi": oi_col}
+            slim = {k: row[k] for k in needed_cols if k in row}
+            slim["_date"]  = date_str
+            slim["_long"]  = long_col
+            slim["_short"] = short_col
+            slim["_oi"]    = oi_col
+            latest[code]   = slim
+    del content
+    gc.collect()
     return latest
 
 
@@ -121,6 +132,9 @@ def _fetch_cot_quandl_style():
     year = datetime.now().year
     results = {}
 
+    FIN_CODES   = {"DXY": "098662", "SPX": "13874A"}
+    DISAGG_CODES = {"GOLD": "088691", "OIL": "067651", "SILVER": "084691", "COPPER": "085692"}
+
     # 1. Financial futures (SPX, DXY)
     try:
         fin = _parse_zip(
@@ -128,8 +142,9 @@ def _fetch_cot_quandl_style():
             "Lev_Money_Positions_Long_All",
             "Lev_Money_Positions_Short_All",
             "Open_Interest_All",
+            keep_codes=set(FIN_CODES.values()),
         )
-        for asset, code in COT_CODES.items():
+        for asset, code in FIN_CODES.items():
             row = fin.get(code)
             if row:
                 pos = _extract_position(row)
@@ -139,18 +154,13 @@ def _fetch_cot_quandl_style():
         pass
 
     # 2. Disaggregated (Gold, Oil, Silver, Copper)
-    DISAGG_CODES = {
-        "GOLD":   "088691",
-        "OIL":    "067651",
-        "SILVER": "084691",
-        "COPPER": "085692",
-    }
     try:
         disagg = _parse_zip(
             f"https://www.cftc.gov/files/dea/history/fut_disagg_txt_{year}.zip",
             "M_Money_Positions_Long_All",
             "M_Money_Positions_Short_All",
             "Open_Interest_All",
+            keep_codes=set(DISAGG_CODES.values()),
         )
         for asset, code in DISAGG_CODES.items():
             row = disagg.get(code)
