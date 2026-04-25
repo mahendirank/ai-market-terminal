@@ -1453,9 +1453,9 @@ async function boot() {
 }
 
 boot();
-setInterval(loadNews,           30000);
-setInterval(loadIndices,        60000);
-setInterval(loadMacro,          60000);
+setInterval(loadNews,           15000);   // news every 15s
+setInterval(loadIndices,        20000);   // prices every 20s
+setInterval(loadMacro,          30000);   // macro every 30s
 setInterval(loadSignal,        120000);
 setInterval(loadEarnings,      600000);
 setInterval(loadSocialEarnings, 90000);

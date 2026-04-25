@@ -57,6 +57,22 @@ def _lazy(module_name, fn_name, *args, **kwargs):
 # Detect Railway cloud environment
 ON_RAILWAY = bool(os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("RAILWAY_SERVICE_NAME"))
 
+# ── Continuous background refresh loop ───────────────────────
+def _continuous_refresh():
+    """Keeps news + prices always fresh in background — clients get near-instant data."""
+    _time.sleep(15)  # wait for initial warmup to finish
+    while True:
+        try: _cached("news",    15, _build_news)
+        except: pass
+        _time.sleep(5)
+        try: _cached("indices", 20, lambda: _lazy("indices", "get_indices"))
+        except: pass
+        _time.sleep(5)
+        try: _cached("macro",   30, lambda: _lazy("macro", "get_macro_data"))
+        except: pass
+        _time.sleep(10)  # total loop ~20s — news is always < 20s old
+
+
 # ── Background warm-up — gentle sequential loading ────────────
 def _warm():
     # On Railway: load one module at a time with long gaps to stay under 512MB RAM
@@ -68,11 +84,11 @@ def _warm():
     except: pass
 
     _time.sleep(gap)
-    try: _cached("indices", 30,  lambda: _lazy("indices", "get_indices"))
+    try: _cached("indices", 20,  lambda: _lazy("indices", "get_indices"))
     except: pass
 
     _time.sleep(gap)
-    try: _cached("news",    30,  _build_news)
+    try: _cached("news",    15,  _build_news)
     except: pass
 
     if ON_RAILWAY:
@@ -188,7 +204,8 @@ def _build_signal():
         return {"error": str(e), "timestamp": now_ist()}
 
 
-threading.Thread(target=_warm, daemon=True).start()
+threading.Thread(target=_warm,               daemon=True).start()
+threading.Thread(target=_continuous_refresh, daemon=True).start()
 
 
 # ── Endpoints ─────────────────────────────────────────────────
