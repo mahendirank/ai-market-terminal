@@ -530,6 +530,38 @@ def api_research_all():
         return {"error": str(e)}
 
 
+@app.get("/api/crypto")
+def api_crypto():
+    try:
+        from coingecko import get_crypto_snapshot
+        return _cached("crypto", 300, get_crypto_snapshot)
+    except Exception as e: return {"error": str(e)}
+
+
+@app.get("/api/congress")
+def api_congress():
+    try:
+        from capitol_trades import get_congress_trades
+        return _cached("congress", 3600, get_congress_trades)
+    except Exception as e: return {"error": str(e)}
+
+
+@app.get("/api/whales")
+def api_whales():
+    try:
+        from whale_tracker import get_whale_data
+        return _cached("whales", 21600, get_whale_data)
+    except Exception as e: return {"error": str(e)}
+
+
+@app.get("/api/sectors")
+def api_sectors():
+    try:
+        from sector_pulse import get_sector_pulse
+        return _cached("sectors", 300, get_sector_pulse)
+    except Exception as e: return {"error": str(e)}
+
+
 @app.get("/api/article")
 def api_article(url: str):
     """Fetch full article text from a news URL."""

@@ -586,8 +586,52 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
         </div>
       </div>
 
+      <!-- Row 6: Crypto Markets -->
+      <div class="sig-section">
+        <div class="sig-section-title">
+          <span>CRYPTO MARKETS (COINGECKO)</span>
+          <span id="sig-crypto-ts" style="font-size:8px;color:#2a3a4a;font-weight:normal;"></span>
+        </div>
+        <div id="sig-crypto-body">
+          <div class="loading"><span class="spinner">◌</span> Loading…</div>
+        </div>
+      </div>
+
+      <!-- Row 7: Sector Pulse -->
+      <div class="sig-section">
+        <div class="sig-section-title">
+          <span>US SECTOR PULSE (SPDR ETFs)</span>
+          <span id="sig-sector-ts" style="font-size:8px;color:#2a3a4a;font-weight:normal;"></span>
+        </div>
+        <div id="sig-sector-body">
+          <div class="loading"><span class="spinner">◌</span> Loading…</div>
+        </div>
+      </div>
+
+      <!-- Row 8: Congress + Whale Tracker side-by-side -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="sig-section">
+          <div class="sig-section-title">
+            <span>🏛 CONGRESS TRADES (STOCK ACT)</span>
+            <span id="sig-cong-ts" style="font-size:8px;color:#2a3a4a;font-weight:normal;"></span>
+          </div>
+          <div id="sig-cong-body">
+            <div class="loading"><span class="spinner">◌</span> Loading…</div>
+          </div>
+        </div>
+        <div class="sig-section">
+          <div class="sig-section-title">
+            <span>🐋 WHALE TRACKER (13F FILINGS)</span>
+            <span id="sig-whale-ts" style="font-size:8px;color:#2a3a4a;font-weight:normal;"></span>
+          </div>
+          <div id="sig-whale-body">
+            <div class="loading"><span class="spinner">◌</span> Loading…</div>
+          </div>
+        </div>
+      </div>
+
       <div style="text-align:center;color:#2a3a4a;font-size:9px;letter-spacing:1px;padding:4px 0;">
-        DATA: NSE · CFTC · OPENINSIDER · FRED/YFINANCE · REFRESHES EVERY 5–30 MIN
+        DATA: NSE · CFTC · COINGECKO · CAPITOLTRADES · DATAROMA · FRED/YFINANCE · ALL FREE
       </div>
     </div>
   </div>
@@ -1581,8 +1625,8 @@ function hideSignals() {
 }
 
 async function loadSignals() {
-  // Fetch all in parallel
-  const [fiiData, pcrData, cotData, corrData, insData, liqData, nseData] = await Promise.allSettled([
+  const [fiiData, pcrData, cotData, corrData, insData, liqData, nseData,
+         cryptoData, sectorData, congData, whaleData] = await Promise.allSettled([
     fetch(`${BASE}/api/nse/fii`).then(r=>r.json()),
     fetch(`${BASE}/api/nse/pcr`).then(r=>r.json()),
     fetch(`${BASE}/api/cot`).then(r=>r.json()),
@@ -1590,15 +1634,23 @@ async function loadSignals() {
     fetch(`${BASE}/api/insider`).then(r=>r.json()),
     fetch(`${BASE}/api/liquidity`).then(r=>r.json()),
     fetch(`${BASE}/api/nse`).then(r=>r.json()),
+    fetch(`${BASE}/api/crypto`).then(r=>r.json()),
+    fetch(`${BASE}/api/sectors`).then(r=>r.json()),
+    fetch(`${BASE}/api/congress`).then(r=>r.json()),
+    fetch(`${BASE}/api/whales`).then(r=>r.json()),
   ]);
 
-  const fii  = fiiData.status  === 'fulfilled' ? fiiData.value  : {};
-  const pcr  = pcrData.status  === 'fulfilled' ? pcrData.value  : {};
-  const cot  = cotData.status  === 'fulfilled' ? cotData.value  : {};
-  const corr = corrData.status === 'fulfilled' ? corrData.value : {};
-  const ins  = insData.status  === 'fulfilled' ? insData.value  : {};
-  const liq  = liqData.status  === 'fulfilled' ? liqData.value  : {};
-  const nse  = nseData.status  === 'fulfilled' ? nseData.value  : {};
+  const fii    = fiiData.status    === 'fulfilled' ? fiiData.value    : {};
+  const pcr    = pcrData.status    === 'fulfilled' ? pcrData.value    : {};
+  const cot    = cotData.status    === 'fulfilled' ? cotData.value    : {};
+  const corr   = corrData.status   === 'fulfilled' ? corrData.value   : {};
+  const ins    = insData.status    === 'fulfilled' ? insData.value    : {};
+  const liq    = liqData.status    === 'fulfilled' ? liqData.value    : {};
+  const nse    = nseData.status    === 'fulfilled' ? nseData.value    : {};
+  const crypto = cryptoData.status === 'fulfilled' ? cryptoData.value : {};
+  const sector = sectorData.status === 'fulfilled' ? sectorData.value : {};
+  const cong   = congData.status   === 'fulfilled' ? congData.value   : {};
+  const whale  = whaleData.status  === 'fulfilled' ? whaleData.value  : {};
 
   renderSigFII(fii, nse);
   renderSigPCR(pcr);
@@ -1606,6 +1658,10 @@ async function loadSignals() {
   renderSigCorr(corr);
   renderSigInsider(ins);
   renderSigLiquidity(liq);
+  renderSigCrypto(crypto);
+  renderSigSectors(sector);
+  renderSigCongress(cong);
+  renderSigWhales(whale);
 }
 
 function _sigBadge(val, pos, neg, cls_pos, cls_neg) {
@@ -1891,6 +1947,134 @@ function renderSigLiquidity(liq) {
 
   document.getElementById('sig-liq-ts').textContent = liq.timestamp || '';
   document.getElementById('sig-liq-body').innerHTML = html;
+}
+
+function renderSigCrypto(data) {
+  const global  = data.global  || {};
+  const markets = data.markets || [];
+  document.getElementById('sig-crypto-ts').textContent = global.timestamp || '';
+  if (!markets.length) {
+    document.getElementById('sig-crypto-body').innerHTML = '<div style="color:#2a3a4a;font-size:9px;padding:8px;">No crypto data.</div>';
+    return;
+  }
+  const mcapCls = global.mcap_chg_24h >= 0 ? '#00d26a' : '#ff3b5c';
+  let html = `
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #1c2a3a;">
+      <div><div class="sig-card-label">TOTAL MARKET CAP</div><div style="font-size:13px;font-weight:bold;color:#e8eaf0;">\$${global.total_mcap_t}T <span style="font-size:9px;color:${mcapCls};">${global.mcap_chg_24h >= 0?'+':''}${global.mcap_chg_24h}%</span></div></div>
+      <div><div class="sig-card-label">BTC DOMINANCE</div><div style="font-size:13px;font-weight:bold;color:#f59e0b;">${global.btc_dominance}%</div></div>
+      <div><div class="sig-card-label">ETH DOMINANCE</div><div style="font-size:13px;font-weight:bold;color:#a78bfa;">${global.eth_dominance}%</div></div>
+      <div><div class="sig-card-label">24H VOLUME</div><div style="font-size:13px;font-weight:bold;color:#e8eaf0;">\$${global.total_vol_b}B</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:6px;">`;
+  markets.forEach(c => {
+    const col = c.chg24h >= 0 ? '#00d26a' : '#ff3b5c';
+    const price = c.price >= 1000 ? c.price.toLocaleString('en-US',{maximumFractionDigits:0}) : c.price.toFixed(4);
+    html += `<div class="sig-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-size:10px;font-weight:bold;color:#e8eaf0;">${c.symbol}</span>
+        <span style="font-size:9px;color:${col};font-weight:bold;">${c.arrow} ${Math.abs(c.chg24h)}%</span>
+      </div>
+      <div style="font-size:11px;color:#aab;margin-top:2px;">\$${price}</div>
+      <div style="font-size:8px;color:#3a5a3a;">MCap \$${c.mcap_b}B</div>
+    </div>`;
+  });
+  html += '</div>';
+  document.getElementById('sig-crypto-body').innerHTML = html;
+}
+
+function renderSigSectors(data) {
+  const sectors = data.sectors || [];
+  const broad   = data.broad   || [];
+  document.getElementById('sig-sector-ts').textContent = data.timestamp || '';
+  if (!sectors.length) {
+    document.getElementById('sig-sector-body').innerHTML = '<div style="color:#2a3a4a;font-size:9px;padding:8px;">Loading sector data…</div>';
+    return;
+  }
+  const bCls = data.breadth_cls === 'bull' ? '#00d26a' : data.breadth_cls === 'bear' ? '#ff3b5c' : '#f59e0b';
+  let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #1c2a3a;">
+    <span style="font-size:10px;color:#aab;">Breadth: <strong style="color:${bCls};">${data.breadth}</strong></span>
+    <span style="font-size:9px;color:#5a6a7a;">▲ ${data.advancing} advancing &nbsp;▼ ${data.declining} declining</span>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:5px;">`;
+  sectors.forEach(s => {
+    const col = s.chg >= 0 ? '#00d26a' : '#ff3b5c';
+    const bg  = s.chg >= 0 ? '#001a0a' : '#1a0005';
+    html += `<div style="background:${bg};border:1px solid #1c2a3a;border-radius:3px;padding:5px 7px;">
+      <div style="font-size:8px;color:#5a6a7a;">${s.symbol}</div>
+      <div style="font-size:9px;color:#aab;">${s.label}</div>
+      <div style="font-size:11px;font-weight:bold;color:${col};">${s.arrow} ${Math.abs(s.chg)}%</div>
+    </div>`;
+  });
+  html += '</div>';
+  if (broad.length) {
+    html += `<div style="margin-top:8px;padding-top:6px;border-top:1px solid #1c2a3a;display:flex;flex-wrap:wrap;gap:8px;">`;
+    broad.forEach(b => {
+      const col = b.chg >= 0 ? '#00d26a' : '#ff3b5c';
+      html += `<span style="font-size:9px;color:#aab;">${b.label}: <strong style="color:${col};">${b.arrow}${Math.abs(b.chg)}%</strong></span>`;
+    });
+    html += '</div>';
+  }
+  document.getElementById('sig-sector-body').innerHTML = html;
+}
+
+function renderSigCongress(data) {
+  const trades   = data.trades   || [];
+  const clusters = data.clusters || [];
+  document.getElementById('sig-cong-ts').textContent = data.timestamp || '';
+  let html = '';
+  if (clusters.length) {
+    html += `<div style="margin-bottom:8px;"><div style="font-size:8px;letter-spacing:1px;color:#f59e0b;margin-bottom:4px;">🔥 CLUSTER BUYS (MULTIPLE MEMBERS)</div>`;
+    clusters.forEach(c => {
+      html += `<div style="display:flex;justify-content:space-between;font-size:9px;padding:2px 0;border-bottom:1px solid #0d1520;">
+        <span style="color:#e8eaf0;font-weight:bold;">${c.ticker}</span>
+        <span style="color:#00d26a;">${c.count} members: ${c.politicians.join(', ').substring(0,40)}</span>
+      </div>`;
+    });
+    html += '</div>';
+  }
+  if (trades.length) {
+    html += `<div style="font-size:8px;letter-spacing:1px;color:#3d9cf5;margin-bottom:4px;">RECENT DISCLOSURES</div>`;
+    trades.slice(0,8).forEach(t => {
+      const col   = t.type === 'BUY' ? '#00d26a' : '#ff3b5c';
+      const party = t.party === 'R' ? '#ff6b6b' : '#6b9fff';
+      html += `<div style="font-size:9px;padding:2px 0;border-bottom:1px solid #0d1520;display:flex;justify-content:space-between;">
+        <span><span style="color:${party};font-weight:bold;">[${t.party}]</span> ${t.name.substring(0,16)} <span style="color:#5a6a7a;">·</span> <strong style="color:#e8eaf0;">${t.ticker}</strong></span>
+        <span style="color:${col};font-weight:bold;">${t.type} ${t.amount}</span>
+      </div>`;
+    });
+  }
+  if (!html) html = '<div style="color:#2a3a4a;font-size:9px;padding:8px;">No recent congress disclosures.</div>';
+  document.getElementById('sig-cong-body').innerHTML = html;
+}
+
+function renderSigWhales(data) {
+  const trades    = data.recent_trades || [];
+  const consensus = data.consensus     || [];
+  document.getElementById('sig-whale-ts').textContent = data.timestamp || '';
+  let html = '';
+  if (consensus.length) {
+    html += `<div style="margin-bottom:8px;"><div style="font-size:8px;letter-spacing:1px;color:#f59e0b;margin-bottom:4px;">🔥 CONSENSUS BUYS (MULTIPLE WHALES)</div>`;
+    consensus.forEach(c => {
+      html += `<div style="display:flex;justify-content:space-between;font-size:9px;padding:2px 0;border-bottom:1px solid #0d1520;">
+        <span style="color:#e8eaf0;font-weight:bold;">${c.ticker}</span>
+        <span style="color:#00d26a;">${c.count}× · \$${(c.total_value/1e6).toFixed(1)}M</span>
+      </div>`;
+    });
+    html += '</div>';
+  }
+  if (trades.length) {
+    html += `<div style="font-size:8px;letter-spacing:1px;color:#a78bfa;margin-bottom:4px;">RECENT 13F TRADES</div>`;
+    trades.slice(0,8).forEach(t => {
+      html += `<div style="font-size:9px;padding:2px 0;border-bottom:1px solid #0d1520;display:flex;justify-content:space-between;">
+        <span style="color:#e8eaf0;font-weight:bold;">${t.ticker}</span>
+        <span style="color:#5a6a7a;">${t.name.substring(0,22)}</span>
+        <span style="color:#00d26a;">\$${t.value.toLocaleString()}</span>
+      </div>`;
+    });
+  }
+  if (!html) html = '<div style="color:#2a3a4a;font-size:9px;padding:8px;">No whale activity loaded.</div>';
+  const note = data.note ? `<div style="font-size:8px;color:#2a3a4a;margin-top:6px;">${data.note}</div>` : '';
+  document.getElementById('sig-whale-body').innerHTML = html + note;
 }
 
 const RESEARCH_ASSETS = ['GOLD','OIL','BTC','NIFTY','SPX','BONDS','FX','CRYPTO','COMMODITIES','MACRO'];
