@@ -1,0 +1,30 @@
+# Secrets — never bake into image
+.env
+*.env
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# SQLite databases — these are runtime data, not source code
+db/
+*.db
+
+# Logs
+*.log
+server.log
+
+# Git
+.git/
+.gitignore
+
+# Local dev
+.venv/
+venv/
+node_modules/
+
+# macOS
+.DS_Store

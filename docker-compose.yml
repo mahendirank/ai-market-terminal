@@ -1,0 +1,23 @@
+version: "3.9"
+
+services:
+  market-terminal:
+    build: .
+    container_name: ai-market-terminal
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env                    # API keys loaded from .env — never in image
+    volumes:
+      - db_data:/app/db         # SQLite caches persist between restarts
+    restart: unless-stopped
+    mem_limit: 512m             # Match Railway free tier limit
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 25s
+
+volumes:
+  db_data:                      # Named volume — survives container restarts
