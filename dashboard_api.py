@@ -115,9 +115,11 @@ def _build_news():
         from news import get_all_news
         from priority import prioritize_news
         scored = prioritize_news(get_all_news(), summarize=False)
-        # Fire Telegram alert for any new high-impact item (score 8+)
+        # Send all news to Telegram feed (safe — dedup, rate-limited, max 20/cycle)
         try:
-            from notify import alert_high_news
+            from notify import send_news_feed, alert_high_news
+            send_news_feed(scored)
+            # Extra loud alert (phone buzzes) for score 8+ breaking news
             for entry in scored[:10]:
                 if isinstance(entry, (list, tuple)) and len(entry) == 2:
                     score, item = entry

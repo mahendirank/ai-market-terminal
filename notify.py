@@ -1,8 +1,15 @@
 """
-Telegram alert system — sends market alerts to your Telegram.
+Telegram alert system — sends market alerts + live news feed to your Telegram.
 Bot token + chat ID loaded from environment variables (never hardcoded).
+
+Safety measures:
+- 1 message/sec rate limit (Telegram blocks bots that send faster)
+- SQLite dedup store — no repeats even after server restart
+- Max 20 news items per batch cycle — no sudden floods
+- Score 2+ filter — blocks junk/irrelevant headlines
+- Runs in background thread — never slows down dashboard
 """
-import os, requests, threading, time
+import os, json, re, requests, threading, time, sqlite3
 from datetime import datetime, timezone, timedelta
 
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -10,7 +17,54 @@ IST = timezone(timedelta(hours=5, minutes=30))
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8475057388:AAGUlt5Qu3Ei2_3xeUF8S1TWvygDKVVxb8I")
 CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID",   "1026742085")
 
-_sent_cache = set()   # prevent duplicate alerts within same session
+_sent_cache = set()   # in-memory dedup for condition alerts (same session)
+
+# ── Persistent news dedup DB ──────────────────────────────────
+_NEWS_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "db", "tg_sent.db")
+_news_db_lock = threading.Lock()
+
+def _news_db():
+    os.makedirs(os.path.dirname(_NEWS_DB), exist_ok=True)
+    conn = sqlite3.connect(_NEWS_DB, check_same_thread=False)
+    conn.execute("CREATE TABLE IF NOT EXISTS sent (key TEXT PRIMARY KEY, ts REAL NOT NULL)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ts ON sent(ts)")
+    conn.commit()
+    return conn
+
+def _already_sent(key: str) -> bool:
+    try:
+        with _news_db_lock:
+            conn = _news_db()
+            row  = conn.execute("SELECT 1 FROM sent WHERE key=?", (key,)).fetchone()
+            conn.close()
+        return row is not None
+    except Exception:
+        return False
+
+def _mark_sent(key: str):
+    try:
+        with _news_db_lock:
+            conn = _news_db()
+            conn.execute("INSERT OR IGNORE INTO sent(key,ts) VALUES(?,?)", (key, time.time()))
+            conn.commit(); conn.close()
+    except Exception:
+        pass
+
+def _cleanup_old_sent():
+    """Keep DB small — delete records older than 7 days."""
+    try:
+        with _news_db_lock:
+            conn = _news_db()
+            conn.execute("DELETE FROM sent WHERE ts < ?", (time.time() - 604800,))
+            conn.commit(); conn.close()
+    except Exception:
+        pass
+
+def _headline_key(text: str) -> str:
+    """Normalise headline to a short dedup key."""
+    t = re.sub(r"[^a-z0-9 ]", " ", text.lower())
+    t = re.sub(r"\s+", " ", t).strip()
+    return t[:60]
 
 
 def send_telegram(msg: str, silent: bool = False) -> bool:
@@ -146,16 +200,98 @@ def alert_sector_breadth(breadth: str, advancing: int, total: int):
     _dedup_send(key, msg)
 
 
+# ── News feed sender ─────────────────────────────────────────
+
+def _format_news_msg(item: dict, score: int) -> str:
+    """Format a single news item as a Telegram message."""
+    headline = item.get("text", "")
+    source   = item.get("source", "")
+    url      = item.get("url", "")
+    t        = item.get("time", "")
+
+    # Score emoji
+    if score >= 8:   emoji = "🔴"
+    elif score >= 5: emoji = "🟡"
+    else:            emoji = "⚪"
+
+    msg = f"{emoji} <b>{headline}</b>\n"
+    if source: msg += f"📡 {source}"
+    if t:      msg += f"  •  {t}"
+    msg += "\n"
+    if url:    msg += f'<a href="{url}">Read more</a>'
+    return msg
+
+
+def send_news_feed(scored_news: list):
+    """
+    Send new news items to Telegram safely.
+    - Only sends items not already sent (SQLite dedup)
+    - Max 20 items per call
+    - 1.2 second gap between messages (Telegram rate limit safe)
+    - Score 2+ filter
+    """
+    if not scored_news:
+        return
+
+    to_send = []
+    for entry in scored_news:
+        try:
+            if isinstance(entry, (list, tuple)) and len(entry) == 2:
+                score, item = entry
+                if score < 2:
+                    continue
+                if not isinstance(item, dict):
+                    continue
+                headline = item.get("text", "")
+                if not headline:
+                    continue
+                key = _headline_key(headline)
+                if not _already_sent(key):
+                    to_send.append((score, item, key))
+        except Exception:
+            continue
+
+    if not to_send:
+        return
+
+    # Sort by score descending — highest impact first
+    to_send.sort(key=lambda x: -x[0])
+
+    # Cap at 20 per cycle
+    to_send = to_send[:20]
+
+    def _send_batch():
+        for score, item, key in to_send:
+            try:
+                msg = _format_news_msg(item, score)
+                ok  = send_telegram(msg, silent=True)  # silent=True = no phone buzz for each
+                if ok:
+                    _mark_sent(key)
+                time.sleep(1.2)  # stay under Telegram 1 msg/sec limit
+            except Exception:
+                time.sleep(1.2)
+                continue
+
+    threading.Thread(target=_send_batch, daemon=True).start()
+
+
 # ── Watchdog — runs every 5 minutes, checks all conditions ───
+
+_cleanup_counter = 0
 
 def _run_watchdog():
     """Background thread — checks all alert conditions every 5 minutes."""
+    global _cleanup_counter
     time.sleep(60)  # wait for server warmup
     while True:
         try:
             _check_all()
         except Exception:
             pass
+        _cleanup_counter += 1
+        if _cleanup_counter >= 288:  # once every 24 hours (288 × 5min)
+            _cleanup_old_sent()
+            _cleanup_counter = 0
         time.sleep(300)  # check every 5 minutes
 
 
