@@ -232,6 +232,29 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/api/test-alert")
+def test_alert():
+    """Send a test Telegram alert to confirm bot is working."""
+    try:
+        from notify import send_telegram
+        from datetime import datetime, timezone, timedelta
+        IST = timezone(timedelta(hours=5, minutes=30))
+        ok = send_telegram(
+            f"✅ <b>Test Alert — AI Market Terminal</b>\n\n"
+            f"Bot is working correctly on Railway.\n"
+            f"You will receive alerts when:\n"
+            f"🔴 High impact news (score 8+)\n"
+            f"🏦 FII net crosses ±₹5,000 Cr\n"
+            f"⚠️ VIX backwardation detected\n"
+            f"🏛 Congress cluster buy\n"
+            f"🚀 Broad rally / selloff\n\n"
+            f"🕐 {datetime.now(IST).strftime('%d-%b-%Y %H:%M IST')}"
+        )
+        return {"sent": ok, "message": "Test alert sent!" if ok else "Failed — check token/chat ID"}
+    except Exception as e:
+        return {"sent": False, "error": str(e)}
+
+
 def _build_ai_news():
     """Enrich top high-impact news with Groq AI sentiment + summary."""
     try:
