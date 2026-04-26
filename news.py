@@ -405,6 +405,54 @@ def get_alpaca_news():
     return items
 
 
+def get_finviz_news():
+    """Scrape Finviz market news page — headlines from Bloomberg, Reuters, WSJ etc."""
+    from urllib.parse import urlparse
+    items = []
+    try:
+        resp = requests.get(
+            "https://finviz.com/news.ashx?v=2",
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml",
+                "Referer": "https://finviz.com/",
+            },
+            timeout=12,
+        )
+        soup = BeautifulSoup(resp.text, "html.parser")
+        for tr in soup.select("table tr"):
+            tds = tr.find_all("td")
+            if len(tds) < 2:
+                continue
+            a = tds[1].find("a", href=True)
+            if not a:
+                continue
+            headline = a.get_text(strip=True)
+            if len(headline) < 20:
+                continue
+            url  = a.get("href", "")
+            date = tds[0].get_text(strip=True)
+            # Derive source from domain: bloomberg.com → Bloomberg
+            try:
+                domain = urlparse(url).netloc.replace("www.", "").split(".")[0].capitalize()
+            except Exception:
+                domain = "Finviz"
+            items.append({
+                "text":     headline,
+                "source":   f"Finviz/{domain}",
+                "time":     date,
+                "pub_utc":  "",
+                "category": "MARKETS",
+                "tickers":  _detect_tickers(headline),
+                "url":      url,
+            })
+            if len(items) >= 60:
+                break
+    except Exception:
+        pass
+    return items
+
+
 def _norm(text):
     """Normalise headline for dedup — lowercase, strip punctuation, collapse spaces."""
     t = re.sub(r"[^a-z0-9 ]", " ", text.lower())
@@ -435,6 +483,11 @@ def get_all_news():
 
     try:
         news += get_alpaca_news()
+    except:
+        pass
+
+    try:
+        news += get_finviz_news()
     except:
         pass
 

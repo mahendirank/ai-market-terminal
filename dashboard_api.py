@@ -114,7 +114,18 @@ def _build_news():
     try:
         from news import get_all_news
         from priority import prioritize_news
-        return prioritize_news(get_all_news(), summarize=False)
+        scored = prioritize_news(get_all_news(), summarize=False)
+        # Fire Telegram alert for any new high-impact item (score 8+)
+        try:
+            from notify import alert_high_news
+            for entry in scored[:10]:
+                if isinstance(entry, (list, tuple)) and len(entry) == 2:
+                    score, item = entry
+                    if score >= 8 and isinstance(item, dict):
+                        alert_high_news(item.get("text",""), item.get("source",""), score)
+        except Exception:
+            pass
+        return scored
     except: return []
 
 def _build_stocks():
@@ -206,6 +217,12 @@ def _build_signal():
 
 threading.Thread(target=_warm,               daemon=True).start()
 threading.Thread(target=_continuous_refresh, daemon=True).start()
+
+try:
+    from notify import start_watchdog
+    start_watchdog()
+except Exception:
+    pass
 
 
 # ── Endpoints ─────────────────────────────────────────────────
@@ -559,6 +576,14 @@ def api_sectors():
     try:
         from sector_pulse import get_sector_pulse
         return _cached("sectors", 300, get_sector_pulse)
+    except Exception as e: return {"error": str(e)}
+
+
+@app.get("/api/vix")
+def api_vix():
+    try:
+        from vix_term import get_vix_signals
+        return _cached("vix", 300, get_vix_signals)
     except Exception as e: return {"error": str(e)}
 
 
