@@ -825,7 +825,13 @@ function setCat(el) {
   document.querySelectorAll('.ctab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
   activeCat = el.dataset.cat;
+  // Reset asset filter so count always matches what is visible
+  activeAsset = 'ALL';
+  document.querySelectorAll('.af-btn').forEach(b => b.classList.remove('active'));
+  const allBtn = document.querySelector('.af-btn[data-asset="ALL"]');
+  if (allBtn) allBtn.classList.add('active');
   renderFeed();
+  updateCounts();
 }
 
 function setAsset(el) {
@@ -833,6 +839,7 @@ function setAsset(el) {
   el.classList.add('active');
   activeAsset = el.dataset.asset;
   renderFeed();
+  updateCounts(); // keep badge count = what is visible
 }
 
 // ── Ticker tag helper ─────────────────────────────────────
@@ -954,26 +961,28 @@ function timeAgo(pubUtc) {
   } catch(e) { return ''; }
 }
 
+// ── Shared asset-filter helper (used by renderFeed AND updateCounts) ──────────
+const _assetWords = {
+  'GOLD':['gold','xauusd'],'OIL':['oil','crude','brent','wti'],
+  'BTC':['bitcoin','btc','crypto'],'SPX':['s&p','spx','s&p 500'],
+  'NDX':['nasdaq','ndx','tech stocks'],'DXY':['dollar','dxy','usd index'],
+  'NIFTY':['nifty','sensex','india index'],'FED':['fed','fomc','powell','rate'],
+  'RATES':['yield','bond','treasury','rates']
+};
+function _matchesAsset(n) {
+  if (activeAsset === 'ALL') return true;
+  const ai = aiNewsMap[n.headline];
+  if (ai && ai.assets && ai.assets.includes(activeAsset)) return true;
+  const txt = (n.headline||'').toLowerCase();
+  return (_assetWords[activeAsset]||[]).some(w => txt.includes(w));
+}
+
 function renderFeed(freshSet) {
   const feed = document.getElementById('news-feed');
   let raw = activeCat === 'ALL' ? allNews : allNews.filter(n => n.category === activeCat);
 
-  // Asset filter
-  if (activeAsset !== 'ALL') {
-    raw = raw.filter(n => {
-      const ai = aiNewsMap[n.headline];
-      if (ai && ai.assets && ai.assets.includes(activeAsset)) return true;
-      const txt = (n.headline||'').toLowerCase();
-      const assetWords = {
-        'GOLD':['gold','xauusd'],'OIL':['oil','crude','brent','wti'],
-        'BTC':['bitcoin','btc','crypto'],'SPX':['s&p','spx','s&p 500'],
-        'NDX':['nasdaq','ndx','tech stocks'],'DXY':['dollar','dxy','usd index'],
-        'NIFTY':['nifty','sensex','india index'],'FED':['fed','fomc','powell','rate'],
-        'RATES':['yield','bond','treasury','rates']
-      };
-      return (assetWords[activeAsset]||[]).some(w => txt.includes(w));
-    });
-  }
+  // Asset filter — uses shared _matchesAsset so count always = visible rows
+  if (activeAsset !== 'ALL') raw = raw.filter(_matchesAsset);
 
   const list = [...raw].sort((a,b) => {
     if (!a.pub_utc && !b.pub_utc) return 0;
@@ -1043,12 +1052,14 @@ function renderFeed(freshSet) {
   }).join('');
 }
 
-// ── Update tab counts ─────────────────────────────────────
+// ── Update tab counts (reflects active asset filter so count = what renders) ──
 function updateCounts() {
   const cats = ['ALL','MARKETS','GEOPOLITICS','BONDS','FX','HNI','COMMODITIES','INDIA','TECH','MACRO','EARNINGS','CRYPTO','GLOBAL'];
   cats.forEach(c => {
     const el = document.getElementById(`cnt-${c}`);
-    if (el) el.textContent = c==='ALL' ? allNews.length : allNews.filter(n=>n.category===c).length;
+    if (!el) return;
+    const pool = c === 'ALL' ? allNews : allNews.filter(n => n.category === c);
+    el.textContent = pool.filter(_matchesAsset).length;
   });
 }
 
