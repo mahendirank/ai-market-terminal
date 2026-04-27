@@ -15,7 +15,7 @@ from datetime import datetime, timezone, timedelta
 IST = timezone(timedelta(hours=5, minutes=30))
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8475057388:AAGUlt5Qu3Ei2_3xeUF8S1TWvygDKVVxb8I")
-CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID",   "1026742085")
+CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID",   "-1001379475837")  # PTA NISM channel
 
 _sent_cache = set()   # in-memory dedup for condition alerts (same session)
 
