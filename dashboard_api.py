@@ -495,8 +495,10 @@ def telegram_digest():
         "time":       datetime.now(IST).strftime("%H:%M IST"),
         "tg_status":  tg_status,
         "tg_error":   tg_body if not ok else None,
-        "bot_token_prefix": _TG_BOT[:10] + "...",
+        "bot_token_len":    len(_TG_BOT),
+        "bot_token_prefix": _TG_BOT[:20] + "...",
         "chat_id":    _TG_CHAT,
+        "token_from_env": bool(os.environ.get("TELEGRAM_BOT_TOKEN")),
     }
 
 
