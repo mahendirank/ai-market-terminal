@@ -77,8 +77,11 @@ def send_telegram(msg: str, silent: bool = False) -> bool:
             "parse_mode":           "HTML",
             "disable_notification": silent,
         }, timeout=10)
+        if resp.status_code != 200:
+            print(f"[TG] send failed {resp.status_code}: {resp.text[:200]}", flush=True)
         return resp.status_code == 200
-    except Exception:
+    except Exception as e:
+        print(f"[TG] exception: {e}", flush=True)
         return False
 
 

@@ -131,16 +131,30 @@ def _build_news():
 
 # ── 5-minute Telegram digest loop ────────────────────────────
 def _telegram_digest_loop():
-    """Every 5 minutes: send a digest of important news from the last 5 minutes."""
-    _time.sleep(90)   # wait for news cache to warm up first
+    """Every 5 minutes: always sends a digest to keep the Telegram channel active."""
+    # Send a startup ping so the user knows the bot is alive
+    _time.sleep(30)
+    try:
+        from notify import send_telegram
+        ist_now = datetime.now(IST).strftime("%d %b %Y  %H:%M IST")
+        send_telegram(
+            f"✅ <b>AI Market Terminal Online</b>\n"
+            f"📡 Bot connected — 5-min digests starting now\n"
+            f"🕐 {ist_now}",
+            silent=True
+        )
+    except Exception as e:
+        print(f"[DIGEST] startup ping failed: {e}", flush=True)
+
+    _time.sleep(60)   # then wait a bit more for news cache to warm up
+
     while True:
         try:
             scored = _cache.get("news", {}).get("data") or []
-            if scored:
-                from notify import send_5min_digest
-                send_5min_digest(scored)
-        except Exception:
-            pass
+            from notify import send_5min_digest
+            send_5min_digest(scored)   # always call — handles empty list with quiet fallback
+        except Exception as e:
+            print(f"[DIGEST] error: {e}", flush=True)
         _time.sleep(300)   # exactly 5 minutes
 
 def _build_stocks():
