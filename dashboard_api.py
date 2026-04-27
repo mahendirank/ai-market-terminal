@@ -129,161 +129,183 @@ def _build_news():
     except: return []
 
 
+# ── Shared Telegram sender (used by loop + test endpoint) ─────
+_TG_BOT   = os.environ.get("TELEGRAM_BOT_TOKEN", "8475057388:AAGUlt5Qu3Ei2_3xeUF8S1TWvygDKVVxb8I")
+_TG_CHAT  = os.environ.get("TELEGRAM_CHAT_ID",   "-1001379475837")
+
+def _tg_send(text: str, silent: bool = False) -> bool:
+    import requests as _rq
+    try:
+        r = _rq.post(
+            f"https://api.telegram.org/bot{_TG_BOT}/sendMessage",
+            json={"chat_id": _TG_CHAT, "text": text,
+                  "parse_mode": "HTML", "disable_notification": silent},
+            timeout=12
+        )
+        if r.status_code != 200:
+            print(f"[TG] {r.status_code}: {r.text[:300]}", flush=True)
+        return r.status_code == 200
+    except Exception as e:
+        print(f"[TG] exception: {e}", flush=True)
+        return False
+
+
+def _build_digest_message(scored: list) -> tuple:
+    """Build digest text from scored news list. Returns (message, buzz)."""
+    cutoff       = _time.time() - 310
+    fresh_high   = []
+    fresh_medium = []
+    top_stories  = []
+
+    for entry in scored:
+        try:
+            if not isinstance(entry, (list, tuple)) or len(entry) != 2:
+                continue
+            score, item = entry
+            if not isinstance(item, dict):
+                continue
+            headline = (item.get("text") or "").strip()
+            if not headline:
+                continue
+            if score >= 4:
+                top_stories.append((score, item))
+            pub_utc = item.get("pub_utc", "")
+            if not pub_utc:
+                continue
+            try:
+                pub_ts = datetime.fromisoformat(pub_utc.replace("Z", "+00:00")).timestamp()
+            except Exception:
+                continue
+            if pub_ts < cutoff:
+                continue
+            if score >= 8:
+                fresh_high.append((score, item))
+            elif score >= 5:
+                fresh_medium.append((score, item))
+        except Exception:
+            continue
+
+    fresh_high.sort(key=lambda x: -x[0])
+    fresh_medium.sort(key=lambda x: -x[0])
+    top_stories.sort(key=lambda x: -x[0])
+
+    ist_now = datetime.now(IST).strftime("%d %b %Y  %H:%M IST")
+    lines   = [f"📊 <b>AI MARKET TERMINAL</b>  •  {ist_now}", ""]
+
+    if fresh_high or fresh_medium:
+        n = len(fresh_high) + len(fresh_medium)
+        lines.append(f"<b>🔔 {n} new stor{'y' if n==1 else 'ies'} in last 5 min:</b>")
+        lines.append("")
+        if fresh_high:
+            lines.append("🔴 <b>BREAKING NEWS:</b>")
+            for score, item in fresh_high[:5]:
+                src = item.get("source", "")
+                s = f"  <i>[{src}]</i>" if src else ""
+                lines.append(f"• {item['text']}{s}  <b>({score}/10)</b>")
+            lines.append("")
+        if fresh_medium:
+            lines.append("🟡 <b>IMPORTANT:</b>")
+            for score, item in fresh_medium[:5]:
+                src = item.get("source", "")
+                s = f"  <i>[{src}]</i>" if src else ""
+                lines.append(f"• {item['text']}{s}  ({score}/10)")
+    elif top_stories:
+        lines.append("📰 <b>TOP MARKET STORIES:</b>")
+        lines.append("")
+        for score, item in top_stories[:5]:
+            src = item.get("source", "")
+            s = f"  <i>[{src}]</i>" if src else ""
+            lines.append(f"• {item['text']}{s}  ({score}/10)")
+        lines.append("")
+        lines.append("<i>No major breaking news in last 5 min</i>")
+    else:
+        lines.append("🔕 <b>Markets Quiet</b>")
+        lines.append("<i>No significant news at this time. Monitoring live...</i>")
+
+    lines.append("")
+    lines.append("⚡️ <i>Updates every 5 min  |  AI Market Terminal</i>")
+    return "\n".join(lines), len(fresh_high) > 0
+
+
 # ── 5-minute Telegram digest loop ────────────────────────────
 def _telegram_digest_loop():
     """
-    Completely self-contained 5-min digest.
-    Does NOT depend on _cache — fetches news directly every cycle.
-    Always sends a message so the channel stays active.
+    Every 5 minutes: sends a news digest to keep the Telegram channel active.
+    Reads from dashboard cache (already maintained for the UI).
+    Falls back to a quick 5-feed fetch only if cache is empty.
+    Always sends something — channel never goes dark.
     """
-    import requests as _req
-
-    BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8475057388:AAGUlt5Qu3Ei2_3xeUF8S1TWvygDKVVxb8I")
-    CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID",   "-1001379475837")
-
-    def _tg_send(text, silent=False):
-        try:
-            r = _req.post(
-                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                json={"chat_id": CHAT_ID, "text": text,
-                      "parse_mode": "HTML", "disable_notification": silent},
-                timeout=10
-            )
-            if r.status_code != 200:
-                print(f"[DIGEST] TG error {r.status_code}: {r.text[:200]}", flush=True)
-                return False
-            return True
-        except Exception as e:
-            print(f"[DIGEST] TG exception: {e}", flush=True)
-            return False
-
-    # ── Startup ping ──────────────────────────────────────────
+    # Startup ping
     _time.sleep(30)
     ist = datetime.now(IST).strftime("%d %b %Y  %H:%M IST")
-    _tg_send(
+    ok = _tg_send(
         f"✅ <b>AI Market Terminal Online</b>\n"
         f"📡 5-min market digests starting now\n"
         f"🕐 {ist}",
         silent=True
     )
-    print("[DIGEST] startup ping sent", flush=True)
+    print(f"[DIGEST] startup ping: {'sent ✓' if ok else 'FAILED ✗'}", flush=True)
 
-    _time.sleep(60)  # let news cache warm up
+    _time.sleep(90)  # wait for dashboard cache to warm up
 
-    # ── Main loop ─────────────────────────────────────────────
     while True:
         cycle_start = _time.time()
-        print(f"[DIGEST] cycle starting at {datetime.now(IST).strftime('%H:%M:%S IST')}", flush=True)
+        ist_t = datetime.now(IST).strftime("%H:%M IST")
+        print(f"[DIGEST] cycle @ {ist_t}", flush=True)
+
         try:
-            # Step 1: Fetch news directly (don't trust cache)
-            scored = []
-            try:
-                from news import get_all_news
-                from priority import prioritize_news
-                raw = get_all_news()
-                scored = prioritize_news(raw, summarize=False) or []
-                print(f"[DIGEST] fetched {len(scored)} scored items", flush=True)
-            except Exception as e:
-                print(f"[DIGEST] news fetch failed: {e}", flush=True)
+            # ── Step 1: Use dashboard cache (fast, no extra fetch) ──
+            scored = _cache.get("news", {}).get("data") or []
+            print(f"[DIGEST] cache has {len(scored)} items", flush=True)
 
-            # Step 2: Filter last 5 min for important news
-            cutoff = _time.time() - 310
-            fresh_high   = []   # score >= 8
-            fresh_medium = []   # score 5-7
-            top_stories  = []   # any score >= 4 for fallback
-
-            for entry in scored:
+            # ── Step 2: If cache empty, quick 5-feed fallback ────────
+            if not scored:
+                print("[DIGEST] cache empty — quick fetch fallback", flush=True)
                 try:
-                    if not isinstance(entry, (list, tuple)) or len(entry) != 2:
-                        continue
-                    score, item = entry
-                    if not isinstance(item, dict):
-                        continue
-                    headline = (item.get("text") or "").strip()
-                    if not headline:
-                        continue
+                    import feedparser, requests as _rq
+                    QUICK_FEEDS = {
+                        "Economic Times": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
+                        "MoneyControl":   "https://www.moneycontrol.com/rss/MCtopnews.xml",
+                        "Reuters":        "https://feeds.reuters.com/reuters/topNews",
+                        "ET Markets":     "https://economictimes.indiatimes.com/markets/stocks/rssfeeds/2146842.cms",
+                        "Business Line":  "https://www.thehindubusinessline.com/markets/feeder/default.rss",
+                    }
+                    raw = []
+                    for src, url in QUICK_FEEDS.items():
+                        try:
+                            resp = _rq.get(url, timeout=6,
+                                           headers={"User-Agent": "Mozilla/5.0"})
+                            feed = feedparser.parse(resp.content)
+                            for e in feed.entries[:8]:
+                                t = (e.get("title") or "").strip()
+                                if t:
+                                    raw.append({"text": t, "source": src,
+                                                "pub_utc": "", "category": "INDIA"})
+                        except Exception:
+                            pass
+                    if raw:
+                        from priority import prioritize_news
+                        scored = prioritize_news(raw, summarize=False) or []
+                    print(f"[DIGEST] fallback got {len(scored)} items", flush=True)
+                except Exception as fe:
+                    print(f"[DIGEST] fallback failed: {fe}", flush=True)
 
-                    if score >= 4:
-                        top_stories.append((score, item))
-
-                    pub_utc = item.get("pub_utc", "")
-                    if not pub_utc:
-                        continue
-                    try:
-                        pub_ts = datetime.fromisoformat(
-                            pub_utc.replace("Z", "+00:00")
-                        ).timestamp()
-                    except Exception:
-                        continue
-                    if pub_ts < cutoff:
-                        continue
-
-                    if score >= 8:
-                        fresh_high.append((score, item))
-                    elif score >= 5:
-                        fresh_medium.append((score, item))
-                except Exception:
-                    continue
-
-            fresh_high.sort(key=lambda x: -x[0])
-            fresh_medium.sort(key=lambda x: -x[0])
-            top_stories.sort(key=lambda x: -x[0])
-
-            # Step 3: Build message
-            ist_now = datetime.now(IST).strftime("%d %b %Y  %H:%M IST")
-            lines = [f"📊 <b>AI MARKET TERMINAL</b>  •  {ist_now}", ""]
-
-            if fresh_high or fresh_medium:
-                n = len(fresh_high) + len(fresh_medium)
-                lines.append(f"<b>🔔 {n} new stor{'y' if n==1 else 'ies'} in last 5 min:</b>")
-                lines.append("")
-                if fresh_high:
-                    lines.append("🔴 <b>BREAKING NEWS:</b>")
-                    for score, item in fresh_high[:5]:
-                        src = item.get("source", "")
-                        s = f"  <i>[{src}]</i>" if src else ""
-                        lines.append(f"• {item['text']}{s}  <b>({score}/10)</b>")
-                    lines.append("")
-                if fresh_medium:
-                    lines.append("🟡 <b>IMPORTANT:</b>")
-                    for score, item in fresh_medium[:5]:
-                        src = item.get("source", "")
-                        s = f"  <i>[{src}]</i>" if src else ""
-                        lines.append(f"• {item['text']}{s}  ({score}/10)")
-
-            elif top_stories:
-                lines.append("📰 <b>TOP MARKET STORIES:</b>")
-                lines.append("")
-                for score, item in top_stories[:5]:
-                    src = item.get("source", "")
-                    s = f"  <i>[{src}]</i>" if src else ""
-                    lines.append(f"• {item['text']}{s}  ({score}/10)")
-                lines.append("")
-                lines.append("<i>No major breaking news in last 5 min</i>")
-
-            else:
-                lines.append("🔕 <b>Markets Quiet</b>")
-                lines.append("<i>No significant news at this time. Monitoring live...</i>")
-
-            lines.append("")
-            lines.append("⚡️ <i>Updates every 5 min  |  AI Market Terminal</i>")
-
-            msg = "\n".join(lines)
-            buzz = len(fresh_high) > 0
+            # ── Step 3: Build and send ───────────────────────────────
+            msg, buzz = _build_digest_message(scored)
             ok = _tg_send(msg, silent=not buzz)
-            print(f"[DIGEST] message sent: {ok}", flush=True)
+            print(f"[DIGEST] sent: {ok}", flush=True)
 
         except Exception as e:
             print(f"[DIGEST] cycle error: {e}", flush=True)
+            import traceback; traceback.print_exc()
             _tg_send(
                 f"📊 <b>AI MARKET TERMINAL</b>  •  {datetime.now(IST).strftime('%H:%M IST')}\n\n"
-                f"⚡️ <i>Market monitor active — data loading...</i>",
+                f"⚡️ <i>Market monitor active...</i>",
                 silent=True
             )
 
-        # Sleep for exactly 5 minutes minus time already spent
         elapsed = _time.time() - cycle_start
-        _time.sleep(max(0, 300 - elapsed))
+        _time.sleep(max(10, 300 - elapsed))
 
 def _build_stocks():
     try:
@@ -388,6 +410,20 @@ except Exception:
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/telegram/test")
+def telegram_test():
+    """Fire one digest cycle immediately — use this to verify Railway → Telegram works."""
+    scored = _cache.get("news", {}).get("data") or []
+    msg, buzz = _build_digest_message(scored)
+    ok = _tg_send(msg, silent=not buzz)
+    return {
+        "sent": ok,
+        "chat": _TG_CHAT,
+        "cached_items": len(scored),
+        "message_preview": msg[:200],
+    }
 
 
 @app.get("/api/test-alert")
