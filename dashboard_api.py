@@ -227,85 +227,87 @@ def _build_digest_message(scored: list) -> tuple:
     return "\n".join(lines), len(fresh_high) > 0
 
 
+# ── Digest loop state (readable via /telegram/status) ─────────
+_digest_state = {"count": 0, "last_sent": None, "last_ok": None, "running": False}
+
 # ── 5-minute Telegram digest loop ────────────────────────────
 def _telegram_digest_loop():
     """
-    Every 5 minutes: sends a news digest to keep the Telegram channel active.
-    Reads from dashboard cache (already maintained for the UI).
-    Falls back to a quick 5-feed fetch only if cache is empty.
-    Always sends something — channel never goes dark.
+    Sends a news digest every 5 minutes. Always sends — channel never goes dark.
+    - Primary source  : dashboard _cache["news"] (already maintained for UI)
+    - Fallback source : 5 fast RSS feeds if cache empty
+    - First message   : within 10 seconds of server start
     """
-    # Startup ping
-    _time.sleep(30)
-    ist = datetime.now(IST).strftime("%d %b %Y  %H:%M IST")
-    ok = _tg_send(
-        f"✅ <b>AI Market Terminal Online</b>\n"
-        f"📡 5-min market digests starting now\n"
-        f"🕐 {ist}",
-        silent=True
-    )
-    print(f"[DIGEST] startup ping: {'sent ✓' if ok else 'FAILED ✗'}", flush=True)
+    global _digest_state
+    _digest_state["running"] = True
+    _time.sleep(10)  # short boot wait — send first message fast
 
-    _time.sleep(90)  # wait for dashboard cache to warm up
-
+    cycle_num = 0
     while True:
         cycle_start = _time.time()
-        ist_t = datetime.now(IST).strftime("%H:%M IST")
-        print(f"[DIGEST] cycle @ {ist_t}", flush=True)
+        cycle_num  += 1
+        ist_t       = datetime.now(IST).strftime("%H:%M IST")
+        print(f"[DIGEST] ── cycle #{cycle_num} @ {ist_t} ──", flush=True)
 
         try:
-            # ── Step 1: Use dashboard cache (fast, no extra fetch) ──
+            # Step 1 — read dashboard cache (zero extra cost)
             scored = _cache.get("news", {}).get("data") or []
-            print(f"[DIGEST] cache has {len(scored)} items", flush=True)
+            print(f"[DIGEST] cache: {len(scored)} items", flush=True)
 
-            # ── Step 2: If cache empty, quick 5-feed fallback ────────
+            # Step 2 — if cache cold, quick 5-feed fetch
             if not scored:
-                print("[DIGEST] cache empty — quick fetch fallback", flush=True)
+                print("[DIGEST] cache empty → fallback fetch", flush=True)
                 try:
-                    import feedparser, requests as _rq
-                    QUICK_FEEDS = {
+                    import feedparser, requests as _rq2
+                    QUICK = {
                         "Economic Times": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
                         "MoneyControl":   "https://www.moneycontrol.com/rss/MCtopnews.xml",
                         "Reuters":        "https://feeds.reuters.com/reuters/topNews",
                         "ET Markets":     "https://economictimes.indiatimes.com/markets/stocks/rssfeeds/2146842.cms",
-                        "Business Line":  "https://www.thehindubusinessline.com/markets/feeder/default.rss",
+                        "Hindu BizLine":  "https://www.thehindubusinessline.com/markets/feeder/default.rss",
                     }
                     raw = []
-                    for src, url in QUICK_FEEDS.items():
+                    for src, url in QUICK.items():
                         try:
-                            resp = _rq.get(url, timeout=6,
-                                           headers={"User-Agent": "Mozilla/5.0"})
+                            resp = _rq2.get(url, timeout=6, headers={"User-Agent": "Mozilla/5.0"})
                             feed = feedparser.parse(resp.content)
                             for e in feed.entries[:8]:
                                 t = (e.get("title") or "").strip()
                                 if t:
-                                    raw.append({"text": t, "source": src,
-                                                "pub_utc": "", "category": "INDIA"})
+                                    raw.append({"text": t, "source": src, "pub_utc": "", "category": "INDIA"})
                         except Exception:
                             pass
                     if raw:
                         from priority import prioritize_news
                         scored = prioritize_news(raw, summarize=False) or []
-                    print(f"[DIGEST] fallback got {len(scored)} items", flush=True)
+                    print(f"[DIGEST] fallback: {len(scored)} items", flush=True)
                 except Exception as fe:
-                    print(f"[DIGEST] fallback failed: {fe}", flush=True)
+                    print(f"[DIGEST] fallback error: {fe}", flush=True)
 
-            # ── Step 3: Build and send ───────────────────────────────
+            # Step 3 — build message and send
             msg, buzz = _build_digest_message(scored)
             ok = _tg_send(msg, silent=not buzz)
-            print(f"[DIGEST] sent: {ok}", flush=True)
+            print(f"[DIGEST] sent={ok}  buzz={buzz}  items={len(scored)}", flush=True)
+
+            _digest_state["count"]     = cycle_num
+            _digest_state["last_sent"] = datetime.now(IST).strftime("%d %b %H:%M IST")
+            _digest_state["last_ok"]   = ok
 
         except Exception as e:
             print(f"[DIGEST] cycle error: {e}", flush=True)
             import traceback; traceback.print_exc()
+            # Always send something even on error
             _tg_send(
                 f"📊 <b>AI MARKET TERMINAL</b>  •  {datetime.now(IST).strftime('%H:%M IST')}\n\n"
-                f"⚡️ <i>Market monitor active...</i>",
+                f"⚡️ <i>Market feed active — data refreshing...</i>",
                 silent=True
             )
 
+        # Exact 5-minute cadence
         elapsed = _time.time() - cycle_start
-        _time.sleep(max(10, 300 - elapsed))
+        sleep_s = max(10, 300 - int(elapsed))
+        print(f"[DIGEST] sleeping {sleep_s}s until next cycle", flush=True)
+        _time.sleep(sleep_s)
 
 def _build_stocks():
     try:
@@ -414,15 +416,19 @@ def health():
 
 @app.get("/telegram/test")
 def telegram_test():
-    """Fire one digest cycle immediately — use this to verify Railway → Telegram works."""
+    """Fire one digest immediately + show loop health."""
     scored = _cache.get("news", {}).get("data") or []
     msg, buzz = _build_digest_message(scored)
     ok = _tg_send(msg, silent=not buzz)
     return {
-        "sent": ok,
-        "chat": _TG_CHAT,
-        "cached_items": len(scored),
-        "message_preview": msg[:200],
+        "sent":           ok,
+        "chat_id":        _TG_CHAT,
+        "cached_items":   len(scored),
+        "loop_running":   _digest_state["running"],
+        "loop_cycles":    _digest_state["count"],
+        "last_auto_sent": _digest_state["last_sent"],
+        "last_auto_ok":   _digest_state["last_ok"],
+        "message_preview": msg[:300],
     }
 
 
