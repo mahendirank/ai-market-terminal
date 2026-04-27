@@ -1601,7 +1601,7 @@ function hideResearch() {
   const rp = document.getElementById('ai-research-panel');
   if (rp) rp.style.display = 'none';
   const nf = document.getElementById('news-feed');
-  if (nf) nf.style.display = 'flex';
+  if (nf) nf.style.display = '';
   const af = document.getElementById('asset-filters');
   if (af) af.style.display = 'flex';
   _researchActive = false;
@@ -1627,7 +1627,7 @@ function hideSignals() {
   const sp = document.getElementById('signals-panel');
   if (sp) sp.style.display = 'none';
   const nf = document.getElementById('news-feed');
-  if (nf) nf.style.display = 'flex';
+  if (nf) nf.style.display = '';
   const af = document.getElementById('asset-filters');
   if (af) af.style.display = 'flex';
   _signalsActive = false;
