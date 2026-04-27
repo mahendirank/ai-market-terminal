@@ -604,9 +604,24 @@ def _check_all():
         pass
 
 
+_INDIA_KEYWORDS = {
+    "nifty", "sensex", "banknifty", "nse", "bse", "sebi", "rbi",
+    "india", "indian", "rupee", "inr", "mumbai", "dalal street",
+    "fii", "dii", "nifty50", "nifty 50", "bank nifty",
+}
+
+def _is_india_news(item: dict) -> bool:
+    """Return True if this item is India/Indian-market related."""
+    if item.get("category") == "INDIA":
+        return True
+    text = (item.get("text", "") + " " + item.get("source", "")).lower()
+    return any(kw in text for kw in _INDIA_KEYWORDS)
+
+
 def send_5min_digest(scored_news: list):
     """
     Called every 5 minutes. ALWAYS sends a message to keep the channel active.
+    Only sends India / Indian-index related news.
 
     Priority:
       1. Fresh news last 5 min score>=8  → 🔴 BREAKING (buzzes phone)
@@ -629,6 +644,10 @@ def send_5min_digest(scored_news: list):
                 continue
             headline = item.get("text", "")
             if not headline:
+                continue
+
+            # ── INDIA FILTER — skip non-India news ──────────────
+            if not _is_india_news(item):
                 continue
 
             key = _headline_key(headline)
@@ -673,11 +692,11 @@ def send_5min_digest(scored_news: list):
 
     def _send():
         ist_now = datetime.now(IST).strftime("%d %b %Y  %H:%M IST")
-        lines   = [f"📊 <b>AI MARKET TERMINAL</b>  •  {ist_now}", ""]
+        lines   = [f"🇮🇳 <b>INDIA MARKET NEWS</b>  •  {ist_now}", ""]
 
         if has_fresh:
             total = len(recent_high) + len(recent_medium)
-            lines.append(f"<b>{total} new stor{'y' if total == 1 else 'ies'} in last 5 min:</b>")
+            lines.append(f"<b>{total} new India stor{'y' if total == 1 else 'ies'} in last 5 min:</b>")
             lines.append("")
 
             if recent_high:
@@ -708,8 +727,8 @@ def send_5min_digest(scored_news: list):
             lines.append("<i>No major breaking news in last 5 min</i>")
 
         else:
-            lines.append("🔕 <b>Market Quiet</b>")
-            lines.append("<i>No significant news at this time. Monitoring live...</i>")
+            lines.append("🔕 <b>India Market Quiet</b>")
+            lines.append("<i>No significant India/NSE news at this time. Monitoring live...</i>")
 
         lines.append("")
         lines.append("⚡️ <i>Powered by AI Market Terminal</i>")
