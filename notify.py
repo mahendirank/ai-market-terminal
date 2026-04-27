@@ -603,30 +603,38 @@ def _check_all():
 
 def send_5min_digest(scored_news: list):
     """
-    Called every 5 minutes with the full scored news list.
-    - Looks only at news published in the last 5 minutes (pub_utc)
-    - Score >= 8 : already sent as instant BREAKING alert — skip (dedup handles it)
-    - Score 5-7  : batch into ONE digest message with phone buzz
-    - Score < 5  : ignored (not important enough)
-    No digest is sent if nothing new and important arrived.
+    Called every 5 minutes. ALWAYS sends a message to keep the channel active.
+
+    Priority:
+      1. Fresh news last 5 min score>=8  → 🔴 BREAKING (buzzes phone)
+      2. Fresh news last 5 min score 5-7 → 🟡 IMPORTANT (silent)
+      3. No fresh news → top 5 stories from cache (any time, score>=3) → 📰 TOP STORIES
+      4. Nothing at all → 🔕 Quiet market pulse (still sends to keep group alive)
     """
-    cutoff = time.time() - 310   # 5 min + 10s buffer for clock drift
+    cutoff = time.time() - 310   # 5 min + 10s buffer
 
     recent_high   = []   # score >= 8, published in last 5 min
     recent_medium = []   # score 5-7, published in last 5 min
+    all_scored    = []   # all valid items for fallback
 
     for entry in scored_news:
         try:
             if not isinstance(entry, (list, tuple)) or len(entry) != 2:
                 continue
             score, item = entry
-            if score < 5 or not isinstance(item, dict):
+            if not isinstance(item, dict):
                 continue
             headline = item.get("text", "")
             if not headline:
                 continue
 
-            # Must be published in the last 5 minutes
+            key = _headline_key(headline)
+
+            # Collect all valid items for fallback top-stories
+            if score >= 3:
+                all_scored.append((score, item, key))
+
+            # Fresh news filter
             pub_utc = item.get("pub_utc", "")
             if not pub_utc:
                 continue
@@ -639,9 +647,11 @@ def send_5min_digest(scored_news: list):
             except Exception:
                 continue
 
-            key = _headline_key(headline)
+            if score < 5:
+                continue
+
             if _already_sent(key):
-                continue   # already alerted (instant or previous digest)
+                continue
 
             if score >= 8:
                 recent_high.append((score, item, key))
@@ -650,45 +660,62 @@ def send_5min_digest(scored_news: list):
         except Exception:
             continue
 
-    if not recent_high and not recent_medium:
-        return   # nothing new and important — stay quiet
-
-    # Sort each group by score desc
+    # Sort groups
     recent_high.sort(key=lambda x: -x[0])
     recent_medium.sort(key=lambda x: -x[0])
-    all_items = recent_high + recent_medium
+    all_scored.sort(key=lambda x: -x[0])
+
+    has_fresh = bool(recent_high or recent_medium)
+    new_items = recent_high + recent_medium   # items to mark sent
 
     def _send():
-        ist_now = datetime.now(IST).strftime("%d-%b %H:%M IST")
-        total   = len(all_items)
+        ist_now = datetime.now(IST).strftime("%d %b %Y  %H:%M IST")
+        lines   = [f"📊 <b>AI MARKET TERMINAL</b>  •  {ist_now}", ""]
 
-        lines = [
-            f"📊 <b>5-MIN MARKET PULSE</b>  •  {ist_now}",
-            f"<b>{total} important stor{'y' if total == 1 else 'ies'} in last 5 minutes</b>",
-            "",
-        ]
-
-        if recent_high:
-            lines.append("🔴 <b>HIGH IMPACT:</b>")
-            for score, item, _ in recent_high:
-                src = item.get("source", "")
-                src_str = f"  [{src}]" if src else ""
-                lines.append(f"• {item.get('text','')}  <i>({score}/10){src_str}</i>")
+        if has_fresh:
+            total = len(recent_high) + len(recent_medium)
+            lines.append(f"<b>{total} new stor{'y' if total == 1 else 'ies'} in last 5 min:</b>")
             lines.append("")
 
-        if recent_medium:
-            lines.append("🟡 <b>IMPORTANT:</b>")
-            for score, item, _ in recent_medium:
-                src = item.get("source", "")
-                src_str = f"  [{src}]" if src else ""
-                lines.append(f"• {item.get('text','')}  <i>({score}/10){src_str}</i>")
+            if recent_high:
+                lines.append("🔴 <b>BREAKING NEWS:</b>")
+                for score, item, _ in recent_high:
+                    src = item.get("source", "")
+                    src_tag = f"  <i>[{src}]</i>" if src else ""
+                    lines.append(f"• {item['text']}{src_tag}  <b>({score}/10)</b>")
+                lines.append("")
 
-        msg   = "\n".join(lines)
-        # Buzz phone only if high-impact items are new (not already alerted)
-        buzz  = len(recent_high) > 0
-        ok    = send_telegram(msg, silent=not buzz)
+            if recent_medium:
+                lines.append("🟡 <b>IMPORTANT:</b>")
+                for score, item, _ in recent_medium:
+                    src = item.get("source", "")
+                    src_tag = f"  <i>[{src}]</i>" if src else ""
+                    lines.append(f"• {item['text']}{src_tag}  ({score}/10)")
+
+        elif all_scored:
+            # No fresh news — show top stories to keep channel active
+            top5 = all_scored[:5]
+            lines.append("📰 <b>TOP STORIES RIGHT NOW:</b>")
+            lines.append("")
+            for score, item, _ in top5:
+                src = item.get("source", "")
+                src_tag = f"  <i>[{src}]</i>" if src else ""
+                lines.append(f"• {item['text']}{src_tag}  ({score}/10)")
+            lines.append("")
+            lines.append("<i>No major breaking news in last 5 min</i>")
+
+        else:
+            lines.append("🔕 <b>Market Quiet</b>")
+            lines.append("<i>No significant news at this time. Monitoring live...</i>")
+
+        lines.append("")
+        lines.append("⚡️ <i>Powered by AI Market Terminal</i>")
+
+        msg  = "\n".join(lines)
+        buzz = len(recent_high) > 0
+        ok   = send_telegram(msg, silent=not buzz)
         if ok:
-            for _, _, key in all_items:
+            for _, _, key in new_items:
                 _mark_sent(key)
 
     threading.Thread(target=_send, daemon=True).start()
