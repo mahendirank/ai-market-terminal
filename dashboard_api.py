@@ -12,18 +12,22 @@ import time as _time
 from datetime import datetime, timezone, timedelta
 
 
+_bg_tasks: set = set()   # hold strong refs so asyncio doesn't GC tasks
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start all background tasks when server boots."""
     threading.Thread(target=_warm,               daemon=True).start()
     threading.Thread(target=_continuous_refresh, daemon=True).start()
-    asyncio.create_task(_async_digest_loop())          # asyncio task — reliable on Railway
+    task = asyncio.create_task(_async_digest_loop())
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
     try:
         from notify import start_watchdog
         start_watchdog()
     except Exception:
         pass
-    yield   # server runs here
+    yield
 
 
 app = FastAPI(title="AI Market Terminal", lifespan=lifespan)
@@ -428,9 +432,52 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/telegram/digest")
+def telegram_digest():
+    """
+    Send one digest to the Telegram channel RIGHT NOW.
+    Call this endpoint every 5 minutes via an external cron (cron-job.org).
+    This is the production-grade approach — no daemon threads, no asyncio, 100% reliable.
+    """
+    scored = _cache.get("news", {}).get("data") or []
+
+    # If cache cold, quick fallback fetch
+    if not scored:
+        try:
+            import feedparser, requests as _rq2
+            QUICK = {
+                "Economic Times": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
+                "MoneyControl":   "https://www.moneycontrol.com/rss/MCtopnews.xml",
+                "Reuters":        "https://feeds.reuters.com/reuters/topNews",
+                "ET Markets":     "https://economictimes.indiatimes.com/markets/stocks/rssfeeds/2146842.cms",
+                "Hindu BizLine":  "https://www.thehindubusinessline.com/markets/feeder/default.rss",
+            }
+            raw = []
+            for src, url in QUICK.items():
+                try:
+                    resp = _rq2.get(url, timeout=6, headers={"User-Agent": "Mozilla/5.0"})
+                    feed = feedparser.parse(resp.content)
+                    for e in feed.entries[:8]:
+                        t = (e.get("title") or "").strip()
+                        if t:
+                            raw.append({"text": t, "source": src, "pub_utc": "", "category": "INDIA"})
+                except Exception:
+                    pass
+            if raw:
+                from priority import prioritize_news
+                scored = prioritize_news(raw, summarize=False) or []
+        except Exception:
+            pass
+
+    msg, buzz = _build_digest_message(scored)
+    ok = _tg_send(msg, silent=not buzz)
+    print(f"[CRON] digest sent={ok}  items={len(scored)}", flush=True)
+    return {"sent": ok, "items": len(scored), "time": datetime.now(IST).strftime("%H:%M IST")}
+
+
 @app.get("/telegram/test")
 def telegram_test():
-    """Fire one digest immediately + show loop health."""
+    """Quick connectivity test + loop health check."""
     scored = _cache.get("news", {}).get("data") or []
     msg, buzz = _build_digest_message(scored)
     ok = _tg_send(msg, silent=not buzz)
