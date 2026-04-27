@@ -151,8 +151,8 @@ def _build_news():
 
 
 # ── Shared Telegram sender (used by loop + test endpoint) ─────
-_TG_BOT   = os.environ.get("TELEGRAM_BOT_TOKEN", "8475057388:AAGUlt5Qu3Ei2_3xeUF8S1TWvygDKVVxb8I")
-_TG_CHAT  = os.environ.get("TELEGRAM_CHAT_ID",   "-1001379475837")
+_TG_BOT   = os.environ.get("TELEGRAM_BOT_TOKEN", "8475057388:AAGUlt5Qu3Ei2_3xeUF8S1TWvygDKVVxb8I").strip()
+_TG_CHAT  = os.environ.get("TELEGRAM_CHAT_ID",   "-1001379475837").strip()
 
 def _tg_send(text: str, silent: bool = False) -> bool:
     import requests as _rq
