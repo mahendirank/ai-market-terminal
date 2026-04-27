@@ -131,31 +131,159 @@ def _build_news():
 
 # ── 5-minute Telegram digest loop ────────────────────────────
 def _telegram_digest_loop():
-    """Every 5 minutes: always sends a digest to keep the Telegram channel active."""
-    # Send a startup ping so the user knows the bot is alive
-    _time.sleep(30)
-    try:
-        from notify import send_telegram
-        ist_now = datetime.now(IST).strftime("%d %b %Y  %H:%M IST")
-        send_telegram(
-            f"✅ <b>AI Market Terminal Online</b>\n"
-            f"📡 Bot connected — 5-min digests starting now\n"
-            f"🕐 {ist_now}",
-            silent=True
-        )
-    except Exception as e:
-        print(f"[DIGEST] startup ping failed: {e}", flush=True)
+    """
+    Completely self-contained 5-min digest.
+    Does NOT depend on _cache — fetches news directly every cycle.
+    Always sends a message so the channel stays active.
+    """
+    import requests as _req
 
-    _time.sleep(60)   # then wait a bit more for news cache to warm up
+    BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8475057388:AAGUlt5Qu3Ei2_3xeUF8S1TWvygDKVVxb8I")
+    CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID",   "-1001379475837")
 
-    while True:
+    def _tg_send(text, silent=False):
         try:
-            scored = _cache.get("news", {}).get("data") or []
-            from notify import send_5min_digest
-            send_5min_digest(scored)   # always call — handles empty list with quiet fallback
+            r = _req.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                json={"chat_id": CHAT_ID, "text": text,
+                      "parse_mode": "HTML", "disable_notification": silent},
+                timeout=10
+            )
+            if r.status_code != 200:
+                print(f"[DIGEST] TG error {r.status_code}: {r.text[:200]}", flush=True)
+                return False
+            return True
         except Exception as e:
-            print(f"[DIGEST] error: {e}", flush=True)
-        _time.sleep(300)   # exactly 5 minutes
+            print(f"[DIGEST] TG exception: {e}", flush=True)
+            return False
+
+    # ── Startup ping ──────────────────────────────────────────
+    _time.sleep(30)
+    ist = datetime.now(IST).strftime("%d %b %Y  %H:%M IST")
+    _tg_send(
+        f"✅ <b>AI Market Terminal Online</b>\n"
+        f"📡 5-min market digests starting now\n"
+        f"🕐 {ist}",
+        silent=True
+    )
+    print("[DIGEST] startup ping sent", flush=True)
+
+    _time.sleep(60)  # let news cache warm up
+
+    # ── Main loop ─────────────────────────────────────────────
+    while True:
+        cycle_start = _time.time()
+        print(f"[DIGEST] cycle starting at {datetime.now(IST).strftime('%H:%M:%S IST')}", flush=True)
+        try:
+            # Step 1: Fetch news directly (don't trust cache)
+            scored = []
+            try:
+                from news import get_all_news
+                from priority import prioritize_news
+                raw = get_all_news()
+                scored = prioritize_news(raw, summarize=False) or []
+                print(f"[DIGEST] fetched {len(scored)} scored items", flush=True)
+            except Exception as e:
+                print(f"[DIGEST] news fetch failed: {e}", flush=True)
+
+            # Step 2: Filter last 5 min for important news
+            cutoff = _time.time() - 310
+            fresh_high   = []   # score >= 8
+            fresh_medium = []   # score 5-7
+            top_stories  = []   # any score >= 4 for fallback
+
+            for entry in scored:
+                try:
+                    if not isinstance(entry, (list, tuple)) or len(entry) != 2:
+                        continue
+                    score, item = entry
+                    if not isinstance(item, dict):
+                        continue
+                    headline = (item.get("text") or "").strip()
+                    if not headline:
+                        continue
+
+                    if score >= 4:
+                        top_stories.append((score, item))
+
+                    pub_utc = item.get("pub_utc", "")
+                    if not pub_utc:
+                        continue
+                    try:
+                        pub_ts = datetime.fromisoformat(
+                            pub_utc.replace("Z", "+00:00")
+                        ).timestamp()
+                    except Exception:
+                        continue
+                    if pub_ts < cutoff:
+                        continue
+
+                    if score >= 8:
+                        fresh_high.append((score, item))
+                    elif score >= 5:
+                        fresh_medium.append((score, item))
+                except Exception:
+                    continue
+
+            fresh_high.sort(key=lambda x: -x[0])
+            fresh_medium.sort(key=lambda x: -x[0])
+            top_stories.sort(key=lambda x: -x[0])
+
+            # Step 3: Build message
+            ist_now = datetime.now(IST).strftime("%d %b %Y  %H:%M IST")
+            lines = [f"📊 <b>AI MARKET TERMINAL</b>  •  {ist_now}", ""]
+
+            if fresh_high or fresh_medium:
+                n = len(fresh_high) + len(fresh_medium)
+                lines.append(f"<b>🔔 {n} new stor{'y' if n==1 else 'ies'} in last 5 min:</b>")
+                lines.append("")
+                if fresh_high:
+                    lines.append("🔴 <b>BREAKING NEWS:</b>")
+                    for score, item in fresh_high[:5]:
+                        src = item.get("source", "")
+                        s = f"  <i>[{src}]</i>" if src else ""
+                        lines.append(f"• {item['text']}{s}  <b>({score}/10)</b>")
+                    lines.append("")
+                if fresh_medium:
+                    lines.append("🟡 <b>IMPORTANT:</b>")
+                    for score, item in fresh_medium[:5]:
+                        src = item.get("source", "")
+                        s = f"  <i>[{src}]</i>" if src else ""
+                        lines.append(f"• {item['text']}{s}  ({score}/10)")
+
+            elif top_stories:
+                lines.append("📰 <b>TOP MARKET STORIES:</b>")
+                lines.append("")
+                for score, item in top_stories[:5]:
+                    src = item.get("source", "")
+                    s = f"  <i>[{src}]</i>" if src else ""
+                    lines.append(f"• {item['text']}{s}  ({score}/10)")
+                lines.append("")
+                lines.append("<i>No major breaking news in last 5 min</i>")
+
+            else:
+                lines.append("🔕 <b>Markets Quiet</b>")
+                lines.append("<i>No significant news at this time. Monitoring live...</i>")
+
+            lines.append("")
+            lines.append("⚡️ <i>Updates every 5 min  |  AI Market Terminal</i>")
+
+            msg = "\n".join(lines)
+            buzz = len(fresh_high) > 0
+            ok = _tg_send(msg, silent=not buzz)
+            print(f"[DIGEST] message sent: {ok}", flush=True)
+
+        except Exception as e:
+            print(f"[DIGEST] cycle error: {e}", flush=True)
+            _tg_send(
+                f"📊 <b>AI MARKET TERMINAL</b>  •  {datetime.now(IST).strftime('%H:%M IST')}\n\n"
+                f"⚡️ <i>Market monitor active — data loading...</i>",
+                silent=True
+            )
+
+        # Sleep for exactly 5 minutes minus time already spent
+        elapsed = _time.time() - cycle_start
+        _time.sleep(max(0, 300 - elapsed))
 
 def _build_stocks():
     try:
