@@ -51,6 +51,10 @@ SOURCE_CATEGORY = {
     "BondBuyer":        "BONDS",
     "Calculated Risk":  "MACRO",
     "Mish Talk":        "MACRO",
+    "Fed Reserve":      "MACRO",
+    "IMF News":         "MACRO",
+    "Econbrowser":      "MACRO",
+    "Project Syndicate":"MACRO",
     # HNI / Institutional
     "FinancialJuice":   "HNI",
     "WalterBloomberg":  "HNI",
@@ -96,6 +100,9 @@ SOURCE_CATEGORY = {
     # Global / Asia
     "Nikkei Asia":      "GLOBAL",
     "Globe Mail":       "GLOBAL",
+    "Asia Times":       "GLOBAL",
+    "CNA Business":     "GLOBAL",
+    "SCMP Markets":     "GLOBAL",
     # India fast
     "NDTV Business":    "INDIA",
     "Mint Opinion":     "INDIA",
@@ -148,6 +155,10 @@ RSS_SOURCES = {
     "BondBuyer":        "https://www.bondbuyer.com/feed",
     "Calculated Risk":  "https://www.calculatedriskblog.com/feeds/posts/default",
     "Mish Talk":        "https://mishtalk.com/feed",
+    "Fed Reserve":      "https://www.federalreserve.gov/feeds/press_all.xml",
+    "IMF News":         "https://www.imf.org/en/News/rss?language=eng",
+    "Econbrowser":      "https://econbrowser.com/feed",
+    "Project Syndicate":"https://www.project-syndicate.org/rss",
 
     # ── HNI / Institutional ─────────────────────────────────
     "FinancialJuice":   "https://nitter.net/financialjuice/rss",
@@ -194,6 +205,10 @@ RSS_SOURCES = {
 
     # ── Global / Asia ────────────────────────────────────────
     "Nikkei Asia":      "https://asia.nikkei.com/rss/feed/nar",
+    "CNA Business":     "https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml&category=6311",
+    "SCMP Markets":     "https://www.scmp.com/rss/91/feed",
+    "Globe Mail":       "https://www.theglobeandmail.com/arc/outboundfeeds/rss/",
+    "Asia Times":       "https://asiatimes.com/feed/",
 
     # ── India Fast (verified working) ────────────────────────
     "NDTV Business":    "https://feeds.feedburner.com/ndtvprofit-latest",

@@ -1067,6 +1067,11 @@ function updateCounts() {
 async function loadNews() {
   try {
     const data  = await fetch(`${BASE}/api/news`).then(r=>r.json());
+    if (!data.length) {
+      // Server still warming up — retry fast until data arrives
+      if (!allNews.length) setTimeout(loadNews, 3000);
+      return;
+    }
     const prev  = new Set(allNews.map(n=>n.headline));
     const fresh = new Set(data.filter(n=>!prev.has(n.headline)).map(n=>n.headline));
     allNews = data;
@@ -1075,7 +1080,7 @@ async function loadNews() {
     renderEarningsNews();
     document.getElementById('hdr-cnt').textContent = `${allNews.length} stories`;
     if (fresh.size) { document.title=`⚡ ${fresh.size} NEW — AI Terminal`; setTimeout(()=>{document.title='AI Market Terminal'},5000); }
-  } catch(e) { console.error('news',e); }
+  } catch(e) { console.error('news',e); if (!allNews.length) setTimeout(loadNews, 3000); }
 }
 
 // ── Load indices ──────────────────────────────────────────
