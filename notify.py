@@ -9,7 +9,7 @@ Safety measures:
 - Score 2+ filter — blocks junk/irrelevant headlines
 - Runs in background thread — never slows down dashboard
 """
-import os, json, re, requests, threading, time, sqlite3
+import os, re, requests, threading, time, sqlite3
 from datetime import datetime, timezone, timedelta
 
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -90,7 +90,7 @@ def _dedup_send(key: str, msg: str, silent: bool = False):
     threading.Thread(target=send_telegram, args=(msg, silent), daemon=True).start()
 
 
-# ── Alert functions (each checks one condition) ──────────────
+# ── Alert functions ──────────────────────────────────────────
 
 def alert_high_news(headline: str, source: str, score: int):
     """Alert when a news item scores 8+ (very high impact)."""
@@ -200,6 +200,226 @@ def alert_sector_breadth(breadth: str, advancing: int, total: int):
     _dedup_send(key, msg)
 
 
+# ── NEW: NIFTY key level alert ────────────────────────────────
+
+_last_nifty_level = {"level": 0}  # track last alerted level to avoid repeats
+
+def alert_nifty_level(nifty_price: float):
+    """Alert when NIFTY crosses a key 250-point round number (e.g. 22500, 22750, 23000)."""
+    if nifty_price <= 0:
+        return
+    level = round(nifty_price / 250) * 250   # nearest 250-point level
+    if level == _last_nifty_level["level"]:
+        return
+    diff = nifty_price - level
+    if abs(diff) > 40:          # must be within 40 points of the level to count as a cross
+        return
+    _last_nifty_level["level"] = level
+    direction = "BROKE ABOVE" if diff >= 0 else "DROPPED BELOW"
+    emoji     = "📈" if diff >= 0 else "📉"
+    key       = f"nifty_level_{level}"
+    if key in _sent_cache:
+        return
+    _sent_cache.add(key)
+    msg = (
+        f"{emoji} <b>NIFTY KEY LEVEL: {level}</b>\n\n"
+        f"NIFTY has {direction} <b>{level}</b>\n"
+        f"Current: {nifty_price:,.2f}\n\n"
+        f"{'Watch for continuation above this level.' if diff >= 0 else 'Support broken — watch for further downside.'}\n"
+        f"🕐 {datetime.now(IST).strftime('%d-%b %H:%M IST')}"
+    )
+    threading.Thread(target=send_telegram, args=(msg,), daemon=True).start()
+
+
+# ── NEW: Macro big move alert (Gold / Oil / DXY) ─────────────
+
+_macro_prev = {}   # {asset: price} — track previous price for % change
+
+def alert_macro_move(asset: str, price: float, threshold_pct: float = 1.0):
+    """Alert when Gold/Oil/DXY moves more than threshold_pct% since last check."""
+    if price <= 0:
+        return
+    prev = _macro_prev.get(asset)
+    _macro_prev[asset] = price
+    if prev is None or prev <= 0:
+        return
+    pct = (price - prev) / prev * 100
+    if abs(pct) < threshold_pct:
+        return
+    direction = "UP" if pct > 0 else "DOWN"
+    emoji_map = {"GOLD": "🥇", "OIL": "🛢️", "DXY": "💵", "USDINR": "🇮🇳"}
+    emoji = emoji_map.get(asset, "📊")
+    key   = f"macro_{asset}_{int(price)}_{direction}"
+    if key in _sent_cache:
+        return
+    _sent_cache.add(key)
+    msg = (
+        f"{emoji} <b>{asset} BIG MOVE: {pct:+.2f}%</b>\n\n"
+        f"Price now: <b>{price:,.2f}</b>\n"
+        f"Was: {prev:,.2f}\n\n"
+        f"{'Bullish for risk assets' if (asset=='GOLD' and pct>0) else 'Bearish for markets' if (asset=='DXY' and pct>0) else 'Watch energy-linked stocks' if asset=='OIL' else 'Significant macro move'}\n"
+        f"🕐 {datetime.now(IST).strftime('%d-%b %H:%M IST')}"
+    )
+    threading.Thread(target=send_telegram, args=(msg,), daemon=True).start()
+
+
+# ── NEW: Morning Market Briefing (9:15 AM IST) ───────────────
+
+_last_briefing_date = {"date": ""}
+
+def send_morning_briefing():
+    """Send a morning market briefing at 9:15–9:30 AM IST. Called once per day."""
+    today = datetime.now(IST).strftime("%Y-%m-%d")
+    if _last_briefing_date["date"] == today:
+        return
+    _last_briefing_date["date"] = today
+
+    def _build_and_send():
+        lines = [f"🌅 <b>MORNING MARKET BRIEFING</b>\n{datetime.now(IST).strftime('%A, %d %b %Y')}\n"]
+
+        # NIFTY + indices
+        try:
+            import sys, os
+            sys.path.insert(0, os.path.dirname(__file__))
+            from indices import get_indices
+            idx = get_indices()
+            nifty  = idx.get("NIFTY",  {})
+            sensex = idx.get("SENSEX", {})
+            spx    = idx.get("SPX",    {})
+            vix    = idx.get("VIX",    {})
+            if nifty:
+                lines.append(f"🇮🇳 NIFTY:  <b>{nifty['price']:,.2f}</b>  {nifty['arrow']} {nifty['change']:+.2f}%")
+            if sensex:
+                lines.append(f"🇮🇳 SENSEX: <b>{sensex['price']:,.2f}</b>  {sensex['arrow']} {sensex['change']:+.2f}%")
+            if spx:
+                lines.append(f"🇺🇸 S&P500: <b>{spx['price']:,.2f}</b>  {spx['arrow']} {spx['change']:+.2f}%")
+            if vix:
+                vix_val = vix['price']
+                vix_emoji = "🔴" if vix_val > 25 else "🟡" if vix_val > 18 else "🟢"
+                lines.append(f"{vix_emoji} VIX:    <b>{vix_val:.1f}</b>  (Fear gauge)")
+        except Exception:
+            pass
+
+        lines.append("")
+
+        # FX + commodities
+        try:
+            from macro import get_macro_data
+            m = get_macro_data()
+            fx = m.get("FX", {})
+            if fx.get("USDINR"):
+                lines.append(f"💵 USD/INR: <b>{fx['USDINR']}</b>")
+            if fx.get("DXY"):
+                lines.append(f"💵 DXY:     <b>{fx['DXY']}</b>")
+            oil  = m.get("OIL")
+            gold = m.get("GOLD_SPOT")
+            if oil:  lines.append(f"🛢️ OIL:     <b>${oil:.1f}</b>")
+            if gold: lines.append(f"🥇 GOLD:    <b>${gold:,.0f}</b>")
+            yld = m.get("US_YIELDS", {})
+            if yld.get("US_10Y"):
+                lines.append(f"📊 US 10Y:  <b>{yld['US_10Y']}%</b>")
+        except Exception:
+            pass
+
+        lines.append("")
+
+        # FII data
+        try:
+            from nse_data import get_fii_dii
+            fii = get_fii_dii()
+            fnet = fii.get("FII_net", 0)
+            dnet = fii.get("DII_net", 0)
+            femoji = "🟢" if fnet > 0 else "🔴"
+            demoji = "🟢" if dnet > 0 else "🔴"
+            lines.append(f"{femoji} FII: <b>₹{fnet:,.0f} Cr</b>")
+            lines.append(f"{demoji} DII: <b>₹{dnet:,.0f} Cr</b>")
+        except Exception:
+            pass
+
+        lines.append("")
+        lines.append("📋 <b>Key levels to watch today:</b>")
+        lines.append("• NIFTY: 22500 / 22250 / 22000")
+        lines.append("• BANKNIFTY: 48000 / 47500")
+        lines.append("")
+        lines.append("🔔 You will get alerts for: breaking news, FII moves, VIX spikes, NIFTY levels")
+
+        send_telegram("\n".join(lines))
+
+    threading.Thread(target=_build_and_send, daemon=True).start()
+
+
+# ── NEW: End-of-Day Summary (3:30 PM IST) ────────────────────
+
+_last_eod_date = {"date": ""}
+
+def send_eod_summary():
+    """Send end-of-day market summary at ~3:30 PM IST. Called once per day."""
+    today = datetime.now(IST).strftime("%Y-%m-%d")
+    if _last_eod_date["date"] == today:
+        return
+    _last_eod_date["date"] = today
+
+    def _build_and_send():
+        lines = [f"🔔 <b>MARKET CLOSING SUMMARY</b>\n{datetime.now(IST).strftime('%A, %d %b %Y')}\n"]
+
+        try:
+            import sys, os
+            sys.path.insert(0, os.path.dirname(__file__))
+            from indices import get_indices
+            idx = get_indices()
+            nifty  = idx.get("NIFTY",  {})
+            sensex = idx.get("SENSEX", {})
+            spx    = idx.get("SPX",    {})
+            vix    = idx.get("VIX",    {})
+            if nifty:
+                emoji = "🟢" if nifty["change"] >= 0 else "🔴"
+                lines.append(f"{emoji} NIFTY:  <b>{nifty['price']:,.2f}</b>  {nifty['arrow']} {nifty['change']:+.2f}%")
+            if sensex:
+                emoji = "🟢" if sensex["change"] >= 0 else "🔴"
+                lines.append(f"{emoji} SENSEX: <b>{sensex['price']:,.2f}</b>  {sensex['arrow']} {sensex['change']:+.2f}%")
+            if spx:
+                emoji = "🟢" if spx["change"] >= 0 else "🔴"
+                lines.append(f"{emoji} S&P500: <b>{spx['price']:,.2f}</b>  {spx['arrow']} {spx['change']:+.2f}%")
+            if vix:
+                lines.append(f"😰 VIX:    <b>{vix['price']:.1f}</b>")
+        except Exception:
+            pass
+
+        lines.append("")
+
+        try:
+            from macro import get_macro_data
+            m = get_macro_data()
+            oil  = m.get("OIL")
+            gold = m.get("GOLD_SPOT")
+            fx   = m.get("FX", {})
+            if oil:  lines.append(f"🛢️ OIL:    <b>${oil:.1f}</b>")
+            if gold: lines.append(f"🥇 GOLD:   <b>${gold:,.0f}</b>")
+            if fx.get("USDINR"):
+                lines.append(f"💵 USD/INR: <b>{fx['USDINR']}</b>")
+        except Exception:
+            pass
+
+        lines.append("")
+
+        try:
+            from nse_data import get_fii_dii
+            fii = get_fii_dii()
+            fnet = fii.get("FII_net", 0)
+            dnet = fii.get("DII_net", 0)
+            femoji = "🟢" if fnet > 0 else "🔴"
+            lines.append(f"{femoji} FII Net: <b>₹{fnet:,.0f} Cr</b>  |  DII: ₹{dnet:,.0f} Cr")
+        except Exception:
+            pass
+
+        lines.append("")
+        lines.append("See full dashboard for detailed signals.")
+
+        send_telegram("\n".join(lines))
+
+    threading.Thread(target=_build_and_send, daemon=True).start()
+
+
 # ── News feed sender ─────────────────────────────────────────
 
 def _format_news_msg(item: dict, score: int) -> str:
@@ -209,7 +429,6 @@ def _format_news_msg(item: dict, score: int) -> str:
     url      = item.get("url", "")
     t        = item.get("time", "")
 
-    # Score emoji
     if score >= 8:   emoji = "🔴"
     elif score >= 5: emoji = "🟡"
     else:            emoji = "⚪"
@@ -254,20 +473,17 @@ def send_news_feed(scored_news: list):
     if not to_send:
         return
 
-    # Sort by score descending — highest impact first
     to_send.sort(key=lambda x: -x[0])
-
-    # Cap at 20 per cycle
     to_send = to_send[:20]
 
     def _send_batch():
         for score, item, key in to_send:
             try:
                 msg = _format_news_msg(item, score)
-                ok  = send_telegram(msg, silent=True)  # silent=True = no phone buzz for each
+                ok  = send_telegram(msg, silent=True)
                 if ok:
                     _mark_sent(key)
-                time.sleep(1.2)  # stay under Telegram 1 msg/sec limit
+                time.sleep(1.2)
             except Exception:
                 time.sleep(1.2)
                 continue
@@ -289,7 +505,7 @@ def _run_watchdog():
         except Exception:
             pass
         _cleanup_counter += 1
-        if _cleanup_counter >= 288:  # once every 24 hours (288 × 5min)
+        if _cleanup_counter >= 288:  # once every 24 hours
             _cleanup_old_sent()
             _cleanup_counter = 0
         time.sleep(300)  # check every 5 minutes
@@ -298,11 +514,28 @@ def _run_watchdog():
 def _check_all():
     import sys, os
     sys.path.insert(0, os.path.dirname(__file__))
+    now_ist = datetime.now(IST)
+    hour    = now_ist.hour
+    minute  = now_ist.minute
 
-    # 1. Check VIX backwardation
+    # ── Morning briefing: 9:15–9:30 AM IST (market just opened) ──
+    if hour == 9 and 15 <= minute <= 30:
+        try:
+            send_morning_briefing()
+        except Exception:
+            pass
+
+    # ── EOD summary: 3:30–3:45 PM IST (market closed) ──
+    if hour == 15 and 30 <= minute <= 45:
+        try:
+            send_eod_summary()
+        except Exception:
+            pass
+
+    # 1. VIX backwardation + Fed signal
     try:
         from vix_term import get_vix_signals
-        vd = get_vix_signals()
+        vd   = get_vix_signals()
         vix  = vd.get("vix", {})
         spot = vix.get("VIX",  {}).get("value", 0)
         vm   = vix.get("VIX3M",{}).get("value", 0)
@@ -314,7 +547,7 @@ def _check_all():
     except Exception:
         pass
 
-    # 2. Check FII flows
+    # 2. FII flows
     try:
         from nse_data import get_fii_dii
         fii = get_fii_dii()
@@ -322,7 +555,7 @@ def _check_all():
     except Exception:
         pass
 
-    # 3. Check Congress cluster buys
+    # 3. Congress cluster buys
     try:
         from capitol_trades import get_congress_trades
         ct = get_congress_trades()
@@ -332,11 +565,38 @@ def _check_all():
     except Exception:
         pass
 
-    # 4. Check sector breadth
+    # 4. Sector breadth
     try:
         from sector_pulse import get_sector_pulse
         sp = get_sector_pulse()
         alert_sector_breadth(sp.get("breadth",""), sp.get("advancing",0), sp.get("total",0))
+    except Exception:
+        pass
+
+    # 5. NIFTY key level alerts (only during market hours 9:15–15:35 IST)
+    if (hour == 9 and minute >= 15) or (10 <= hour <= 14) or (hour == 15 and minute <= 35):
+        try:
+            from indices import get_indices
+            idx = get_indices()
+            nifty_price = idx.get("NIFTY", {}).get("price", 0)
+            if nifty_price:
+                alert_nifty_level(nifty_price)
+        except Exception:
+            pass
+
+    # 6. Macro big move alerts: Gold >1%, Oil >2%, DXY >0.5%
+    try:
+        from macro import get_macro_data
+        m    = get_macro_data()
+        gold = m.get("GOLD_SPOT")
+        oil  = m.get("OIL")
+        fx   = m.get("FX", {})
+        dxy  = fx.get("DXY")
+        inr  = fx.get("USDINR")
+        if gold: alert_macro_move("GOLD",   gold, threshold_pct=1.0)
+        if oil:  alert_macro_move("OIL",    oil,  threshold_pct=2.0)
+        if dxy:  alert_macro_move("DXY",    dxy,  threshold_pct=0.5)
+        if inr:  alert_macro_move("USDINR", inr,  threshold_pct=0.3)
     except Exception:
         pass
 
