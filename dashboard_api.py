@@ -2,14 +2,31 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(__file__))
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Body
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
+import asyncio
 import threading
 import time as _time
 from datetime import datetime, timezone, timedelta
 
-app = FastAPI(title="AI Market Terminal")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Start all background tasks when server boots."""
+    threading.Thread(target=_warm,               daemon=True).start()
+    threading.Thread(target=_continuous_refresh, daemon=True).start()
+    asyncio.create_task(_async_digest_loop())          # asyncio task — reliable on Railway
+    try:
+        from notify import start_watchdog
+        start_watchdog()
+    except Exception:
+        pass
+    yield   # server runs here
+
+
+app = FastAPI(title="AI Market Terminal", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -230,84 +247,86 @@ def _build_digest_message(scored: list) -> tuple:
 # ── Digest loop state (readable via /telegram/status) ─────────
 _digest_state = {"count": 0, "last_sent": None, "last_ok": None, "running": False}
 
-# ── 5-minute Telegram digest loop ────────────────────────────
-def _telegram_digest_loop():
+def _run_one_digest_cycle():
+    """Blocking work for one digest cycle — runs in thread pool via asyncio.to_thread."""
+    global _digest_state
+    cycle_num = _digest_state["count"] + 1
+    ist_t     = datetime.now(IST).strftime("%H:%M IST")
+    print(f"[DIGEST] ── cycle #{cycle_num} @ {ist_t} ──", flush=True)
+
+    try:
+        # Step 1 — read dashboard cache (zero extra cost, already fetched for UI)
+        scored = _cache.get("news", {}).get("data") or []
+        print(f"[DIGEST] cache: {len(scored)} items", flush=True)
+
+        # Step 2 — if cache cold, quick 5-feed fallback
+        if not scored:
+            print("[DIGEST] cache empty → fallback fetch", flush=True)
+            try:
+                import feedparser, requests as _rq2
+                QUICK = {
+                    "Economic Times": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
+                    "MoneyControl":   "https://www.moneycontrol.com/rss/MCtopnews.xml",
+                    "Reuters":        "https://feeds.reuters.com/reuters/topNews",
+                    "ET Markets":     "https://economictimes.indiatimes.com/markets/stocks/rssfeeds/2146842.cms",
+                    "Hindu BizLine":  "https://www.thehindubusinessline.com/markets/feeder/default.rss",
+                }
+                raw = []
+                for src, url in QUICK.items():
+                    try:
+                        resp = _rq2.get(url, timeout=6, headers={"User-Agent": "Mozilla/5.0"})
+                        feed = feedparser.parse(resp.content)
+                        for e in feed.entries[:8]:
+                            t = (e.get("title") or "").strip()
+                            if t:
+                                raw.append({"text": t, "source": src, "pub_utc": "", "category": "INDIA"})
+                    except Exception:
+                        pass
+                if raw:
+                    from priority import prioritize_news
+                    scored = prioritize_news(raw, summarize=False) or []
+                print(f"[DIGEST] fallback: {len(scored)} items", flush=True)
+            except Exception as fe:
+                print(f"[DIGEST] fallback error: {fe}", flush=True)
+
+        # Step 3 — build and send
+        msg, buzz = _build_digest_message(scored)
+        ok = _tg_send(msg, silent=not buzz)
+        print(f"[DIGEST] sent={ok}  buzz={buzz}  items={len(scored)}", flush=True)
+
+        _digest_state["count"]     = cycle_num
+        _digest_state["last_sent"] = datetime.now(IST).strftime("%d %b %H:%M IST")
+        _digest_state["last_ok"]   = ok
+
+    except Exception as e:
+        print(f"[DIGEST] cycle error: {e}", flush=True)
+        import traceback; traceback.print_exc()
+        _tg_send(
+            f"📊 <b>AI MARKET TERMINAL</b>  •  {datetime.now(IST).strftime('%H:%M IST')}\n\n"
+            f"⚡️ <i>Market feed active — data refreshing...</i>",
+            silent=True
+        )
+
+
+async def _async_digest_loop():
     """
-    Sends a news digest every 5 minutes. Always sends — channel never goes dark.
-    - Primary source  : dashboard _cache["news"] (already maintained for UI)
-    - Fallback source : 5 fast RSS feeds if cache empty
-    - First message   : within 10 seconds of server start
+    Asyncio task — managed by uvicorn's event loop, never dropped.
+    Runs blocking digest work in a thread pool (asyncio.to_thread).
+    First message in 10s, then every 5 minutes forever.
     """
     global _digest_state
     _digest_state["running"] = True
-    _time.sleep(10)  # short boot wait — send first message fast
+    print("[DIGEST] asyncio task started", flush=True)
 
-    cycle_num = 0
+    await asyncio.sleep(10)   # short boot wait, then first message
+
     while True:
-        cycle_start = _time.time()
-        cycle_num  += 1
-        ist_t       = datetime.now(IST).strftime("%H:%M IST")
-        print(f"[DIGEST] ── cycle #{cycle_num} @ {ist_t} ──", flush=True)
-
-        try:
-            # Step 1 — read dashboard cache (zero extra cost)
-            scored = _cache.get("news", {}).get("data") or []
-            print(f"[DIGEST] cache: {len(scored)} items", flush=True)
-
-            # Step 2 — if cache cold, quick 5-feed fetch
-            if not scored:
-                print("[DIGEST] cache empty → fallback fetch", flush=True)
-                try:
-                    import feedparser, requests as _rq2
-                    QUICK = {
-                        "Economic Times": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
-                        "MoneyControl":   "https://www.moneycontrol.com/rss/MCtopnews.xml",
-                        "Reuters":        "https://feeds.reuters.com/reuters/topNews",
-                        "ET Markets":     "https://economictimes.indiatimes.com/markets/stocks/rssfeeds/2146842.cms",
-                        "Hindu BizLine":  "https://www.thehindubusinessline.com/markets/feeder/default.rss",
-                    }
-                    raw = []
-                    for src, url in QUICK.items():
-                        try:
-                            resp = _rq2.get(url, timeout=6, headers={"User-Agent": "Mozilla/5.0"})
-                            feed = feedparser.parse(resp.content)
-                            for e in feed.entries[:8]:
-                                t = (e.get("title") or "").strip()
-                                if t:
-                                    raw.append({"text": t, "source": src, "pub_utc": "", "category": "INDIA"})
-                        except Exception:
-                            pass
-                    if raw:
-                        from priority import prioritize_news
-                        scored = prioritize_news(raw, summarize=False) or []
-                    print(f"[DIGEST] fallback: {len(scored)} items", flush=True)
-                except Exception as fe:
-                    print(f"[DIGEST] fallback error: {fe}", flush=True)
-
-            # Step 3 — build message and send
-            msg, buzz = _build_digest_message(scored)
-            ok = _tg_send(msg, silent=not buzz)
-            print(f"[DIGEST] sent={ok}  buzz={buzz}  items={len(scored)}", flush=True)
-
-            _digest_state["count"]     = cycle_num
-            _digest_state["last_sent"] = datetime.now(IST).strftime("%d %b %H:%M IST")
-            _digest_state["last_ok"]   = ok
-
-        except Exception as e:
-            print(f"[DIGEST] cycle error: {e}", flush=True)
-            import traceback; traceback.print_exc()
-            # Always send something even on error
-            _tg_send(
-                f"📊 <b>AI MARKET TERMINAL</b>  •  {datetime.now(IST).strftime('%H:%M IST')}\n\n"
-                f"⚡️ <i>Market feed active — data refreshing...</i>",
-                silent=True
-            )
-
-        # Exact 5-minute cadence
-        elapsed = _time.time() - cycle_start
-        sleep_s = max(10, 300 - int(elapsed))
-        print(f"[DIGEST] sleeping {sleep_s}s until next cycle", flush=True)
-        _time.sleep(sleep_s)
+        t0 = _time.time()
+        await asyncio.to_thread(_run_one_digest_cycle)
+        elapsed  = _time.time() - t0
+        sleep_for = max(10, 300 - int(elapsed))
+        print(f"[DIGEST] next in {sleep_for}s", flush=True)
+        await asyncio.sleep(sleep_for)
 
 def _build_stocks():
     try:
@@ -396,15 +415,10 @@ def _build_signal():
         return {"error": str(e), "timestamp": now_ist()}
 
 
-threading.Thread(target=_warm,                daemon=True).start()
-threading.Thread(target=_continuous_refresh,  daemon=True).start()
-threading.Thread(target=_telegram_digest_loop, daemon=True).start()
-
-try:
-    from notify import start_watchdog
-    start_watchdog()
-except Exception:
-    pass
+# Background threads for cache warming (start at import time, before lifespan)
+threading.Thread(target=_warm,               daemon=True).start()
+threading.Thread(target=_continuous_refresh, daemon=True).start()
+# _async_digest_loop and start_watchdog are started inside lifespan (see top of file)
 
 
 # ── Endpoints ─────────────────────────────────────────────────
