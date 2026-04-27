@@ -115,11 +115,9 @@ def _build_news():
         from news import get_all_news
         from priority import prioritize_news
         scored = prioritize_news(get_all_news(), summarize=False)
-        # Send all news to Telegram feed (safe — dedup, rate-limited, max 20/cycle)
+        # Immediate buzz alert for score 8+ breaking news (always instant)
         try:
-            from notify import send_news_feed, alert_high_news
-            send_news_feed(scored)
-            # Extra loud alert (phone buzzes) for score 8+ breaking news
+            from notify import alert_high_news
             for entry in scored[:10]:
                 if isinstance(entry, (list, tuple)) and len(entry) == 2:
                     score, item = entry
@@ -129,6 +127,21 @@ def _build_news():
             pass
         return scored
     except: return []
+
+
+# ── 5-minute Telegram digest loop ────────────────────────────
+def _telegram_digest_loop():
+    """Every 5 minutes: send a digest of important news from the last 5 minutes."""
+    _time.sleep(90)   # wait for news cache to warm up first
+    while True:
+        try:
+            scored = _cache.get("news", {}).get("data") or []
+            if scored:
+                from notify import send_5min_digest
+                send_5min_digest(scored)
+        except Exception:
+            pass
+        _time.sleep(300)   # exactly 5 minutes
 
 def _build_stocks():
     try:
@@ -217,8 +230,9 @@ def _build_signal():
         return {"error": str(e), "timestamp": now_ist()}
 
 
-threading.Thread(target=_warm,               daemon=True).start()
-threading.Thread(target=_continuous_refresh, daemon=True).start()
+threading.Thread(target=_warm,                daemon=True).start()
+threading.Thread(target=_continuous_refresh,  daemon=True).start()
+threading.Thread(target=_telegram_digest_loop, daemon=True).start()
 
 try:
     from notify import start_watchdog
