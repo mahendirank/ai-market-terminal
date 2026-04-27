@@ -470,9 +470,34 @@ def telegram_digest():
             pass
 
     msg, buzz = _build_digest_message(scored)
-    ok = _tg_send(msg, silent=not buzz)
-    print(f"[CRON] digest sent={ok}  items={len(scored)}", flush=True)
-    return {"sent": ok, "items": len(scored), "time": datetime.now(IST).strftime("%H:%M IST")}
+
+    # Send with full error detail returned in response
+    import requests as _rqd
+    tg_status, tg_body = None, None
+    try:
+        r = _rqd.post(
+            f"https://api.telegram.org/bot{_TG_BOT}/sendMessage",
+            json={"chat_id": _TG_CHAT, "text": msg,
+                  "parse_mode": "HTML", "disable_notification": not buzz},
+            timeout=12
+        )
+        tg_status = r.status_code
+        tg_body   = r.text[:400]
+        ok = r.status_code == 200
+    except Exception as e:
+        tg_body = str(e)
+        ok = False
+
+    print(f"[CRON] digest sent={ok}  items={len(scored)}  tg={tg_status}", flush=True)
+    return {
+        "sent":       ok,
+        "items":      len(scored),
+        "time":       datetime.now(IST).strftime("%H:%M IST"),
+        "tg_status":  tg_status,
+        "tg_error":   tg_body if not ok else None,
+        "bot_token_prefix": _TG_BOT[:10] + "...",
+        "chat_id":    _TG_CHAT,
+    }
 
 
 @app.get("/telegram/test")
