@@ -10,5 +10,4 @@ lxml
 python-multipart
 httpx
 aiohttp
-newspaper3k
 nltk
