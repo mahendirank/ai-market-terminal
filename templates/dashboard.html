@@ -2601,6 +2601,13 @@ document.getElementById('story-overlay').addEventListener('click', e => {
       <p id="news-bias"></p>
       <p id="news-reason"></p>
       <p id="news-confidence"></p>
+      <div id="sm-signal">
+        <h3>🔥 Trade Signal</h3>
+        <p id="sig-badge" style="font-size:15px;font-weight:bold;letter-spacing:1px;margin:2px 0 10px 0;"></p>
+        <p id="sig-entry"></p>
+        <p id="sig-sl"></p>
+        <p id="sig-tp"></p>
+      </div>
     </div>
     <button id="copy-trade-btn">Copy Trade Idea</button>
     <button onclick="closeSummaryModal()">Close</button>
@@ -2623,6 +2630,36 @@ async function fetchWithTimeout(url, options, timeout = 5000) {
     clearTimeout(id);
     throw err;
   }
+}
+
+const ASSET_MAP = { gold: 'XAUUSD', usd: 'DXY', nasdaq: 'NAS100', oil: 'USOIL', stocks: 'INDICES', indices: 'INDICES' };
+
+function generateSignal(data) {
+  const impact     = (data.impact     || 'neutral').toLowerCase();
+  const trade_bias = (data.trade_bias || 'wait').toLowerCase();
+  const confidence = data.confidence ?? 50;
+  const assets     = Array.isArray(data.assets) ? data.assets : [];
+  const reason     = data.reason || '';
+
+  const instruments = assets
+    .map(a => ASSET_MAP[a.toLowerCase()] || a.toUpperCase())
+    .filter(Boolean);
+  const instrument = instruments[0] || 'XAUUSD';
+
+  let direction = 'WAIT';
+  if (impact === 'bullish' && trade_bias === 'buy')  direction = 'BUY';
+  if (impact === 'bearish' && trade_bias === 'sell') direction = 'SELL';
+
+  const signal = direction === 'WAIT' ? 'WAIT — No clear setup' : `${direction} ${instrument}`;
+  const entry  = direction === 'WAIT'
+    ? 'Stand aside — wait for confirmation'
+    : 'Market price or wait for small pullback';
+  const sl     = confidence > 75
+    ? 'Tight SL — high conviction, keep risk small'
+    : 'Wide SL — lower confidence, reduce position size';
+  const tp     = direction === 'WAIT' ? '—' : '1.5x to 2x your risk from entry';
+
+  return { signal, direction, instrument, entry, sl, tp, confidence, reason };
 }
 
 async function openNewsSummary(news) {
@@ -2677,12 +2714,30 @@ function showSummaryModal(data) {
   confEl.style.color   = confidence >= 70 ? '#4ade80' : confidence >= 50 ? '#fbbf24' : '#f87171';
   if (confidence < 50) confEl.innerText += ' ⚠️ LOW';
 
+  // Trade signal
+  const sig      = generateSignal(data);
+  const sigColor = sig.direction === 'BUY'  ? '#4ade80' :
+                   sig.direction === 'SELL' ? '#f87171' : '#fbbf24';
+
+  document.getElementById('sig-badge').innerText    = sig.signal;
+  document.getElementById('sig-badge').style.color  = sigColor;
+  document.getElementById('sig-entry').innerText    = 'Entry: '  + sig.entry;
+  document.getElementById('sig-sl').innerText       = 'SL:    '  + sig.sl;
+  document.getElementById('sig-tp').innerText       = 'TP:    '  + sig.tp;
+
   document.getElementById('sm-loading').style.display = 'none';
   document.getElementById('sm-body').style.display    = 'block';
 
   document.getElementById('copy-trade-btn').onclick = () => {
-    const text = `Bias: ${trade_bias.toUpperCase()} | Confidence: ${confidence}% | Reason: ${reason}`.trim();
-    navigator.clipboard.writeText(text);
+    const lines = [
+      `Signal: ${sig.signal}`,
+      `Confidence: ${confidence}%`,
+      `Entry: ${sig.entry}`,
+      `SL: ${sig.sl}`,
+      `TP: ${sig.tp}`,
+      `Reason: ${reason}`,
+    ].join('\n');
+    navigator.clipboard.writeText(lines);
   };
 }
 
