@@ -2598,7 +2598,19 @@ document.getElementById('story-overlay').addEventListener('click', e => {
     <div id="sm-body" style="display:none;">
       <p id="news-summary"></p>
       <p id="sm-event"   style="font-size:10px;color:#a855f7;letter-spacing:0.5px;margin-bottom:3px;"></p>
-      <p id="sm-capital" style="font-size:10px;color:#3d9cf5;margin-bottom:8px;"></p>
+      <p id="sm-capital" style="font-size:10px;color:#3d9cf5;margin-bottom:6px;"></p>
+
+      <!-- Phase / liquidity / horizon / strength badges -->
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;align-items:center;">
+        <span id="sm-phase"    style="font-size:10px;font-weight:bold;padding:2px 8px;border-radius:3px;"></span>
+        <span id="sm-liq"      style="font-size:10px;font-weight:bold;padding:2px 8px;border-radius:3px;"></span>
+        <span id="sm-horizon"  style="font-size:10px;color:#9ca3af;padding:2px 6px;border:1px solid #1c2230;border-radius:3px;"></span>
+        <span id="sm-strength" style="font-size:10px;font-weight:bold;padding:2px 8px;border-radius:3px;"></span>
+      </div>
+
+      <!-- Smart money view -->
+      <p id="sm-smart" style="font-size:11px;color:#f5a623;border-left:2px solid #f5a623;padding-left:8px;margin-bottom:8px;line-height:1.6;font-style:italic;"></p>
+
       <p id="news-impact"></p>
       <p id="news-reason"></p>
       <p id="news-confidence"></p>
@@ -2763,6 +2775,37 @@ function showSummaryModal(data) {
 
   const impactColor = impact === 'bullish' ? '#4ade80' : impact === 'bearish' ? '#f87171' : '#fbbf24';
 
+  // Market phase badge
+  const phase     = (data.market_phase || 'risk_on').toLowerCase();
+  const phaseEl   = document.getElementById('sm-phase');
+  phaseEl.innerText       = phase.replace('_', '-').toUpperCase();
+  phaseEl.style.background = phase === 'risk_on'  ? '#052e16' : phase === 'risk_off' ? '#2a0010' : '#1c1400';
+  phaseEl.style.color      = phase === 'risk_on'  ? '#4ade80' : phase === 'risk_off' ? '#f87171' : '#fbbf24';
+  phaseEl.style.border     = `1px solid ${phase === 'risk_on' ? '#4ade80' : phase === 'risk_off' ? '#f87171' : '#fbbf24'}`;
+
+  // Liquidity badge
+  const liq   = (data.liquidity || 'expanding').toLowerCase();
+  const liqEl = document.getElementById('sm-liq');
+  liqEl.innerText       = liq === 'expanding' ? '▲ EXPANDING' : '▼ TIGHTENING';
+  liqEl.style.background = liq === 'expanding' ? '#0c1a2e' : '#1a0c0c';
+  liqEl.style.color      = liq === 'expanding' ? '#3d9cf5'  : '#f87171';
+  liqEl.style.border     = `1px solid ${liq === 'expanding' ? '#3d9cf5' : '#f87171'}`;
+
+  // Time horizon
+  const horizon = (data.time_horizon || 'short_term').replace(/_/g, ' ').toUpperCase();
+  document.getElementById('sm-horizon').innerText = '⏱ ' + horizon;
+
+  // Strength score
+  const score   = data.strength_score ?? 5;
+  const scoreEl = document.getElementById('sm-strength');
+  scoreEl.innerText       = `STRENGTH ${score}/10`;
+  scoreEl.style.background = score >= 7 ? '#052e16' : score >= 5 ? '#1c1400' : '#2a0010';
+  scoreEl.style.color      = score >= 7 ? '#4ade80' : score >= 5 ? '#fbbf24' : '#f87171';
+  scoreEl.style.border     = `1px solid ${score >= 7 ? '#4ade80' : score >= 5 ? '#fbbf24' : '#f87171'}`;
+
+  // Smart money view
+  document.getElementById('sm-smart').innerText = data.smart_money_view || '';
+
   // Summary + metadata
   document.getElementById('news-summary').innerText   = summary;
   document.getElementById('sm-event').innerText       = '◆ ' + eventType;
@@ -2816,9 +2859,11 @@ function showSummaryModal(data) {
   document.getElementById('copy-trade-btn').onclick = () => {
     const lines = [
       `Signal: ${sig.signal}`,
-      `Confidence: ${confidence}%`,
+      `Confidence: ${confidence}%  |  Strength: ${score}/10`,
+      `Phase: ${phase.toUpperCase()}  |  Liquidity: ${liq.toUpperCase()}  |  Horizon: ${horizon}`,
       `Event: ${eventType}`,
       `Capital Flow: ${capFlow}`,
+      `Smart Money: ${data.smart_money_view || ''}`,
       `Entry: ${ti.entry  || ''}`,
       `SL: ${ti.sl        || ''}`,
       `TP: ${ti.tp        || ''}`,
