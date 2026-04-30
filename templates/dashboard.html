@@ -267,6 +267,10 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 .story-actions { display:flex; gap:8px; margin-top:14px; padding-top:12px; border-top:1px solid #1c2a3a; }
 .story-open-btn { background:#0d1a2a; color:#3d9cf5; border:1px solid #3d9cf5; font-size:11px; padding:5px 14px; border-radius:3px; cursor:pointer; text-decoration:none; }
 .story-open-btn:hover { background:#3d9cf5; color:#000; }
+.ai-insight-box { margin-top:14px; padding:10px 14px; background:rgba(245,158,11,0.06); border:1px solid rgba(245,158,11,0.3); border-radius:5px; }
+.ai-insight-label { font-size:9px; font-weight:700; letter-spacing:1.5px; color:#f59e0b; text-transform:uppercase; margin-bottom:6px; }
+.ai-insight-text { font-size:12px; color:#e8e0c8; line-height:1.7; white-space:pre-wrap; }
+.ai-insight-loading { font-size:11px; color:#5a6a7a; font-style:italic; }
 /* ── DECISION PANEL ── */
 .dec-panel { border-bottom:1px solid var(--border); }
 .dec-card  { display:flex; justify-content:space-between; align-items:center; padding:4px 10px; border-bottom:1px solid #0d1017; }
@@ -2334,35 +2338,76 @@ async function runResearchQuery() {
 // ── STORY READER ──────────────────────────────────────────────
 let _storyUrl = '';
 
+async function openNewsModal(item) {
+  const res  = await fetch(`http://localhost:4000/api/news/${item.id}`);
+  const data = await res.json();
+
+  document.getElementById('modal-title').innerText   = data.title;
+  document.getElementById('modal-summary').innerText = data.summary;
+
+  const aiRes = await fetch('http://localhost:4000/api/explain', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: data.title, summary: data.summary }),
+  });
+  const aiData = await aiRes.json();
+  document.getElementById('ai-insight').innerText = aiData.explanation;
+
+  document.getElementById('modal').style.display = 'block';
+}
+
 async function openStory(url, headline, source) {
   _storyUrl = url;
-  const overlay = document.getElementById('story-overlay');
-  const body    = document.getElementById('story-body');
-  const title   = document.getElementById('story-title');
-  const meta    = document.getElementById('story-meta');
-  const img     = document.getElementById('story-img');
-  const openBtn = document.getElementById('story-open-btn');
+  const overlay    = document.getElementById('story-overlay');
+  const body       = document.getElementById('story-body');
+  const title      = document.getElementById('story-title');
+  const meta       = document.getElementById('story-meta');
+  const img        = document.getElementById('story-img');
+  const openBtn    = document.getElementById('story-open-btn');
+  const insightBox = document.getElementById('ai-insight-box');
+  const insightEl  = document.getElementById('ai-insight');
 
-  title.textContent = headline;
-  meta.textContent  = source;
-  img.style.display = 'none';
-  body.innerHTML    = '<div class="story-loading">Loading article…</div>';
-  openBtn.href      = url;
+  // Reset state
+  title.textContent      = headline;
+  meta.textContent       = source;
+  img.style.display      = 'none';
+  body.innerHTML         = '<div class="story-loading">Loading article…</div>';
+  insightBox.style.display = 'none';
+  insightEl.textContent  = '';
+  openBtn.href           = url;
   overlay.classList.add('open');
   document.body.style.overflow = 'hidden';
 
+  let articleSummary = '';
+
   try {
     const data = await fetch(`${BASE}/api/article?url=${encodeURIComponent(url)}`).then(r=>r.json());
-    if (data.image) {
-      img.src = data.image;
-      img.style.display = 'block';
-    }
+    if (data.image) { img.src = data.image; img.style.display = 'block'; }
     if (data.title) title.textContent = data.title;
     const authors = data.authors && data.authors.length ? '  ✍ ' + data.authors.join(', ') : '';
     meta.textContent = source + authors;
     body.textContent = data.text || 'Could not load article content.';
+    articleSummary   = (data.text || '').slice(0, 400);
   } catch(e) {
     body.textContent = 'Failed to load article. Click "Open Article" to read on the original site.';
+  }
+
+  // Call AI explain
+  try {
+    insightBox.style.display = 'block';
+    insightEl.className      = 'ai-insight-text ai-insight-loading';
+    insightEl.textContent    = '⏳ Analyzing…';
+    const aiRes  = await fetch('http://localhost:4000/api/explain', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: headline, summary: articleSummary }),
+    });
+    const aiData = await aiRes.json();
+    insightEl.className   = 'ai-insight-text';
+    insightEl.textContent = aiData.explanation || aiData.error || 'No insight available.';
+  } catch(e) {
+    insightEl.className   = 'ai-insight-text';
+    insightEl.textContent = 'AI insight unavailable.';
   }
 }
 
@@ -2384,6 +2429,10 @@ document.getElementById('story-overlay').addEventListener('click', e => {
     <div class="story-meta" id="story-meta"></div>
     <img id="story-img" class="story-img" style="display:none" alt="article image" onerror="this.style.display='none'">
     <div class="story-body" id="story-body"></div>
+    <div class="ai-insight-box" id="ai-insight-box" style="display:none">
+      <div class="ai-insight-label">AI Insight</div>
+      <div class="ai-insight-text" id="ai-insight"></div>
+    </div>
     <div class="story-actions">
       <a id="story-open-btn" class="story-open-btn" href="#" target="_blank" rel="noopener">↗ Open Article in New Tab</a>
       <button class="story-open-btn" onclick="closeStory()" style="border-color:#2a3040;color:#5a6a7a;">Close</button>
