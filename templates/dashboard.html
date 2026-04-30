@@ -2355,7 +2355,7 @@ async function openNewsModal(item) {
   document.getElementById('modal-title').innerText   = data.title;
   document.getElementById('modal-summary').innerText = data.summary;
 
-  document.getElementById('ai-insight').innerText = "Analyzing market impact...";
+  document.getElementById('bias').innerText = 'Analyzing market impact...';
   try {
     const aiRes = await fetch(window.location.origin + '/api/explain', {
       method:  'POST',
@@ -2363,9 +2363,17 @@ async function openNewsModal(item) {
       body: JSON.stringify({ title: data.title, summary: data.summary }),
     });
     const aiData = await aiRes.json();
-    document.getElementById('ai-insight').innerText = aiData.explanation;
+    const biasEl = document.getElementById('bias');
+    biasEl.innerText = 'Bias: ' + aiData.bias;
+    biasEl.style.color = aiData.bias === 'BUY' ? '#4ade80' : aiData.bias === 'SELL' ? '#f87171' : '#fbbf24';
+    document.getElementById('confidence').innerText = 'Confidence: ' + aiData.confidence + '%';
+    document.getElementById('strength').innerText   = 'Strength: ' + aiData.strength;
+    document.getElementById('time').innerText       = 'Time: ' + aiData.time_horizon;
+    document.getElementById('reason').innerText     = 'Reason:\n- ' + aiData.reason.join('\n- ');
+    document.getElementById('risk').innerText       = 'Risk:\n- ' + aiData.risk.join('\n- ');
+    document.getElementById('action').innerText     = 'Action: ' + aiData.action;
   } catch (err) {
-    document.getElementById('ai-insight').innerText = "AI unavailable. Use manual analysis.";
+    document.getElementById('bias').innerText = 'AI unavailable. Use manual analysis.';
   }
 
   const m = document.getElementById('modal');
@@ -2419,9 +2427,14 @@ async function openStory(url, headline, source) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title: headline, summary: articleSummary }),
     });
-    const aiData = await aiRes.json();
-    insightEl.className   = 'ai-insight-text';
-    insightEl.textContent = aiData.explanation || aiData.error || 'No insight available.';
+    const { bias, confidence, strength, time_horizon, reason, risk, action } = await aiRes.json();
+    insightEl.className = 'ai-insight-text';
+    const biasColor2 = bias === 'BUY' ? '#4ade80' : bias === 'SELL' ? '#f87171' : '#fbbf24';
+    insightEl.innerHTML =
+      `<span style="color:${biasColor2};font-weight:bold">${bias}</span> ` +
+      `<span style="color:#9ca3af">${strength} · ${confidence}% · ${time_horizon}</span><br>` +
+      `${(reason ?? []).join(' · ')}<br>` +
+      `<b style="color:#f0c040">Action:</b> ${action}`;
   } catch(e) {
     insightEl.className   = 'ai-insight-text';
     insightEl.textContent = 'AI insight unavailable.';
@@ -2463,7 +2476,15 @@ document.getElementById('story-overlay').addEventListener('click', e => {
     <h2 id="modal-title"></h2>
     <p id="modal-summary"></p>
     <h3>AI Trading Insight</h3>
-    <p id="ai-insight">Loading...</p>
+    <div id="ai-insight">
+      <div id="bias"></div>
+      <div id="confidence"></div>
+      <div id="strength"></div>
+      <div id="time"></div>
+      <div id="reason"></div>
+      <div id="risk"></div>
+      <div id="action"></div>
+    </div>
     <button onclick="closeModal()">Close</button>
   </div>
 </div>
@@ -2473,7 +2494,9 @@ function closeModal() {
   const m = document.getElementById('modal');
   m.classList.remove('open');
   m.style.display = 'none';
-  document.getElementById('ai-insight').textContent = 'Loading...';
+  ['bias','confidence','strength','time','reason','risk','action'].forEach(id => {
+    document.getElementById(id).innerText = '';
+  });
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 </script>
