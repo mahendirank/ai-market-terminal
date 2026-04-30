@@ -2597,26 +2597,52 @@ document.getElementById('story-overlay').addEventListener('click', e => {
     </div>
     <div id="sm-body" style="display:none;">
       <p id="news-summary"></p>
+      <p id="sm-event"   style="font-size:10px;color:#a855f7;letter-spacing:0.5px;margin-bottom:3px;"></p>
+      <p id="sm-capital" style="font-size:10px;color:#3d9cf5;margin-bottom:8px;"></p>
       <p id="news-impact"></p>
       <p id="news-reason"></p>
       <p id="news-confidence"></p>
+
+      <!-- 4-asset impact grid -->
       <div id="sm-assets">
         <h3>Asset Impact</h3>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:6px;">
-          <div style="background:#0a0e14;border:1px solid #1c2230;border-radius:4px;padding:8px;text-align:center;">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:5px;margin-top:6px;">
+          <div style="background:#0a0e14;border:1px solid #1c2230;border-radius:4px;padding:7px;text-align:center;">
             <div style="font-size:9px;color:#4a5568;letter-spacing:1px;margin-bottom:4px;">XAUUSD</div>
-            <div id="asset-gold" style="font-size:12px;font-weight:bold;"></div>
+            <div id="asset-gold" style="font-size:11px;font-weight:bold;"></div>
           </div>
-          <div style="background:#0a0e14;border:1px solid #1c2230;border-radius:4px;padding:8px;text-align:center;">
+          <div style="background:#0a0e14;border:1px solid #1c2230;border-radius:4px;padding:7px;text-align:center;">
             <div style="font-size:9px;color:#4a5568;letter-spacing:1px;margin-bottom:4px;">DXY</div>
-            <div id="asset-dxy" style="font-size:12px;font-weight:bold;"></div>
+            <div id="asset-dxy" style="font-size:11px;font-weight:bold;"></div>
           </div>
-          <div style="background:#0a0e14;border:1px solid #1c2230;border-radius:4px;padding:8px;text-align:center;">
+          <div style="background:#0a0e14;border:1px solid #1c2230;border-radius:4px;padding:7px;text-align:center;">
             <div style="font-size:9px;color:#4a5568;letter-spacing:1px;margin-bottom:4px;">NAS100</div>
-            <div id="asset-nasdaq" style="font-size:12px;font-weight:bold;"></div>
+            <div id="asset-nasdaq" style="font-size:11px;font-weight:bold;"></div>
+          </div>
+          <div style="background:#0a0e14;border:1px solid #1c2230;border-radius:4px;padding:7px;text-align:center;">
+            <div style="font-size:9px;color:#4a5568;letter-spacing:1px;margin-bottom:4px;">CRUDE</div>
+            <div id="asset-crude" style="font-size:11px;font-weight:bold;"></div>
           </div>
         </div>
       </div>
+
+      <!-- Sector winners / losers -->
+      <div id="sm-sectors">
+        <h3>Sector Impact</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px;">
+          <div>
+            <div style="font-size:9px;color:#4ade80;letter-spacing:1px;margin-bottom:4px;">▲ WINNERS</div>
+            <div id="sec-winners" style="font-size:11px;color:#c9d1d9;line-height:1.7;"></div>
+          </div>
+          <div>
+            <div style="font-size:9px;color:#f87171;letter-spacing:1px;margin-bottom:4px;">▼ LOSERS</div>
+            <div id="sec-losers" style="font-size:11px;color:#c9d1d9;line-height:1.7;"></div>
+          </div>
+        </div>
+        <div id="sm-stocks" style="margin-top:7px;font-size:10px;color:#9ca3af;"></div>
+      </div>
+
+      <!-- Trade signal -->
       <div id="sm-signal">
         <h3>🔥 Trade Signal</h3>
         <p id="sig-badge" style="font-size:15px;font-weight:bold;letter-spacing:1px;margin:2px 0 10px 0;"></p>
@@ -2648,8 +2674,8 @@ async function fetchWithTimeout(url, options, timeout = 5000) {
   }
 }
 
-const TICKER = { gold: 'XAUUSD', dxy: 'DXY', nasdaq: 'NAS100' };
-const PRIORITY_ASSETS = ['gold', 'nasdaq', 'dxy'];
+const TICKER = { gold: 'XAUUSD', dxy: 'DXY', nasdaq: 'NAS100', crude: 'CRUDE' };
+const PRIORITY_ASSETS = ['gold', 'nasdaq', 'crude', 'dxy'];
 
 function assetColor(val) {
   const v = (val || '').toLowerCase();
@@ -2727,48 +2753,62 @@ async function openNewsSummary(news) {
 }
 
 function showSummaryModal(data) {
-  const summary    = data.summary    || 'No summary available';
-  const impact     = data.impact     || 'neutral';
-  const trade_bias = data.trade_bias || 'wait';
-  const reason     = data.reason     || 'No clear reason';
-  const confidence = data.confidence ?? 50;
+  const summary    = data.summary      || 'No summary available';
+  const impact     = data.impact       || 'neutral';
+  const trade_bias = (data.trade_bias  || 'wait').toUpperCase();
+  const reason     = data.reason       || 'No clear reason';
+  const confidence = data.confidence   ?? 50;
+  const eventType  = (data.event_type  || 'unknown').replace(/_/g, ' ').toUpperCase();
+  const capFlow    = data.capital_flow || 'unclear';
 
-  const impactColor =
-    impact === 'bullish' ? '#4ade80' :
-    impact === 'bearish' ? '#f87171' :
-    '#fbbf24';
+  const impactColor = impact === 'bullish' ? '#4ade80' : impact === 'bearish' ? '#f87171' : '#fbbf24';
 
-  document.getElementById('news-summary').innerText    = summary;
-  document.getElementById('news-impact').innerText     = 'Overall: ' + impact.toUpperCase() + '  ·  Bias: ' + trade_bias.toUpperCase();
-  document.getElementById('news-impact').style.color   = impactColor;
-  document.getElementById('news-reason').innerText     = 'Why: ' + reason;
+  // Summary + metadata
+  document.getElementById('news-summary').innerText   = summary;
+  document.getElementById('sm-event').innerText       = '◆ ' + eventType;
+  document.getElementById('sm-capital').innerText     = '→ ' + capFlow;
+  document.getElementById('news-impact').innerText    = impact.toUpperCase() + '  ·  BIAS: ' + trade_bias;
+  document.getElementById('news-impact').style.color  = impactColor;
+  document.getElementById('news-reason').innerText    = 'Why: ' + reason;
 
   const confEl = document.getElementById('news-confidence');
-  confEl.innerText     = 'Confidence: ' + confidence + '%';
-  confEl.style.color   = confidence >= 70 ? '#4ade80' : confidence >= 50 ? '#fbbf24' : '#f87171';
-  if (confidence < 50) confEl.innerText += ' ⚠️ LOW';
+  confEl.innerText   = 'Confidence: ' + confidence + '%';
+  confEl.style.color = confidence >= 70 ? '#4ade80' : confidence >= 50 ? '#fbbf24' : '#f87171';
+  if (confidence < 50) confEl.innerText += '  ⚠️ LOW';
 
-  // Asset impact cards
-  const assetData = (data.assets && typeof data.assets === 'object' && !Array.isArray(data.assets))
-    ? data.assets : {};
-  ['gold', 'dxy', 'nasdaq'].forEach(key => {
+  // Asset cards (all 4)
+  const ad = (data.assets && typeof data.assets === 'object' && !Array.isArray(data.assets)) ? data.assets : {};
+  ['gold', 'dxy', 'nasdaq', 'crude'].forEach(key => {
     const el = document.getElementById('asset-' + key);
     if (!el) return;
-    const val      = assetData[key] || 'neutral';
+    const val      = ad[key] || 'neutral';
     el.innerText   = assetLabel(val);
     el.style.color = assetColor(val);
   });
 
-  // Trade signal
-  const sig      = generateSignal(data);
-  const sigColor = sig.direction === 'BUY'  ? '#4ade80' :
-                   sig.direction === 'SELL' ? '#f87171' : '#fbbf24';
+  // Sectors
+  const s = (data.sectors && typeof data.sectors === 'object') ? data.sectors : {};
+  const winners = Array.isArray(s.winners) ? s.winners : [];
+  const losers  = Array.isArray(s.losers)  ? s.losers  : [];
+  document.getElementById('sec-winners').innerText = winners.join('\n') || '—';
+  document.getElementById('sec-losers').innerText  = losers.join('\n')  || '—';
 
-  document.getElementById('sig-badge').innerText    = sig.signal;
-  document.getElementById('sig-badge').style.color  = sigColor;
-  document.getElementById('sig-entry').innerText    = 'Entry: '  + sig.entry;
-  document.getElementById('sig-sl').innerText       = 'SL:    '  + sig.sl;
-  document.getElementById('sig-tp').innerText       = 'TP:    '  + sig.tp;
+  // Stocks
+  const stocks = Array.isArray(data.stocks) ? data.stocks : [];
+  document.getElementById('sm-stocks').innerText = stocks.length
+    ? 'Key stocks: ' + stocks.join(' · ')
+    : '';
+
+  // Trade signal (direction from AI bias, entry/sl/tp from AI trade_idea)
+  const sig      = generateSignal(data);
+  const sigColor = sig.direction === 'BUY' ? '#4ade80' : sig.direction === 'SELL' ? '#f87171' : '#fbbf24';
+  const ti       = (data.trade_idea && typeof data.trade_idea === 'object') ? data.trade_idea : {};
+
+  document.getElementById('sig-badge').innerText   = sig.signal;
+  document.getElementById('sig-badge').style.color = sigColor;
+  document.getElementById('sig-entry').innerText   = 'Entry: ' + (ti.entry || 'Wait for clarity');
+  document.getElementById('sig-sl').innerText      = 'SL:    ' + (ti.sl    || 'Below recent swing low');
+  document.getElementById('sig-tp').innerText      = 'TP:    ' + (ti.tp    || '1.5x–2x risk');
 
   document.getElementById('sm-loading').style.display = 'none';
   document.getElementById('sm-body').style.display    = 'block';
@@ -2777,9 +2817,14 @@ function showSummaryModal(data) {
     const lines = [
       `Signal: ${sig.signal}`,
       `Confidence: ${confidence}%`,
-      `Entry: ${sig.entry}`,
-      `SL: ${sig.sl}`,
-      `TP: ${sig.tp}`,
+      `Event: ${eventType}`,
+      `Capital Flow: ${capFlow}`,
+      `Entry: ${ti.entry  || ''}`,
+      `SL: ${ti.sl        || ''}`,
+      `TP: ${ti.tp        || ''}`,
+      `Winners: ${winners.join(', ') || '—'}`,
+      `Losers: ${losers.join(', ')   || '—'}`,
+      `Stocks: ${stocks.join(', ')   || '—'}`,
       `Reason: ${reason}`,
     ].join('\n');
     navigator.clipboard.writeText(lines);
