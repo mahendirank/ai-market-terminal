@@ -271,6 +271,16 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 .ai-insight-label { font-size:9px; font-weight:700; letter-spacing:1.5px; color:#f59e0b; text-transform:uppercase; margin-bottom:6px; }
 .ai-insight-text { font-size:12px; color:#e8e0c8; line-height:1.7; white-space:pre-wrap; }
 .ai-insight-loading { font-size:11px; color:#5a6a7a; font-style:italic; }
+/* News item modal */
+.modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.82); z-index:10000; align-items:center; justify-content:center; }
+.modal.open { display:flex; }
+.modal-content { background:#0c1117; border:1px solid rgba(245,158,11,0.35); border-radius:8px; padding:24px 28px; max-width:600px; width:90%; max-height:80vh; overflow-y:auto; position:relative; }
+.modal-content h2 { font-size:14px; font-weight:700; color:#e8eaf0; line-height:1.5; margin:0 0 12px 0; }
+.modal-content p { font-size:12px; color:#aab; line-height:1.7; margin:0 0 14px 0; }
+.modal-content h3 { font-size:9px; font-weight:700; letter-spacing:1.5px; color:#f59e0b; text-transform:uppercase; margin:14px 0 6px 0; padding-top:12px; border-top:1px solid rgba(245,158,11,0.2); }
+.modal-content #ai-insight { color:#e8e0c8; white-space:pre-wrap; }
+.modal-content button { margin-top:16px; padding:6px 16px; background:#0d1a2a; border:1px solid #3d9cf5; color:#3d9cf5; border-radius:4px; cursor:pointer; font-size:11px; font-family:inherit; }
+.modal-content button:hover { background:#3d9cf5; color:#000; }
 /* ── DECISION PANEL ── */
 .dec-panel { border-bottom:1px solid var(--border); }
 .dec-card  { display:flex; justify-content:space-between; align-items:center; padding:4px 10px; border-bottom:1px solid #0d1017; }
@@ -2353,7 +2363,9 @@ async function openNewsModal(item) {
   const aiData = await aiRes.json();
   document.getElementById('ai-insight').innerText = aiData.explanation;
 
-  document.getElementById('modal').style.display = 'block';
+  const m = document.getElementById('modal');
+  m.style.display = 'flex';
+  m.classList.add('open');
 }
 
 async function openStory(url, headline, source) {
@@ -2365,7 +2377,7 @@ async function openStory(url, headline, source) {
   const img        = document.getElementById('story-img');
   const openBtn    = document.getElementById('story-open-btn');
   const insightBox = document.getElementById('ai-insight-box');
-  const insightEl  = document.getElementById('ai-insight');
+  const insightEl  = document.getElementById('story-ai-insight');
 
   // Reset state
   title.textContent      = headline;
@@ -2431,7 +2443,7 @@ document.getElementById('story-overlay').addEventListener('click', e => {
     <div class="story-body" id="story-body"></div>
     <div class="ai-insight-box" id="ai-insight-box" style="display:none">
       <div class="ai-insight-label">AI Insight</div>
-      <div class="ai-insight-text" id="ai-insight"></div>
+      <div class="ai-insight-text" id="story-ai-insight"></div>
     </div>
     <div class="story-actions">
       <a id="story-open-btn" class="story-open-btn" href="#" target="_blank" rel="noopener">↗ Open Article in New Tab</a>
@@ -2439,6 +2451,27 @@ document.getElementById('story-overlay').addEventListener('click', e => {
     </div>
   </div>
 </div>
+
+<!-- News Item Modal -->
+<div id="modal" class="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal-content">
+    <h2 id="modal-title"></h2>
+    <p id="modal-summary"></p>
+    <h3>AI Trading Insight</h3>
+    <p id="ai-insight">Loading...</p>
+    <button onclick="closeModal()">Close</button>
+  </div>
+</div>
+
+<script>
+function closeModal() {
+  const m = document.getElementById('modal');
+  m.classList.remove('open');
+  m.style.display = 'none';
+  document.getElementById('ai-insight').textContent = 'Loading...';
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+</script>
 
 </body>
 </html>
