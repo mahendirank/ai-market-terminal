@@ -2349,19 +2349,24 @@ async function runResearchQuery() {
 let _storyUrl = '';
 
 async function openNewsModal(item) {
-  const res  = await fetch(`http://localhost:4000/api/news/${item.id}`);
+  const res  = await fetch(window.location.origin + `/api/news/${item.id}`);
   const data = await res.json();
 
   document.getElementById('modal-title').innerText   = data.title;
   document.getElementById('modal-summary').innerText = data.summary;
 
-  const aiRes = await fetch('http://localhost:4000/api/explain', {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title: data.title, summary: data.summary }),
-  });
-  const aiData = await aiRes.json();
-  document.getElementById('ai-insight').innerText = aiData.explanation;
+  document.getElementById('ai-insight').innerText = "Analyzing market impact...";
+  try {
+    const aiRes = await fetch(window.location.origin + '/api/explain', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: data.title, summary: data.summary }),
+    });
+    const aiData = await aiRes.json();
+    document.getElementById('ai-insight').innerText = aiData.explanation;
+  } catch (err) {
+    document.getElementById('ai-insight').innerText = "AI unavailable. Use manual analysis.";
+  }
 
   const m = document.getElementById('modal');
   m.style.display = 'flex';
@@ -2409,7 +2414,7 @@ async function openStory(url, headline, source) {
     insightBox.style.display = 'block';
     insightEl.className      = 'ai-insight-text ai-insight-loading';
     insightEl.textContent    = '⏳ Analyzing…';
-    const aiRes  = await fetch('http://localhost:4000/api/explain', {
+    const aiRes  = await fetch(window.location.origin + '/api/explain', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title: headline, summary: articleSummary }),
