@@ -419,10 +419,7 @@ def _build_signal():
         return {"error": str(e), "timestamp": now_ist()}
 
 
-# Background threads for cache warming (start at import time, before lifespan)
-threading.Thread(target=_warm,               daemon=True).start()
-threading.Thread(target=_continuous_refresh, daemon=True).start()
-# _async_digest_loop and start_watchdog are started inside lifespan (see top of file)
+# Background threads are started inside lifespan() above — do NOT start them here too.
 
 
 # ── Endpoints ─────────────────────────────────────────────────
