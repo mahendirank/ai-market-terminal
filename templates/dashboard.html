@@ -241,6 +241,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 /* ── AI BADGES ── */
 .ai-bull { display:inline-block; background:#002a14; color:#00d26a; border:1px solid #005a28; font-size:8px; font-weight:bold; padding:1px 5px; border-radius:2px; letter-spacing:0.5px; white-space:nowrap; }
 .ai-bear { display:inline-block; background:#2a0010; color:#ff3b5c; border:1px solid #5a0020; font-size:8px; font-weight:bold; padding:1px 5px; border-radius:2px; letter-spacing:0.5px; white-space:nowrap; }
+.impact-tag { display:inline-block; font-size:8px; font-weight:bold; padding:1px 5px; border-radius:2px; letter-spacing:0.5px; white-space:nowrap; color:#5a6a7a; margin-left:4px; flex-shrink:0; }
 .ai-neu  { display:inline-block; background:#111820; color:#4a5568; border:1px solid #1c2230; font-size:8px; font-weight:bold; padding:1px 5px; border-radius:2px; letter-spacing:0.5px; white-space:nowrap; }
 .impact-dot { display:inline-block; width:6px; height:6px; border-radius:50%; margin-right:2px; }
 .imp-hi { background:#ff3b5c; }
@@ -1011,7 +1012,7 @@ function renderFeed(freshSet) {
   }
 
   const now = Date.now();
-  feed.innerHTML = list.map(n => {
+  const items = list.map(n => {
     const hi  = n.priority === 'high';
     const md  = n.priority === 'med';
     const isN = freshSet && freshSet.has(n.headline);
@@ -1050,20 +1051,89 @@ function renderFeed(freshSet) {
       ? `<button class="read-btn" onclick="openStory(${JSON.stringify(n.url)},${JSON.stringify(n.headline||'')},${JSON.stringify(n.source||'')})">▶ Read</button>`
       : '';
 
-    return `<div class="${rc}">
-      <span class="nt">${n.time||'—'}</span>
-      <span class="nago">${ago}</span>
-      <span class="ns sc-${n.category}">${srcBase}${srcExtra}</span>
-      <span class="${tc}" title="${(n.headline||'').replace(/"/g,"'")}">
-        ${impDot}${brkBadge}${n.headline||''}
-        ${whyLine}
-      </span>
-      <span style="display:inline-flex;gap:2px;align-items:center;flex-shrink:0;">
-        ${aiBadge}${renderTickerTags(tickers)}${readBtn}
-      </span>
-      <span class="${bc}">${sc}</span>
-    </div>`;
-  }).join('');
+    const html =
+      `<span class="nt">${n.time||'—'}</span>` +
+      `<span class="nago">${ago}</span>` +
+      `<span class="ns sc-${n.category}">${srcBase}${srcExtra}</span>` +
+      `<span class="${tc}" title="${(n.headline||'').replace(/"/g,"'")}">` +
+        `${impDot}${brkBadge}${n.headline||''}${whyLine}` +
+      `</span>` +
+      `<span style="display:inline-flex;gap:2px;align-items:center;flex-shrink:0;">` +
+        `${aiBadge}${renderTickerTags(tickers)}${readBtn}` +
+      `</span>` +
+      `<span class="${bc}">${sc}</span>`;
+
+    const newsItem = document.createElement('div');
+    newsItem.className = rc;
+    newsItem.style.cursor = 'pointer';
+    newsItem.innerHTML = html;
+
+    const news = { title: n.headline || '', summary: n.summary || n.description || '' };
+    newsItem.onclick = () => openNewsSummary(news);
+
+    const impactEl = document.createElement('span');
+    impactEl.className = 'impact-tag';
+    impactEl.innerText = '...';
+    const key = (n.headline || '').slice(0, 50);
+    impactEl.dataset.impactKey = key;
+    if (_summaryCache.has(key)) {
+      _applyImpactTag(impactEl, _summaryCache.get(key).impact);
+    }
+    newsItem.appendChild(impactEl);
+
+    return newsItem;
+  });
+
+  feed.innerHTML = '';
+  items.forEach(el => feed.appendChild(el));
+
+  // Preload AI summaries for top 5 items in background
+  const topNews = list.slice(0, 5);
+  topNews.forEach(n => {
+    const key = (n.headline || '').slice(0, 50);
+    if (_summaryCache.has(key) || _pending.has(key) || _prefetched.has(key)) return;
+    _prefetched.add(key);
+    const payload = { title: n.headline || '', content: n.summary || n.description || '' };
+    getSummary(key, payload)
+      .then(data => {
+        const tag = document.querySelector(`[data-impact-key="${CSS.escape(key)}"]`);
+        if (tag) _applyImpactTag(tag, data.impact);
+      })
+      .catch(() => {});
+  });
+}
+
+const _prefetched   = new Set();
+const _summaryCache = new Map();
+const _pending      = new Map();
+
+async function getSummary(key, payload) {
+  if (_summaryCache.has(key)) return _summaryCache.get(key);
+
+  if (_pending.has(key)) return _pending.get(key);
+
+  const promise = fetchWithTimeout(window.location.origin + '/api/summary', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(payload),
+  }, 240000)
+    .then(res => res.json())
+    .then(data => {
+      _summaryCache.set(key, data);
+      _pending.delete(key);
+      return data;
+    });
+
+  _pending.set(key, promise);
+  return promise;
+}
+
+function _applyImpactTag(el, impact) {
+  el.innerText   = (impact || '').toUpperCase();
+  el.style.color =
+    impact === 'bullish' ? '#4ade80' :
+    impact === 'bearish' ? '#f87171' :
+    '#fbbf24';
 }
 
 // ── Update tab counts (reflects active asset filter so count = what renders) ──
@@ -2349,7 +2419,7 @@ async function runResearchQuery() {
 let _storyUrl = '';
 
 async function openNewsModal(item) {
-  const res  = await fetch(window.location.origin + `/api/news/${item.id}`);
+  const res  = await fetchWithTimeout(window.location.origin + `/api/news/${item.id}`, {}, 10000);
   const data = await res.json();
 
   document.getElementById('modal-title').innerText   = data.title;
@@ -2357,21 +2427,39 @@ async function openNewsModal(item) {
 
   document.getElementById('bias').innerText = 'Analyzing market impact...';
   try {
-    const aiRes = await fetch(window.location.origin + '/api/explain', {
+    const aiRes = await fetchWithTimeout(window.location.origin + '/api/explain', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title: data.title, summary: data.summary }),
-    });
+    }, 240000);
     const aiData = await aiRes.json();
+    const impactLabel = aiData.impact_score >= 8 ? 'High' : aiData.impact_score >= 6 ? 'Medium' : 'Low';
+    document.getElementById('macro-dxy').innerText    = 'DXY: ' + (aiData.dxy_trend ?? '—');
+    document.getElementById('macro-yield').innerText  = 'Yields: ' + (aiData.bond_yield_trend ?? '—');
+    document.getElementById('macro-impact').innerText  = `Impact: ${impactLabel} (${aiData.impact_score ?? '—'}/10)`;
+    const regimeEl = document.getElementById('macro-regime');
+    const regimeMap = {
+      'risk_off':         { label: 'RISK-OFF',         emoji: '⚠️',  color: '#fbbf24' },
+      'liquidity_crisis': { label: 'LIQUIDITY CRISIS', emoji: '🔴', color: '#f87171' },
+      'risk_on':          { label: 'RISK-ON',          emoji: '✅',  color: '#4ade80' },
+      'high_volatility':  { label: 'HIGH VOLATILITY',  emoji: '⚡', color: '#c084fc' },
+      'normal':           { label: 'NORMAL',           emoji: '—',   color: '#9ca3af' },
+    };
+    const regime = regimeMap[aiData.market_regime] ?? regimeMap['normal'];
+    regimeEl.innerText   = `Market Regime: ${regime.label} ${regime.emoji}`;
+    regimeEl.style.color = regime.color;
+
     const biasEl = document.getElementById('bias');
-    biasEl.innerText = 'Bias: ' + aiData.bias;
+    biasEl.innerText   = 'Bias: ' + aiData.bias;
     biasEl.style.color = aiData.bias === 'BUY' ? '#4ade80' : aiData.bias === 'SELL' ? '#f87171' : '#fbbf24';
-    document.getElementById('confidence').innerText = 'Confidence: ' + aiData.confidence + '%';
-    document.getElementById('strength').innerText   = 'Strength: ' + aiData.strength;
-    document.getElementById('time').innerText       = 'Time: ' + aiData.time_horizon;
-    document.getElementById('reason').innerText     = 'Reason:\n- ' + aiData.reason.join('\n- ');
-    document.getElementById('risk').innerText       = 'Risk:\n- ' + aiData.risk.join('\n- ');
-    document.getElementById('action').innerText     = 'Action: ' + aiData.action;
+    document.getElementById('confidence').innerText   = 'Confidence: ' + aiData.confidence + '%';
+    document.getElementById('strength').innerText     = 'Strength: ' + aiData.strength;
+    document.getElementById('entry').innerText        = 'Entry: ' + aiData.entry;
+    document.getElementById('sl').innerText           = 'SL: ' + aiData.stop_loss;
+    document.getElementById('tp').innerText           = 'TP:\n- ' + (aiData.take_profit ?? []).join('\n- ');
+    document.getElementById('timeframe').innerText    = 'Timeframe: ' + aiData.timeframe;
+    document.getElementById('confirmation').innerText = 'Confirmation: ' + aiData.confirmation;
+    document.getElementById('risk').innerText         = 'Risk:\n- ' + (aiData.risk ?? []).join('\n- ');
   } catch (err) {
     document.getElementById('bias').innerText = 'AI unavailable. Use manual analysis.';
   }
@@ -2422,11 +2510,11 @@ async function openStory(url, headline, source) {
     insightBox.style.display = 'block';
     insightEl.className      = 'ai-insight-text ai-insight-loading';
     insightEl.textContent    = '⏳ Analyzing…';
-    const aiRes  = await fetch(window.location.origin + '/api/explain', {
+    const aiRes  = await fetchWithTimeout(window.location.origin + '/api/explain', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title: headline, summary: articleSummary }),
-    });
+    }, 240000);
     const { bias, confidence, strength, time_horizon, reason, risk, action } = await aiRes.json();
     insightEl.className = 'ai-insight-text';
     const biasColor2 = bias === 'BUY' ? '#4ade80' : bias === 'SELL' ? '#f87171' : '#fbbf24';
@@ -2476,25 +2564,144 @@ document.getElementById('story-overlay').addEventListener('click', e => {
     <h2 id="modal-title"></h2>
     <p id="modal-summary"></p>
     <h3>AI Trading Insight</h3>
+    <div id="macro">
+      <p id="macro-dxy"></p>
+      <p id="macro-yield"></p>
+      <p id="macro-impact"></p>
+    </div>
+    <div id="regime">
+      <p id="macro-regime"></p>
+    </div>
     <div id="ai-insight">
       <div id="bias"></div>
       <div id="confidence"></div>
       <div id="strength"></div>
-      <div id="time"></div>
-      <div id="reason"></div>
+      <div id="entry"></div>
+      <div id="sl"></div>
+      <div id="tp"></div>
+      <div id="timeframe"></div>
+      <div id="confirmation"></div>
       <div id="risk"></div>
-      <div id="action"></div>
     </div>
     <button onclick="closeModal()">Close</button>
   </div>
 </div>
 
+<!-- News Summary Modal -->
+<div id="summary-modal" class="modal" style="display:none;" onclick="if(event.target===this)closeSummaryModal()">
+  <div class="modal-content">
+    <h3 id="news-title"></h3>
+    <div id="sm-loading">
+      <p id="sm-quicktake" style="display:none;color:#9ca3af;font-size:11px;margin-bottom:8px;line-height:1.5;"></p>
+      <span id="sm-spinner">Analyzing with AI...</span>
+    </div>
+    <div id="sm-body" style="display:none;">
+      <p id="news-summary"></p>
+      <p id="news-impact"></p>
+      <p id="news-bias"></p>
+      <p id="news-reason"></p>
+      <p id="news-confidence"></p>
+    </div>
+    <button id="copy-trade-btn">Copy Trade Idea</button>
+    <button onclick="closeSummaryModal()">Close</button>
+  </div>
+</div>
+
 <script>
+async function fetchWithTimeout(url, options, timeout = 5000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const res = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    clearTimeout(id);
+    return res;
+  } catch (err) {
+    clearTimeout(id);
+    throw err;
+  }
+}
+
+async function openNewsSummary(news) {
+  const modal = document.getElementById('summary-modal');
+  modal.style.display = 'flex';
+
+  document.getElementById('news-title').innerText      = news.title || 'News';
+  document.getElementById('sm-loading').style.display  = 'block';
+  document.getElementById('sm-body').style.display     = 'none';
+  document.getElementById('sm-spinner').innerText      = 'Analyzing with AI...';
+
+  // Show quick take instantly — no AI wait
+  const quickText = (news.summary || news.description || '').trim();
+  const qtEl = document.getElementById('sm-quicktake');
+  if (quickText) {
+    qtEl.innerText      = 'Quick take: ' + quickText.slice(0, 100);
+    qtEl.style.display  = 'block';
+  } else {
+    qtEl.style.display  = 'none';
+  }
+
+  try {
+    const key     = (news.title || '').slice(0, 50);
+    const payload = { title: news.title || '', content: news.summary || news.description || '' };
+    const data    = await getSummary(key, payload);
+    showSummaryModal(data);
+  } catch (err) {
+    document.getElementById('sm-spinner').innerText = 'AI analysis unavailable ⚠️';
+  }
+}
+
+function showSummaryModal(data) {
+  const summary    = data.summary    || 'No summary available';
+  const impact     = data.impact     || 'neutral';
+  const trade_bias = data.trade_bias || 'wait';
+  const reason     = data.reason     || 'No clear reason';
+  const confidence = data.confidence ?? 50;
+
+  const impactColor =
+    impact === 'bullish' ? '#4ade80' :
+    impact === 'bearish' ? '#f87171' :
+    '#fbbf24';
+
+  document.getElementById('news-summary').innerText    = summary;
+  document.getElementById('news-impact').innerText     = 'Impact: ' + impact.toUpperCase();
+  document.getElementById('news-impact').style.color   = impactColor;
+  document.getElementById('news-bias').innerText       = 'Bias: ' + trade_bias.toUpperCase();
+  document.getElementById('news-reason').innerText     = 'Why: ' + reason;
+
+  const confEl = document.getElementById('news-confidence');
+  confEl.innerText     = 'Confidence: ' + confidence + '%';
+  confEl.style.color   = confidence >= 70 ? '#4ade80' : confidence >= 50 ? '#fbbf24' : '#f87171';
+  if (confidence < 50) confEl.innerText += ' ⚠️ LOW';
+
+  document.getElementById('sm-loading').style.display = 'none';
+  document.getElementById('sm-body').style.display    = 'block';
+
+  document.getElementById('copy-trade-btn').onclick = () => {
+    const text = `Bias: ${trade_bias.toUpperCase()} | Confidence: ${confidence}% | Reason: ${reason}`.trim();
+    navigator.clipboard.writeText(text);
+  };
+}
+
+function closeSummaryModal() {
+  document.getElementById('summary-modal').style.display = 'none';
+  document.getElementById('sm-loading').style.display    = 'block';
+  document.getElementById('sm-spinner').innerText        = 'Analyzing with AI...';
+  document.getElementById('sm-quicktake').style.display  = 'none';
+  document.getElementById('sm-quicktake').innerText      = '';
+  document.getElementById('sm-body').style.display       = 'none';
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSummaryModal(); });
+
 function closeModal() {
   const m = document.getElementById('modal');
   m.classList.remove('open');
   m.style.display = 'none';
-  ['bias','confidence','strength','time','reason','risk','action'].forEach(id => {
+  ['macro-dxy','macro-yield','macro-impact','macro-regime','bias','confidence','strength','entry','sl','tp','timeframe','confirmation','risk'].forEach(id => {
     document.getElementById(id).innerText = '';
   });
 }
