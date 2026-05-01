@@ -2596,72 +2596,65 @@ document.getElementById('story-overlay').addEventListener('click', e => {
       <span id="sm-spinner">Analyzing with AI...</span>
     </div>
     <div id="sm-body" style="display:none;">
-      <p id="news-summary"></p>
-      <p id="sm-event"   style="font-size:10px;color:#a855f7;letter-spacing:0.5px;margin-bottom:3px;"></p>
-      <p id="sm-capital" style="font-size:10px;color:#3d9cf5;margin-bottom:6px;"></p>
 
-      <!-- Phase / liquidity / horizon / strength badges -->
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;align-items:center;">
-        <span id="sm-phase"    style="font-size:10px;font-weight:bold;padding:2px 8px;border-radius:3px;"></span>
-        <span id="sm-liq"      style="font-size:10px;font-weight:bold;padding:2px 8px;border-radius:3px;"></span>
-        <span id="sm-horizon"  style="font-size:10px;color:#9ca3af;padding:2px 6px;border:1px solid #1c2230;border-radius:3px;"></span>
-        <span id="sm-strength" style="font-size:10px;font-weight:bold;padding:2px 8px;border-radius:3px;"></span>
+      <!-- ⚡ QUICK TAKE -->
+      <div style="margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid #1c2230;">
+        <div style="font-size:10px;font-weight:bold;color:#fbbf24;letter-spacing:1px;margin-bottom:5px;">⚡ QUICK TAKE</div>
+        <p id="news-summary" style="font-size:11px;color:#c9d1d9;line-height:1.6;margin:0;"></p>
       </div>
 
-      <!-- Smart money view -->
-      <p id="sm-smart" style="font-size:11px;color:#f5a623;border-left:2px solid #f5a623;padding-left:8px;margin-bottom:8px;line-height:1.6;font-style:italic;"></p>
+      <!-- 📊 MARKET STRUCTURE -->
+      <div style="margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid #1c2230;">
+        <div style="font-size:10px;font-weight:bold;color:#fbbf24;letter-spacing:1px;margin-bottom:6px;">📊 MARKET STRUCTURE</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px;">
+          <span id="sm-phase"    style="font-size:10px;font-weight:bold;padding:2px 8px;border-radius:3px;"></span>
+          <span id="sm-liq"      style="font-size:10px;font-weight:bold;padding:2px 8px;border-radius:3px;"></span>
+          <span id="sm-horizon"  style="font-size:10px;color:#9ca3af;padding:2px 6px;border:1px solid #1c2230;border-radius:3px;"></span>
+          <span id="sm-strength" style="font-size:10px;font-weight:bold;padding:2px 8px;border-radius:3px;"></span>
+        </div>
+        <p id="sm-capital" style="font-size:10px;color:#3d9cf5;margin:0;"></p>
+      </div>
 
-      <p id="news-impact"></p>
-      <p id="news-reason"></p>
-      <p id="news-confidence"></p>
-
-      <!-- 4-asset impact grid -->
-      <div id="sm-assets">
-        <h3>Asset Impact</h3>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:5px;margin-top:6px;">
-          <div style="background:#0a0e14;border:1px solid #1c2230;border-radius:4px;padding:7px;text-align:center;">
-            <div style="font-size:9px;color:#4a5568;letter-spacing:1px;margin-bottom:4px;">XAUUSD</div>
-            <div id="asset-gold" style="font-size:11px;font-weight:bold;"></div>
-          </div>
-          <div style="background:#0a0e14;border:1px solid #1c2230;border-radius:4px;padding:7px;text-align:center;">
-            <div style="font-size:9px;color:#4a5568;letter-spacing:1px;margin-bottom:4px;">DXY</div>
-            <div id="asset-dxy" style="font-size:11px;font-weight:bold;"></div>
-          </div>
-          <div style="background:#0a0e14;border:1px solid #1c2230;border-radius:4px;padding:7px;text-align:center;">
-            <div style="font-size:9px;color:#4a5568;letter-spacing:1px;margin-bottom:4px;">NAS100</div>
-            <div id="asset-nasdaq" style="font-size:11px;font-weight:bold;"></div>
-          </div>
-          <div style="background:#0a0e14;border:1px solid #1c2230;border-radius:4px;padding:7px;text-align:center;">
-            <div style="font-size:9px;color:#4a5568;letter-spacing:1px;margin-bottom:4px;">CRUDE</div>
-            <div id="asset-crude" style="font-size:11px;font-weight:bold;"></div>
-          </div>
+      <!-- 🎯 ASSET IMPACT -->
+      <div style="margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid #1c2230;">
+        <div style="font-size:10px;font-weight:bold;color:#fbbf24;letter-spacing:1px;margin-bottom:6px;">🎯 ASSET IMPACT</div>
+        <div style="display:flex;flex-direction:column;gap:4px;font-size:11px;color:#c9d1d9;">
+          <div>Gold: <span id="asset-gold" style="font-weight:bold;"></span></div>
+          <div>DXY: <span id="asset-dxy" style="font-weight:bold;"></span></div>
+          <div>Nasdaq: <span id="asset-nasdaq" style="font-weight:bold;"></span></div>
+          <div>Crude: <span id="asset-crude" style="font-weight:bold;"></span></div>
         </div>
       </div>
 
-      <!-- Sector winners / losers -->
-      <div id="sm-sectors">
-        <h3>Sector Impact</h3>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px;">
-          <div>
-            <div style="font-size:9px;color:#4ade80;letter-spacing:1px;margin-bottom:4px;">▲ WINNERS</div>
-            <div id="sec-winners" style="font-size:11px;color:#c9d1d9;line-height:1.7;"></div>
-          </div>
-          <div>
-            <div style="font-size:9px;color:#f87171;letter-spacing:1px;margin-bottom:4px;">▼ LOSERS</div>
-            <div id="sec-losers" style="font-size:11px;color:#c9d1d9;line-height:1.7;"></div>
-          </div>
+      <!-- 🏆 SECTORS -->
+      <div style="margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid #1c2230;">
+        <div style="font-size:10px;font-weight:bold;color:#fbbf24;letter-spacing:1px;margin-bottom:6px;">🏆 SECTORS</div>
+        <div style="font-size:11px;color:#c9d1d9;line-height:1.8;">
+          <div>Winners: <span id="sec-winners" style="color:#4ade80;"></span></div>
+          <div>Losers: <span id="sec-losers" style="color:#f87171;"></span></div>
         </div>
-        <div id="sm-stocks" style="margin-top:7px;font-size:10px;color:#9ca3af;"></div>
+        <div id="sm-stocks" style="margin-top:4px;font-size:10px;color:#9ca3af;"></div>
       </div>
 
-      <!-- Trade signal -->
-      <div id="sm-signal">
-        <h3>🔥 Trade Signal</h3>
-        <p id="sig-badge" style="font-size:15px;font-weight:bold;letter-spacing:1px;margin:2px 0 10px 0;"></p>
-        <p id="sig-entry"></p>
-        <p id="sig-sl"></p>
-        <p id="sig-tp"></p>
+      <!-- 🔥 TRADE IDEA -->
+      <div style="margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid #1c2230;">
+        <div style="font-size:10px;font-weight:bold;color:#fbbf24;letter-spacing:1px;margin-bottom:6px;">🔥 TRADE IDEA</div>
+        <p id="sig-badge" style="font-size:15px;font-weight:bold;letter-spacing:1px;margin:0 0 8px 0;"></p>
+        <div style="font-size:11px;color:#c9d1d9;line-height:1.8;">
+          <p id="sig-entry" style="margin:0;"></p>
+          <p id="sig-sl"    style="margin:0;"></p>
+          <p id="sig-tp"    style="margin:0;"></p>
+        </div>
+        <p id="news-confidence" style="font-size:10px;margin:6px 0 0 0;"></p>
       </div>
+
+      <!-- 🧠 SMART MONEY VIEW -->
+      <div style="margin-bottom:4px;">
+        <div style="font-size:10px;font-weight:bold;color:#fbbf24;letter-spacing:1px;margin-bottom:6px;">🧠 SMART MONEY VIEW</div>
+        <p id="sm-smart" style="font-size:11px;color:#f5a623;border-left:2px solid #f5a623;padding-left:8px;margin:0 0 6px 0;line-height:1.6;font-style:italic;"></p>
+        <p id="news-reason" style="font-size:10px;color:#9ca3af;margin:0;"></p>
+      </div>
+
     </div>
     <button id="copy-trade-btn">Copy Trade Idea</button>
     <button onclick="closeSummaryModal()">Close</button>
@@ -2807,12 +2800,9 @@ function showSummaryModal(data) {
   document.getElementById('sm-smart').innerText = data.smart_money_view || '';
 
   // Summary + metadata
-  document.getElementById('news-summary').innerText   = summary;
-  document.getElementById('sm-event').innerText       = '◆ ' + eventType;
-  document.getElementById('sm-capital').innerText     = '→ ' + capFlow;
-  document.getElementById('news-impact').innerText    = impact.toUpperCase() + '  ·  BIAS: ' + trade_bias;
-  document.getElementById('news-impact').style.color  = impactColor;
-  document.getElementById('news-reason').innerText    = 'Why: ' + reason;
+  document.getElementById('news-summary').innerText = summary;
+  document.getElementById('sm-capital').innerText   = '→ ' + capFlow;
+  document.getElementById('news-reason').innerText  = 'Why: ' + reason;
 
   const confEl = document.getElementById('news-confidence');
   confEl.innerText   = 'Confidence: ' + confidence + '%';
@@ -2833,8 +2823,8 @@ function showSummaryModal(data) {
   const s = (data.sectors && typeof data.sectors === 'object') ? data.sectors : {};
   const winners = Array.isArray(s.winners) ? s.winners : [];
   const losers  = Array.isArray(s.losers)  ? s.losers  : [];
-  document.getElementById('sec-winners').innerText = winners.join('\n') || '—';
-  document.getElementById('sec-losers').innerText  = losers.join('\n')  || '—';
+  document.getElementById('sec-winners').innerText = winners.join(', ') || '—';
+  document.getElementById('sec-losers').innerText  = losers.join(', ')  || '—';
 
   // Stocks
   const stocks = Array.isArray(data.stocks) ? data.stocks : [];
@@ -2858,20 +2848,36 @@ function showSummaryModal(data) {
 
   document.getElementById('copy-trade-btn').onclick = () => {
     const lines = [
-      `Signal: ${sig.signal}`,
-      `Confidence: ${confidence}%  |  Strength: ${score}/10`,
-      `Phase: ${phase.toUpperCase()}  |  Liquidity: ${liq.toUpperCase()}  |  Horizon: ${horizon}`,
-      `Event: ${eventType}`,
-      `Capital Flow: ${capFlow}`,
-      `Smart Money: ${data.smart_money_view || ''}`,
-      `Entry: ${ti.entry  || ''}`,
-      `SL: ${ti.sl        || ''}`,
-      `TP: ${ti.tp        || ''}`,
+      `⚡ QUICK TAKE:`,
+      summary,
+      ``,
+      `📊 MARKET STRUCTURE:`,
+      `Risk: ${phase.replace('_', '-').toUpperCase()}`,
+      `Liquidity: ${liq === 'expanding' ? 'EXPANDING' : 'TIGHTENING'}  |  Strength: ${score}/10  |  ${horizon}`,
+      `Flow: ${capFlow}`,
+      ``,
+      `🎯 ASSET IMPACT:`,
+      `Gold: ${(data.assets?.gold || 'neutral').toUpperCase()}`,
+      `DXY: ${(data.assets?.dxy  || 'neutral').toUpperCase()}`,
+      `Nasdaq: ${(data.assets?.nasdaq || 'neutral').toUpperCase()}`,
+      `Crude: ${(data.assets?.crude  || 'neutral').toUpperCase()}`,
+      ``,
+      `🏆 SECTORS:`,
       `Winners: ${winners.join(', ') || '—'}`,
       `Losers: ${losers.join(', ')   || '—'}`,
-      `Stocks: ${stocks.join(', ')   || '—'}`,
-      `Reason: ${reason}`,
-    ].join('\n');
+      stocks.length ? `Stocks: ${stocks.join(' · ')}` : '',
+      ``,
+      `🔥 TRADE IDEA:`,
+      sig.signal,
+      `Entry: ${ti.entry || ''}`,
+      `SL: ${ti.sl       || ''}`,
+      `TP: ${ti.tp       || ''}`,
+      `Confidence: ${confidence}%`,
+      ``,
+      `🧠 SMART MONEY VIEW:`,
+      data.smart_money_view || '',
+      reason ? `Why: ${reason}` : '',
+    ].filter(l => l !== undefined).join('\n');
     navigator.clipboard.writeText(lines);
   };
 }
