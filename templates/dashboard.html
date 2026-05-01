@@ -2723,6 +2723,59 @@ function generateSignal(data) {
   return { signal, direction, instrument, entry, sl, tp, confidence, reason, assets };
 }
 
+function aggregateSignals(newsArray) {
+  if (!Array.isArray(newsArray) || newsArray.length === 0) {
+    return { gold: 'neutral', dxy: 'neutral', nasdaq: 'neutral', overall_bias: 'WAIT', confidence: 0, reason: 'No signals' };
+  }
+
+  const ASSET_KEYS = ['gold', 'dxy', 'nasdaq'];
+  const scores = { gold: 0, dxy: 0, nasdaq: 0 };
+  let bullishCount = 0, bearishCount = 0, totalConf = 0;
+
+  for (const item of newsArray) {
+    const weight = (item.confidence ?? 50) / 100;
+    const bias   = (item.trade_bias || '').toLowerCase();
+    const assets = (item.assets && typeof item.assets === 'object' && !Array.isArray(item.assets))
+      ? item.assets : {};
+
+    if (bias === 'buy')       bullishCount++;
+    else if (bias === 'sell') bearishCount++;
+    totalConf += item.confidence ?? 50;
+
+    for (const key of ASSET_KEYS) {
+      const dir = (assets[key] || '').toLowerCase();
+      const val = dir === 'bullish' ? 1 : dir === 'bearish' ? -1 : 0;
+      scores[key] += val * weight;
+    }
+  }
+
+  const toDirection = (score) =>
+    score > 0.5 ? 'bullish' : score < -0.5 ? 'bearish' : 'neutral';
+
+  const result = {};
+  let bullishAssets = 0, bearishAssets = 0;
+  for (const key of ASSET_KEYS) {
+    result[key] = toDirection(scores[key]);
+    if (result[key] === 'bullish') bullishAssets++;
+    if (result[key] === 'bearish') bearishAssets++;
+  }
+
+  let overall_bias = 'WAIT';
+  if (bullishAssets > bearishAssets) overall_bias = 'BUY';
+  else if (bearishAssets > bullishAssets) overall_bias = 'SELL';
+
+  const neutralCount = newsArray.length - bullishCount - bearishCount;
+  const reason = `${bullishCount} bullish vs ${bearishCount} bearish signal${newsArray.length !== 1 ? 's' : ''}` +
+    (neutralCount > 0 ? ` (${neutralCount} neutral)` : '');
+
+  return {
+    ...result,
+    overall_bias,
+    confidence: Math.round(totalConf / newsArray.length),
+    reason,
+  };
+}
+
 async function openNewsSummary(news) {
   const modal = document.getElementById('summary-modal');
   modal.style.display = 'flex';
