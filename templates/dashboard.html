@@ -503,6 +503,15 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
       <button class="af-btn" data-asset="FED"   onclick="setAsset(this)">FED</button>
       <button class="af-btn" data-asset="RATES" onclick="setAsset(this)">RATES</button>
     </div>
+    <!-- MASTER SIGNAL PANEL -->
+    <div id="master-panel" style="border:1px solid #ffaa00;padding:10px 12px;margin-bottom:8px;border-radius:6px;background:#0d0d0d;color:#fff;font-size:12px;">
+      <div style="color:#ffaa00;font-weight:bold;letter-spacing:0.5px;margin-bottom:5px;">🧠 MARKET CONSENSUS</div>
+      <div id="ms-assets" style="color:#9ca3af;margin-bottom:4px;">Waiting for first signal...</div>
+      <div id="ms-bias"       style="font-weight:bold;margin-bottom:2px;"></div>
+      <div id="ms-confidence" style="font-size:10px;color:#9ca3af;"></div>
+      <div id="ms-reason"     style="font-size:10px;color:#6b7280;margin-top:2px;"></div>
+    </div>
+
     <div class="news-feed" id="news-feed">
       <div class="loading"><span class="spinner">◌</span> Fetching live news from 60+ sources...</div>
     </div>
@@ -2682,6 +2691,13 @@ function assetColor(val) {
   return v === 'bullish' ? '#4ade80' : v === 'bearish' ? '#f87171' : '#4a5568';
 }
 
+function getColor(val) {
+  const v = (val || '').toLowerCase();
+  if (v === 'bullish' || v === 'buy')  return '#00ff9d';
+  if (v === 'bearish' || v === 'sell') return '#ff4d4d';
+  return '#ffaa00';
+}
+
 function assetLabel(val) {
   const v = (val || 'neutral').toLowerCase();
   return v === 'bullish' ? 'Bullish' : v === 'bearish' ? 'Bearish' : 'Neutral';
@@ -2907,6 +2923,19 @@ function showSummaryModal(data) {
     ].filter(l => l !== null).join('\n');
     navigator.clipboard.writeText(lines);
   };
+
+  // Master Signal Panel — update whenever masterSignal is in the response
+  if (data.masterSignal) {
+    const ms       = data.masterSignal;
+    const msAssets = document.getElementById('ms-assets');
+    const msBias   = document.getElementById('ms-bias');
+    msAssets.innerText   = `Gold: ${ms.gold || '—'}  |  DXY: ${ms.dxy || '—'}  |  Nasdaq: ${ms.nasdaq || '—'}`;
+    msAssets.style.color = '#ccc';
+    msBias.innerText     = `🔥 Bias: ${ms.overall_bias || '—'}`;
+    msBias.style.color   = getColor(ms.overall_bias);
+    document.getElementById('ms-confidence').innerText = `Confidence: ${Math.round(ms.confidence || 0)}%`;
+    document.getElementById('ms-reason').innerText     = ms.reason || '';
+  }
 }
 
 function closeSummaryModal() {
