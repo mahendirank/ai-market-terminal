@@ -2606,13 +2606,10 @@ document.getElementById('story-overlay').addEventListener('click', e => {
       <!-- 📊 MARKET STRUCTURE -->
       <div style="margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid #1c2230;">
         <div style="font-size:10px;font-weight:bold;color:#fbbf24;letter-spacing:1px;margin-bottom:6px;">📊 MARKET STRUCTURE</div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px;">
-          <span id="sm-phase"    style="font-size:10px;font-weight:bold;padding:2px 8px;border-radius:3px;"></span>
-          <span id="sm-liq"      style="font-size:10px;font-weight:bold;padding:2px 8px;border-radius:3px;"></span>
-          <span id="sm-horizon"  style="font-size:10px;color:#9ca3af;padding:2px 6px;border:1px solid #1c2230;border-radius:3px;"></span>
-          <span id="sm-strength" style="font-size:10px;font-weight:bold;padding:2px 8px;border-radius:3px;"></span>
+        <div style="font-size:11px;color:#c9d1d9;line-height:1.9;">
+          <div>Risk: <span id="sm-phase" style="font-weight:bold;"></span></div>
+          <div>Liquidity: <span id="sm-liq" style="font-weight:bold;"></span></div>
         </div>
-        <p id="sm-capital" style="font-size:10px;color:#3d9cf5;margin:0;"></p>
       </div>
 
       <!-- 🎯 ASSET IMPACT -->
@@ -2639,20 +2636,18 @@ document.getElementById('story-overlay').addEventListener('click', e => {
       <!-- 🔥 TRADE IDEA -->
       <div style="margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid #1c2230;">
         <div style="font-size:10px;font-weight:bold;color:#fbbf24;letter-spacing:1px;margin-bottom:6px;">🔥 TRADE IDEA</div>
-        <p id="sig-badge" style="font-size:15px;font-weight:bold;letter-spacing:1px;margin:0 0 8px 0;"></p>
-        <div style="font-size:11px;color:#c9d1d9;line-height:1.8;">
-          <p id="sig-entry" style="margin:0;"></p>
+        <div style="font-size:11px;color:#c9d1d9;line-height:1.9;">
+          <p id="sig-entry" style="margin:0;font-weight:bold;"></p>
           <p id="sig-sl"    style="margin:0;"></p>
           <p id="sig-tp"    style="margin:0;"></p>
         </div>
-        <p id="news-confidence" style="font-size:10px;margin:6px 0 0 0;"></p>
+        <p id="news-confidence" style="font-size:10px;color:#9ca3af;margin:6px 0 0 0;"></p>
       </div>
 
       <!-- 🧠 SMART MONEY VIEW -->
       <div style="margin-bottom:4px;">
         <div style="font-size:10px;font-weight:bold;color:#fbbf24;letter-spacing:1px;margin-bottom:6px;">🧠 SMART MONEY VIEW</div>
-        <p id="sm-smart" style="font-size:11px;color:#f5a623;border-left:2px solid #f5a623;padding-left:8px;margin:0 0 6px 0;line-height:1.6;font-style:italic;"></p>
-        <p id="news-reason" style="font-size:10px;color:#9ca3af;margin:0;"></p>
+        <p id="sm-smart" style="font-size:11px;color:#f5a623;border-left:2px solid #f5a623;padding-left:8px;margin:0;line-height:1.6;font-style:italic;"></p>
       </div>
 
     </div>
@@ -2689,7 +2684,7 @@ function assetColor(val) {
 
 function assetLabel(val) {
   const v = (val || 'neutral').toLowerCase();
-  return v === 'bullish' ? '▲ BULLISH' : v === 'bearish' ? '▼ BEARISH' : '— NEUTRAL';
+  return v === 'bullish' ? 'Bullish' : v === 'bearish' ? 'Bearish' : 'Neutral';
 }
 
 function generateSignal(data) {
@@ -2768,46 +2763,27 @@ function showSummaryModal(data) {
 
   const impactColor = impact === 'bullish' ? '#4ade80' : impact === 'bearish' ? '#f87171' : '#fbbf24';
 
-  // Market phase badge
-  const phase     = (data.market_phase || 'risk_on').toLowerCase();
-  const phaseEl   = document.getElementById('sm-phase');
-  phaseEl.innerText       = phase.replace('_', '-').toUpperCase();
-  phaseEl.style.background = phase === 'risk_on'  ? '#052e16' : phase === 'risk_off' ? '#2a0010' : '#1c1400';
-  phaseEl.style.color      = phase === 'risk_on'  ? '#4ade80' : phase === 'risk_off' ? '#f87171' : '#fbbf24';
-  phaseEl.style.border     = `1px solid ${phase === 'risk_on' ? '#4ade80' : phase === 'risk_off' ? '#f87171' : '#fbbf24'}`;
+  // Market phase — plain text
+  const phase   = (data.market_phase || 'risk_on').toLowerCase();
+  const phaseEl = document.getElementById('sm-phase');
+  phaseEl.innerText   = phase.replace('_', '-').toUpperCase();
+  phaseEl.style.color = phase === 'risk_on' ? '#4ade80' : phase === 'risk_off' ? '#f87171' : '#fbbf24';
 
-  // Liquidity badge
+  // Liquidity — plain text
   const liq   = (data.liquidity || 'expanding').toLowerCase();
   const liqEl = document.getElementById('sm-liq');
-  liqEl.innerText       = liq === 'expanding' ? '▲ EXPANDING' : '▼ TIGHTENING';
-  liqEl.style.background = liq === 'expanding' ? '#0c1a2e' : '#1a0c0c';
-  liqEl.style.color      = liq === 'expanding' ? '#3d9cf5'  : '#f87171';
-  liqEl.style.border     = `1px solid ${liq === 'expanding' ? '#3d9cf5' : '#f87171'}`;
+  liqEl.innerText   = liq === 'expanding' ? 'EXPANDING' : 'TIGHTENING';
+  liqEl.style.color = liq === 'expanding' ? '#3d9cf5' : '#f87171';
 
-  // Time horizon
-  const horizon = (data.time_horizon || 'short_term').replace(/_/g, ' ').toUpperCase();
-  document.getElementById('sm-horizon').innerText = '⏱ ' + horizon;
-
-  // Strength score
   const score   = data.strength_score ?? 5;
-  const scoreEl = document.getElementById('sm-strength');
-  scoreEl.innerText       = `STRENGTH ${score}/10`;
-  scoreEl.style.background = score >= 7 ? '#052e16' : score >= 5 ? '#1c1400' : '#2a0010';
-  scoreEl.style.color      = score >= 7 ? '#4ade80' : score >= 5 ? '#fbbf24' : '#f87171';
-  scoreEl.style.border     = `1px solid ${score >= 7 ? '#4ade80' : score >= 5 ? '#fbbf24' : '#f87171'}`;
+  const horizon = (data.time_horizon  || 'short_term').replace(/_/g, ' ').toUpperCase();
 
-  // Smart money view
-  document.getElementById('sm-smart').innerText = data.smart_money_view || '';
-
-  // Summary + metadata
+  document.getElementById('sm-smart').innerText   = data.smart_money_view || '';
   document.getElementById('news-summary').innerText = summary;
-  document.getElementById('sm-capital').innerText   = '→ ' + capFlow;
-  document.getElementById('news-reason').innerText  = 'Why: ' + reason;
 
   const confEl = document.getElementById('news-confidence');
-  confEl.innerText   = 'Confidence: ' + confidence + '%';
+  confEl.innerText   = 'Confidence: ' + confidence + '%' + (confidence < 50 ? '  ⚠️ LOW' : '');
   confEl.style.color = confidence >= 70 ? '#4ade80' : confidence >= 50 ? '#fbbf24' : '#f87171';
-  if (confidence < 50) confEl.innerText += '  ⚠️ LOW';
 
   // Asset cards (all 4)
   const ad = (data.assets && typeof data.assets === 'object' && !Array.isArray(data.assets)) ? data.assets : {};
@@ -2832,52 +2808,50 @@ function showSummaryModal(data) {
     ? 'Key stocks: ' + stocks.join(' · ')
     : '';
 
-  // Trade signal (direction from AI bias, entry/sl/tp from AI trade_idea)
+  // Trade signal
   const sig      = generateSignal(data);
   const sigColor = sig.direction === 'BUY' ? '#4ade80' : sig.direction === 'SELL' ? '#f87171' : '#fbbf24';
   const ti       = (data.trade_idea && typeof data.trade_idea === 'object') ? data.trade_idea : {};
 
-  document.getElementById('sig-badge').innerText   = sig.signal;
-  document.getElementById('sig-badge').style.color = sigColor;
-  document.getElementById('sig-entry').innerText   = 'Entry: ' + (ti.entry || 'Wait for clarity');
-  document.getElementById('sig-sl').innerText      = 'SL:    ' + (ti.sl    || 'Below recent swing low');
-  document.getElementById('sig-tp').innerText      = 'TP:    ' + (ti.tp    || '1.5x–2x risk');
+  const entryEl = document.getElementById('sig-entry');
+  entryEl.innerText   = ti.entry || sig.signal;
+  entryEl.style.color = sigColor;
+  document.getElementById('sig-sl').innerText = 'SL: ' + (ti.sl || 'Below recent swing low');
+  document.getElementById('sig-tp').innerText = 'TP: ' + (ti.tp || '1.5x–2x risk');
 
   document.getElementById('sm-loading').style.display = 'none';
   document.getElementById('sm-body').style.display    = 'block';
 
   document.getElementById('copy-trade-btn').onclick = () => {
+    const cap = (v) => v ? v[0].toUpperCase() + v.slice(1).toLowerCase() : 'Neutral';
     const lines = [
       `⚡ QUICK TAKE:`,
       summary,
       ``,
       `📊 MARKET STRUCTURE:`,
       `Risk: ${phase.replace('_', '-').toUpperCase()}`,
-      `Liquidity: ${liq === 'expanding' ? 'EXPANDING' : 'TIGHTENING'}  |  Strength: ${score}/10  |  ${horizon}`,
-      `Flow: ${capFlow}`,
+      `Liquidity: ${liq === 'expanding' ? 'EXPANDING' : 'TIGHTENING'}`,
       ``,
       `🎯 ASSET IMPACT:`,
-      `Gold: ${(data.assets?.gold || 'neutral').toUpperCase()}`,
-      `DXY: ${(data.assets?.dxy  || 'neutral').toUpperCase()}`,
-      `Nasdaq: ${(data.assets?.nasdaq || 'neutral').toUpperCase()}`,
-      `Crude: ${(data.assets?.crude  || 'neutral').toUpperCase()}`,
+      `Gold: ${cap(data.assets?.gold)}`,
+      `DXY: ${cap(data.assets?.dxy)}`,
+      `Nasdaq: ${cap(data.assets?.nasdaq)}`,
+      `Crude: ${cap(data.assets?.crude)}`,
       ``,
       `🏆 SECTORS:`,
       `Winners: ${winners.join(', ') || '—'}`,
       `Losers: ${losers.join(', ')   || '—'}`,
-      stocks.length ? `Stocks: ${stocks.join(' · ')}` : '',
+      stocks.length ? `Stocks: ${stocks.join(' · ')}` : null,
       ``,
       `🔥 TRADE IDEA:`,
-      sig.signal,
-      `Entry: ${ti.entry || ''}`,
-      `SL: ${ti.sl       || ''}`,
-      `TP: ${ti.tp       || ''}`,
+      ti.entry || sig.signal,
+      `SL: ${ti.sl || ''}`,
+      `TP: ${ti.tp || ''}`,
       `Confidence: ${confidence}%`,
       ``,
       `🧠 SMART MONEY VIEW:`,
       data.smart_money_view || '',
-      reason ? `Why: ${reason}` : '',
-    ].filter(l => l !== undefined).join('\n');
+    ].filter(l => l !== null).join('\n');
     navigator.clipboard.writeText(lines);
   };
 }
