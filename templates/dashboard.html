@@ -2784,11 +2784,19 @@ function aggregateSignals(newsArray) {
   const reason = `${bullishCount} bullish vs ${bearishCount} bearish signal${newsArray.length !== 1 ? 's' : ''}` +
     (neutralCount > 0 ? ` (${neutralCount} neutral)` : '');
 
+  let confidence = Math.round(totalConf / newsArray.length);
+
+  const hasConflict = bullishCount > 0 && bearishCount > 0;
+  if (hasConflict) {
+    confidence    = Math.max(40, confidence - 25);
+    overall_bias  = 'WAIT';
+  }
+
   return {
     ...result,
     overall_bias,
-    confidence: Math.round(totalConf / newsArray.length),
-    reason,
+    confidence,
+    reason: hasConflict ? reason + ' | ⚠️ Mixed signals across market' : reason,
   };
 }
 
