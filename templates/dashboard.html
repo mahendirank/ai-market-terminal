@@ -818,7 +818,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 
   <!-- Footer note -->
   <div style="text-align:center;color:#1f2937;font-size:9px;letter-spacing:1px;margin-top:4px;padding-top:8px;border-top:1px solid #0e1a24;">
-    POWERED BY HNI ENGINE · PORT 4000 · AUTO-READS LIVE MARKET DATA · FOR REFERENCE ONLY
+    POWERED BY GROQ AI · AUTO-READS LIVE MARKET DATA · CACHED 10 MIN · FOR REFERENCE ONLY
   </div>
 
 </div>
@@ -1899,6 +1899,7 @@ function hideSignals() {
 }
 
 // ── HNI AI INSIGHTS PANEL ─────────────────────────────────────────────────────
+let _hniLoaded = false;
 
 function showHniInsights(tab) {
   hideResearch();
@@ -1910,6 +1911,8 @@ function showHniInsights(tab) {
   const hp = document.getElementById('hni-insights-panel');
   hp.style.display = 'flex';
   hp.style.flexDirection = 'column';
+  // Auto-load on first open (like signals tab)
+  if (!_hniLoaded) { _hniLoaded = true; loadHniInsights(); }
 }
 
 function hideHniInsights() {
@@ -1931,13 +1934,19 @@ async function loadHniInsights() {
 
   try {
     const body = JSON.stringify({ context: ctx });
+    const ctrl = new AbortController();
+    const _tId = setTimeout(() => ctrl.abort(), 40000);
     const res  = await fetch(HNI_URL, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body,
-      signal: AbortSignal.timeout(35000),
+      signal: ctrl.signal,
     });
-    if (!res.ok) throw new Error(`HNI engine returned ${res.status}`);
+    clearTimeout(_tId);
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(errJson.detail || errJson.error || `Server error ${res.status}`);
+    }
     const d = await res.json();
 
     // Regime + confidence (actual field names from engine)
@@ -2015,9 +2024,10 @@ async function loadHniInsights() {
     document.getElementById('hni-results').style.display = 'flex';
 
   } catch (err) {
+    _hniLoaded = false; // allow retry on next tab click
     document.getElementById('hni-error').innerHTML =
-      `⚠ <b>HNI Engine offline</b> — ${err.message}<br>
-       <span style="color:#6b7280;font-size:10px;">Run: <code style="background:#1a0a0a;padding:2px 6px;">docker compose up -d news</code> in browser-harness-lab/</span>`;
+      `⚠ <b>Analysis failed</b> — ${err.message}<br>
+       <span style="color:#6b7280;font-size:10px;">Check GROQ_API_KEY is set, then click ▶ ANALYZE to retry.</span>`;
     document.getElementById('hni-error').style.display = 'block';
   } finally {
     document.getElementById('hni-loading').style.display = 'none';
