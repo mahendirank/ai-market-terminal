@@ -488,6 +488,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
       <div class="ctab" data-cat="GLOBAL"      onclick="setCat(this)">ASIA/GLOBAL     <span class="cnt" id="cnt-GLOBAL">—</span></div>
       <div class="ctab" data-cat="AI_RESEARCH" onclick="showResearch(this)" id="ai-research-tab" style="color:#a78bfa;border-left:2px solid #7c3aed;">⚡ AI RESEARCH</div>
       <div class="ctab" data-cat="SIGNALS" onclick="showSignals(this)" id="signals-tab" style="color:#f59e0b;border-left:2px solid #d97706;">📊 SIGNALS</div>
+      <div class="ctab" data-cat="HNI_AI" onclick="showHniInsights(this)" id="hni-ai-tab" style="color:#22d3ee;border-left:2px solid #0891b2;">🧠 HNI AI</div>
     </div>
     <!-- ASSET QUICK FILTERS -->
     <div class="asset-filters" id="asset-filters">
@@ -508,6 +509,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
       <div style="color:#ffaa00;font-weight:bold;letter-spacing:0.5px;margin-bottom:5px;">🧠 MARKET CONSENSUS</div>
       <div id="ms-assets" style="color:#9ca3af;margin-bottom:4px;">Waiting for first signal...</div>
       <div id="ms-bias"       style="font-weight:bold;margin-bottom:2px;"></div>
+      <div id="ms-regime"     style="font-size:10px;font-weight:bold;margin-bottom:2px;"></div>
       <div id="ms-confidence" style="font-size:10px;color:#9ca3af;"></div>
       <div id="ms-reason"     style="font-size:10px;color:#6b7280;margin-top:2px;"></div>
     </div>
@@ -731,6 +733,96 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
       <div class="sb" id="sid-snp"><div class="loading">—</div></div>
     </div>
 
+    <!-- SIGNAL HISTORY -->
+    <div class="sp" style="padding:10px 12px;">
+      <div class="sh" style="color:#a78bfa;margin-bottom:8px;">📋 SIGNAL HISTORY</div>
+      <div id="signal-history-list" style="font-size:10px;color:#9ca3af;line-height:1.7;max-height:260px;overflow-y:auto;">
+        <div class="loading">Loading history...</div>
+      </div>
+    </div>
+
+
+<!-- HNI AI INSIGHTS PANEL -->
+<div id="hni-insights-panel" style="display:none;flex:1;overflow-y:auto;padding:14px;background:#070b10;flex-direction:column;gap:12px;">
+
+  <!-- Header -->
+  <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #0e2a36;padding-bottom:10px;">
+    <div>
+      <div style="color:#22d3ee;font-size:13px;font-weight:bold;letter-spacing:1.5px;">🧠 HNI AI INSIGHTS</div>
+      <div style="color:#4b5563;font-size:9px;letter-spacing:1px;margin-top:2px;">MACRO REGIME · TRADE BIAS · SCALP & SWING SETUPS</div>
+    </div>
+    <div style="color:#ef4444;font-size:9px;letter-spacing:1px;background:#1a0000;border:1px solid #7f1d1d;padding:3px 8px;border-radius:3px;">AI REFERENCE ONLY — NOT FINANCIAL ADVICE</div>
+  </div>
+
+  <!-- Input row -->
+  <div style="display:flex;gap:8px;align-items:flex-start;">
+    <textarea id="hni-context-input" rows="2" placeholder="Optional: paste a headline or market context (e.g. 'Fed held rates, crude dropped 2%, FII sold ₹2000cr'). Leave blank for auto-analysis from live data."
+      style="flex:1;background:#0d1520;border:1px solid #1c3a50;color:#e2e8f0;font-size:11px;padding:8px 10px;border-radius:4px;outline:none;resize:vertical;font-family:inherit;line-height:1.5;"></textarea>
+    <button onclick="loadHniInsights()"
+      style="background:#0891b2;color:#fff;border:none;padding:10px 18px;border-radius:4px;font-size:11px;font-weight:bold;cursor:pointer;white-space:nowrap;letter-spacing:0.5px;min-width:90px;">
+      ▶ ANALYZE
+    </button>
+  </div>
+
+  <!-- Loading state -->
+  <div id="hni-loading" style="display:none;text-align:center;color:#4b5563;padding:30px 0;font-size:11px;">
+    <span id="hni-spinner" style="display:inline-block;animation:spin 1s linear infinite;">◌</span>&nbsp; Reading market regime...
+  </div>
+
+  <!-- Results -->
+  <div id="hni-results" style="display:none;flex-direction:column;gap:10px;">
+
+    <!-- Regime + Bias row -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      <div style="background:#0d1520;border:1px solid #1c3a50;border-radius:5px;padding:12px;">
+        <div style="color:#6b7280;font-size:9px;letter-spacing:1px;margin-bottom:6px;">MACRO REGIME</div>
+        <div id="hni-regime" style="font-size:15px;font-weight:bold;color:#22d3ee;letter-spacing:1px;">—</div>
+        <div style="margin-top:6px;background:#0a0f1a;border-radius:3px;height:4px;overflow:hidden;">
+          <div id="hni-conf-bar" style="height:100%;background:#0891b2;width:0%;transition:width 0.5s;"></div>
+        </div>
+        <div id="hni-conf-text" style="color:#4b5563;font-size:9px;margin-top:3px;">CONFIDENCE —</div>
+      </div>
+      <div style="background:#0d1520;border:1px solid #1c3a50;border-radius:5px;padding:12px;">
+        <div style="color:#6b7280;font-size:9px;letter-spacing:1px;margin-bottom:6px;">TRADE BIAS</div>
+        <div id="hni-bias" style="font-size:22px;font-weight:bold;letter-spacing:2px;">—</div>
+        <div id="hni-view" style="color:#9ca3af;font-size:10px;margin-top:6px;line-height:1.5;"></div>
+      </div>
+    </div>
+
+    <!-- Instruments table -->
+    <div style="background:#0d1520;border:1px solid #1c3a50;border-radius:5px;padding:12px;">
+      <div style="color:#6b7280;font-size:9px;letter-spacing:1px;margin-bottom:8px;">INSTRUMENT SIGNALS</div>
+      <div id="hni-instruments" style="font-size:10px;"></div>
+    </div>
+
+    <!-- Scalp + Swing -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      <div style="background:#0d1520;border:1px solid #1c3a50;border-radius:5px;padding:12px;">
+        <div style="color:#f59e0b;font-size:9px;letter-spacing:1px;font-weight:bold;margin-bottom:8px;">⚡ SCALP SETUP (1–5 MIN)</div>
+        <div id="hni-scalp-direction" style="font-size:13px;font-weight:bold;margin-bottom:6px;">—</div>
+        <div id="hni-scalp-details" style="font-size:10px;color:#9ca3af;line-height:1.6;"></div>
+      </div>
+      <div style="background:#0d1520;border:1px solid #1c3a50;border-radius:5px;padding:12px;">
+        <div style="color:#34d399;font-size:9px;letter-spacing:1px;font-weight:bold;margin-bottom:8px;">📈 SWING SETUP (1–5 DAYS)</div>
+        <div id="hni-swing-direction" style="font-size:13px;font-weight:bold;margin-bottom:6px;">—</div>
+        <div id="hni-swing-details" style="font-size:10px;color:#9ca3af;line-height:1.6;"></div>
+      </div>
+    </div>
+
+    <!-- Timestamp -->
+    <div id="hni-ts" style="text-align:right;color:#374151;font-size:9px;letter-spacing:1px;"></div>
+
+  </div>
+
+  <!-- Error state -->
+  <div id="hni-error" style="display:none;background:#1a0a0a;border:1px solid #7f1d1d;border-radius:5px;padding:14px;color:#f87171;font-size:11px;"></div>
+
+  <!-- Footer note -->
+  <div style="text-align:center;color:#1f2937;font-size:9px;letter-spacing:1px;margin-top:4px;padding-top:8px;border-top:1px solid #0e1a24;">
+    POWERED BY HNI ENGINE · PORT 4000 · AUTO-READS LIVE MARKET DATA · FOR REFERENCE ONLY
+  </div>
+
+</div>
   </div>
 </div>
 
@@ -825,6 +917,38 @@ let activeCat = 'ALL';
 let earnOpen   = true;
 let socialOpen = true;
 
+// ── Signal History ────────────────────────────────────────────────────────────
+async function loadSignalHistory() {
+  const el = document.getElementById('signal-history-list');
+  if (!el) return;
+  try {
+    const res  = await fetch('/api/history');
+    const list = await res.json();
+    if (!Array.isArray(list) || list.length === 0) {
+      el.innerHTML = '<span style="color:#4a5568;">No signals yet — open a news article to generate one.</span>';
+      return;
+    }
+    el.innerHTML = list.map(s => {
+      const bias  = (s.trade_bias || 'wait').toUpperCase();
+      const col   = bias === 'BUY' ? '#4ade80' : bias === 'SELL' ? '#f87171' : '#9ca3af';
+      const pos   = s.position_size || '';
+      const posCol= pos === 'FULL SIZE' ? '#4ade80' : pos === 'MEDIUM SIZE' ? '#fbbf24' : '#6b7280';
+      const time  = s.ts ? new Date(s.ts).toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' }) : '';
+      return `<div style="border-bottom:1px solid #1c2230;padding:4px 0;">
+        <span style="color:#6b7280;font-size:9px;">${time}</span>
+        <span style="color:${col};font-weight:bold;margin-left:4px;">${bias}</span>
+        ${pos ? `<span style="color:${posCol};font-size:9px;margin-left:4px;">${pos}</span>` : ''}
+        <div style="color:#c9d1d9;font-size:9px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${s.title || ''}</div>
+      </div>`;
+    }).join('');
+  } catch {
+    el.innerHTML = '<span style="color:#4a5568;">Could not load history.</span>';
+  }
+}
+
+loadSignalHistory();
+setInterval(loadSignalHistory, 30_000); // refresh every 30s
+
 // ── Earnings toggle ───────────────────────────────────────
 function toggleEarnings() {
   earnOpen = !earnOpen;
@@ -846,6 +970,7 @@ let aiNewsMap   = {};   // headline → {sentiment, impact, assets, summary, why
 function setCat(el) {
   hideResearch();
   hideSignals();
+  hideHniInsights();
   document.querySelectorAll('.ctab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
   activeCat = el.dataset.cat;
@@ -1696,6 +1821,7 @@ let _researchActive = false;
 
 function showResearch(tab) {
   hideSignals();
+  hideHniInsights();
   document.querySelectorAll('.ctab').forEach(t => t.classList.remove('active'));
   tab.classList.add('active');
   document.getElementById('news-feed').style.display    = 'none';
@@ -1722,6 +1848,7 @@ let _signalsLoaded = false;
 
 function showSignals(tab) {
   hideResearch();
+  hideHniInsights();
   document.querySelectorAll('.ctab').forEach(t => t.classList.remove('active'));
   tab.classList.add('active');
   document.getElementById('news-feed').style.display     = 'none';
@@ -1740,6 +1867,131 @@ function hideSignals() {
   const af = document.getElementById('asset-filters');
   if (af) af.style.display = 'flex';
   _signalsActive = false;
+}
+
+// ── HNI AI INSIGHTS PANEL ─────────────────────────────────────────────────────
+
+function showHniInsights(tab) {
+  hideResearch();
+  hideSignals();
+  document.querySelectorAll('.ctab').forEach(t => t.classList.remove('active'));
+  tab.classList.add('active');
+  document.getElementById('news-feed').style.display     = 'none';
+  document.getElementById('asset-filters').style.display = 'none';
+  const hp = document.getElementById('hni-insights-panel');
+  hp.style.display = 'flex';
+  hp.style.flexDirection = 'column';
+}
+
+function hideHniInsights() {
+  const hp = document.getElementById('hni-insights-panel');
+  if (hp) hp.style.display = 'none';
+  const nf = document.getElementById('news-feed');
+  if (nf) nf.style.display = '';
+  const af = document.getElementById('asset-filters');
+  if (af) af.style.display = 'flex';
+}
+
+async function loadHniInsights() {
+  const HNI_URL = `${BASE}/api/hni-summary`;
+  const ctx = (document.getElementById('hni-context-input').value || '').trim();
+
+  document.getElementById('hni-loading').style.display  = 'block';
+  document.getElementById('hni-results').style.display  = 'none';
+  document.getElementById('hni-error').style.display    = 'none';
+
+  try {
+    const body = JSON.stringify({ context: ctx });
+    const res  = await fetch(HNI_URL, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      signal: AbortSignal.timeout(35000),
+    });
+    if (!res.ok) throw new Error(`HNI engine returned ${res.status}`);
+    const d = await res.json();
+
+    // Regime + confidence (actual field names from engine)
+    const regimeColors = {
+      goldilocks:'#22d3ee', risk_on_easing:'#4ade80', stagflation:'#f87171',
+      deflation_risk:'#a78bfa', risk_off_tightening:'#f97316', late_cycle:'#fbbf24',
+      crisis:'#ef4444', mixed:'#9ca3af', risk_on:'#4ade80', risk_off:'#f97316'
+    };
+    const biasColors = { BUY:'#4ade80', SELL:'#f87171', WAIT:'#fbbf24', buy:'#4ade80', sell:'#f87171', wait:'#fbbf24' };
+    const regime = (d.macro_regime || d.market_phase || 'mixed').toLowerCase();
+    const bias   = (d.trade_bias   || 'wait').toUpperCase();
+    const conf   = Math.round(d.confidence || 0);  // already 0-100
+
+    document.getElementById('hni-regime').textContent  = regime.toUpperCase().replace(/_/g,' ');
+    document.getElementById('hni-regime').style.color  = regimeColors[regime] || '#22d3ee';
+    document.getElementById('hni-conf-bar').style.width = conf + '%';
+    document.getElementById('hni-conf-bar').style.background = regimeColors[regime] || '#0891b2';
+    document.getElementById('hni-conf-text').textContent = `CONFIDENCE ${conf}%`;
+
+    document.getElementById('hni-bias').textContent    = bias;
+    document.getElementById('hni-bias').style.color    = biasColors[bias] || biasColors[bias.toLowerCase()] || '#fbbf24';
+    document.getElementById('hni-view').textContent    = d.hni_view || d.summary || '';
+
+    // Instruments — engine returns array with {name, symbol, signal, rationale} or assets object
+    let instr = Array.isArray(d.instruments) ? d.instruments : [];
+    if (!instr.length && d.assets && typeof d.assets === 'object') {
+      instr = Object.entries(d.assets).map(([k,v]) => ({ name: k.toUpperCase(), signal: String(v).toUpperCase(), rationale: '' }));
+    }
+    if (instr.length) {
+      const rows = instr.map(i => {
+        const sig = (i.signal||i.bias||'').toUpperCase();
+        const col = sig==='BUY'||sig==='BULLISH' ? '#4ade80' : sig==='SELL'||sig==='BEARISH' ? '#f87171' : '#9ca3af';
+        return `<tr>
+          <td style="padding:4px 8px;color:#e2e8f0;font-weight:bold;">${i.name||i.symbol||''}</td>
+          <td style="padding:4px 8px;color:${col};font-weight:bold;">${sig||'—'}</td>
+          <td style="padding:4px 8px;color:#6b7280;">${i.rationale||''}</td>
+        </tr>`;
+      }).join('');
+      document.getElementById('hni-instruments').innerHTML =
+        `<table style="width:100%;border-collapse:collapse;">
+           <tr style="color:#374151;font-size:9px;border-bottom:1px solid #1c3a50;">
+             <th style="padding:4px 8px;text-align:left;">INSTRUMENT</th>
+             <th style="padding:4px 8px;text-align:left;">SIGNAL</th>
+             <th style="padding:4px 8px;text-align:left;">RATIONALE</th>
+           </tr>${rows}</table>`;
+    } else {
+      document.getElementById('hni-instruments').innerHTML = '<span style="color:#4b5563;">Signals loading...</span>';
+    }
+
+    // Scalp setup — engine uses entry_zone, stop_loss, tp1, trigger_condition
+    const sc = d.scalp_setup || {};
+    const scBias = (sc.bias || sc.direction || 'wait').toUpperCase();
+    document.getElementById('hni-scalp-direction').textContent = sc.instrument ? `${sc.instrument} — ${scBias}` : scBias;
+    document.getElementById('hni-scalp-direction').style.color = biasColors[scBias] || biasColors[scBias.toLowerCase()] || '#fbbf24';
+    document.getElementById('hni-scalp-details').innerHTML = [
+      sc.entry_zone         ? `<b style="color:#6b7280;">ENTRY</b> ${sc.entry_zone}` : '',
+      sc.stop_loss          ? `<b style="color:#6b7280;">STOP</b> ${sc.stop_loss}` : '',
+      (sc.tp1||sc.tp2)      ? `<b style="color:#6b7280;">TARGET</b> ${[sc.tp1,sc.tp2].filter(Boolean).join(' / ')}` : '',
+      sc.trigger_condition  ? `<b style="color:#6b7280;">TRIGGER</b> ${sc.trigger_condition}` : '',
+    ].filter(Boolean).join('<br>');
+
+    // Swing setup — engine uses entry_zone, stop_loss, tp, catalyst
+    const sw = d.swing_setup || {};
+    const swBias = (sw.bias || sw.direction || 'wait').toUpperCase();
+    document.getElementById('hni-swing-direction').textContent = sw.instrument ? `${sw.instrument} — ${swBias}` : swBias;
+    document.getElementById('hni-swing-direction').style.color = biasColors[swBias] || biasColors[swBias.toLowerCase()] || '#34d399';
+    document.getElementById('hni-swing-details').innerHTML = [
+      sw.entry_zone ? `<b style="color:#6b7280;">ENTRY</b> ${sw.entry_zone}` : '',
+      sw.stop_loss  ? `<b style="color:#6b7280;">STOP</b> ${sw.stop_loss}` : '',
+      sw.tp         ? `<b style="color:#6b7280;">TARGET</b> ${sw.tp}` : '',
+      sw.catalyst   ? `<b style="color:#6b7280;">CATALYST</b> ${sw.catalyst}` : '',
+    ].filter(Boolean).join('<br>');
+
+    document.getElementById('hni-ts').textContent = 'UPDATED ' + new Date().toLocaleTimeString();
+    document.getElementById('hni-results').style.display = 'flex';
+
+  } catch (err) {
+    document.getElementById('hni-error').textContent = '⚠ ' + err.message +
+      ' — Make sure HNI engine (port 4000) is running.';
+    document.getElementById('hni-error').style.display = 'block';
+  } finally {
+    document.getElementById('hni-loading').style.display = 'none';
+  }
 }
 
 async function loadSignals() {
@@ -2629,6 +2881,8 @@ document.getElementById('story-overlay').addEventListener('click', e => {
           <div>DXY: <span id="asset-dxy" style="font-weight:bold;"></span></div>
           <div>Nasdaq: <span id="asset-nasdaq" style="font-weight:bold;"></span></div>
           <div>Crude: <span id="asset-crude" style="font-weight:bold;"></span></div>
+          <div>Nifty 50: <span id="asset-nifty" style="font-weight:bold;"></span></div>
+          <div>Bitcoin: <span id="asset-crypto" style="font-weight:bold;"></span></div>
         </div>
       </div>
 
@@ -2639,7 +2893,8 @@ document.getElementById('story-overlay').addEventListener('click', e => {
           <div>Winners: <span id="sec-winners" style="color:#4ade80;"></span></div>
           <div>Losers: <span id="sec-losers" style="color:#f87171;"></span></div>
         </div>
-        <div id="sm-stocks" style="margin-top:4px;font-size:10px;color:#9ca3af;"></div>
+        <div id="sm-stocks"      style="margin-top:4px;font-size:10px;color:#9ca3af;"></div>
+        <div id="sm-sector-bias" style="margin-top:6px;font-size:10px;color:#9ca3af;line-height:1.8;"></div>
       </div>
 
       <!-- 🔥 TRADE IDEA -->
@@ -2651,6 +2906,11 @@ document.getElementById('story-overlay').addEventListener('click', e => {
           <p id="sig-tp"    style="margin:0;"></p>
         </div>
         <p id="news-confidence" style="font-size:10px;color:#9ca3af;margin:6px 0 0 0;"></p>
+        <p id="sig-position"   style="font-size:11px;font-weight:bold;margin:4px 0 0 0;"></p>
+        <a id="tv-link" href="#" target="_blank"
+           style="display:inline-block;margin-top:8px;padding:4px 10px;background:#131722;border:1px solid #2962ff;color:#2962ff;font-size:10px;font-weight:bold;border-radius:4px;text-decoration:none;letter-spacing:0.5px;">
+          📈 Open in TradingView
+        </a>
       </div>
 
       <!-- 🧠 SMART MONEY VIEW -->
@@ -2862,13 +3122,26 @@ function showSummaryModal(data) {
   confEl.innerText   = 'Confidence: ' + confidence + '%' + (confidence < 50 ? '  ⚠️ LOW' : '');
   confEl.style.color = confidence >= 70 ? '#4ade80' : confidence >= 50 ? '#fbbf24' : '#f87171';
 
-  // Asset cards (all 4)
-  const ad = (data.assets && typeof data.assets === 'object' && !Array.isArray(data.assets)) ? data.assets : {};
-  ['gold', 'dxy', 'nasdaq', 'crude'].forEach(key => {
-    const el = document.getElementById('asset-' + key);
+  // Asset cards — show direction + live price if available
+  const ad   = (data.assets && typeof data.assets === 'object' && !Array.isArray(data.assets)) ? data.assets : {};
+  const live = (data.live   && typeof data.live   === 'object') ? data.live : {};
+
+  // map: element id → assets key + live key
+  const assetMap = [
+    { id: 'asset-gold',   aKey: 'gold',   lKey: 'gold'   },
+    { id: 'asset-dxy',    aKey: 'dxy',    lKey: 'dxy'    },
+    { id: 'asset-nasdaq', aKey: 'nasdaq', lKey: 'nasdaq' },
+    { id: 'asset-crude',  aKey: 'crude',  lKey: 'oil'    },
+    { id: 'asset-nifty',  aKey: 'nasdaq', lKey: 'nifty'  },
+    { id: 'asset-crypto', aKey: 'crypto', lKey: 'crypto' },
+  ];
+  assetMap.forEach(({ id, aKey, lKey }) => {
+    const el = document.getElementById(id);
     if (!el) return;
-    const val      = ad[key] || 'neutral';
-    el.innerText   = assetLabel(val);
+    const val   = ad[aKey] || 'neutral';
+    const price = live[lKey];
+    const arrow = val === 'bullish' ? ' ↑' : val === 'bearish' ? ' ↓' : '';
+    el.innerText   = assetLabel(val) + (price ? ` (${price.toLocaleString()}${arrow})` : '');
     el.style.color = assetColor(val);
   });
 
@@ -2885,6 +3158,16 @@ function showSummaryModal(data) {
     ? 'Key stocks: ' + stocks.join(' · ')
     : '';
 
+  // Sector bias (tech / banks / energy / metals)
+  const sb = (data.sector_bias && typeof data.sector_bias === 'object') ? data.sector_bias : {};
+  const sbKeys = ['tech', 'banks', 'energy', 'metals'];
+  const sbLines = sbKeys.filter(k => sb[k]).map(k => {
+    const v = (sb[k] || 'neutral').toLowerCase();
+    const arrow = v === 'bullish' ? '▲' : v === 'bearish' ? '▼' : '→';
+    return `${k.charAt(0).toUpperCase() + k.slice(1)}: ${arrow} ${v.charAt(0).toUpperCase() + v.slice(1)}`;
+  });
+  document.getElementById('sm-sector-bias').innerText = sbLines.length ? sbLines.join('   ') : '';
+
   // Trade signal
   const sig      = generateSignal(data);
   const sigColor = sig.direction === 'BUY' ? '#4ade80' : sig.direction === 'SELL' ? '#f87171' : '#fbbf24';
@@ -2895,6 +3178,20 @@ function showSummaryModal(data) {
   entryEl.style.color = sigColor;
   document.getElementById('sig-sl').innerText = 'SL: ' + (ti.sl || 'Below recent swing low');
   document.getElementById('sig-tp').innerText = 'TP: ' + (ti.tp || '1.5x–2x risk');
+
+  const posEl = document.getElementById('sig-position');
+  const posSize = data.position_size || '';
+  const posColors = { 'FULL SIZE': '#4ade80', 'MEDIUM SIZE': '#fbbf24', 'SMALL SIZE': '#9ca3af' };
+  posEl.innerText   = posSize ? '📐 Position: ' + posSize : '';
+  posEl.style.color = posColors[posSize] || '#9ca3af';
+
+  // TradingView button — pick best symbol based on trade direction
+  const TV_MAP = { gold:'XAUUSD', dxy:'DXY', nasdaq:'NASDAQ:NDX', crude:'USOIL', oil:'USOIL', crypto:'BTCUSD', nifty:'NSE:NIFTY' };
+  const tvLink = document.getElementById('tv-link');
+  const tvSym  = sig.instrument || 'XAUUSD';
+  const tvKey  = Object.keys(TV_MAP).find(k => (ad[k]||'').toLowerCase() === (sig.direction==='BUY'?'bullish':'bearish')) || 'gold';
+  const tvTicker = TV_MAP[tvKey] || tvSym;
+  tvLink.href = `https://www.tradingview.com/chart/?symbol=${tvTicker}`;
 
   document.getElementById('sm-loading').style.display = 'none';
   document.getElementById('sm-body').style.display    = 'block';
@@ -2941,6 +3238,12 @@ function showSummaryModal(data) {
     msAssets.style.color = '#ccc';
     msBias.innerText     = `🔥 Bias: ${ms.overall_bias || '—'}`;
     msBias.style.color   = getColor(ms.overall_bias);
+    const regimeEl = document.getElementById('ms-regime');
+    const regimeColors = { 'RISK-ON': '#4ade80', 'RISK-OFF': '#f87171', 'STAGFLATION': '#fb923c', 'MIXED': '#9ca3af' };
+    if (ms.regime) {
+      regimeEl.innerText   = `📍 ${ms.regime}${ms.regime_description ? ' — ' + ms.regime_description : ''}`;
+      regimeEl.style.color = regimeColors[ms.regime] || '#9ca3af';
+    }
     document.getElementById('ms-confidence').innerText = `Confidence: ${Math.round(ms.confidence || 0)}%`;
     document.getElementById('ms-reason').innerText     = ms.reason || '';
   }

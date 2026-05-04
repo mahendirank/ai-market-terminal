@@ -3,8 +3,8 @@ import os
 sys.path.insert(0, os.path.dirname(__file__))
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Body
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Body, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import threading
@@ -249,54 +249,98 @@ def _build_digest_message(scored: list) -> tuple:
 
 
 # ── Digest loop state (readable via /telegram/status) ─────────
-_digest_state = {"count": 0, "last_sent": None, "last_ok": None, "running": False}
+_digest_state  = {"count": 0, "last_sent": None, "last_ok": None, "running": False}
+_sent_headlines: set = set()   # dedup — never re-send the same headline
 
 def _run_one_digest_cycle():
-    """Blocking work for one digest cycle — runs in thread pool via asyncio.to_thread."""
-    global _digest_state
+    """Blocking work for one digest cycle — only sends when there is genuinely new breaking news."""
+    global _digest_state, _sent_headlines
     cycle_num = _digest_state["count"] + 1
     ist_t     = datetime.now(IST).strftime("%H:%M IST")
     print(f"[DIGEST] ── cycle #{cycle_num} @ {ist_t} ──", flush=True)
 
     try:
-        # Step 1 — read dashboard cache (zero extra cost, already fetched for UI)
         scored = _cache.get("news", {}).get("data") or []
         print(f"[DIGEST] cache: {len(scored)} items", flush=True)
 
-        # Step 2 — if cache cold, quick 5-feed fallback
-        if not scored:
-            print("[DIGEST] cache empty → fallback fetch", flush=True)
-            try:
-                import feedparser, requests as _rq2
-                QUICK = {
-                    "Economic Times": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
-                    "MoneyControl":   "https://www.moneycontrol.com/rss/MCtopnews.xml",
-                    "Reuters":        "https://feeds.reuters.com/reuters/topNews",
-                    "ET Markets":     "https://economictimes.indiatimes.com/markets/stocks/rssfeeds/2146842.cms",
-                    "Hindu BizLine":  "https://www.thehindubusinessline.com/markets/feeder/default.rss",
-                }
-                raw = []
-                for src, url in QUICK.items():
-                    try:
-                        resp = _rq2.get(url, timeout=6, headers={"User-Agent": "Mozilla/5.0"})
-                        feed = feedparser.parse(resp.content)
-                        for e in feed.entries[:8]:
-                            t = (e.get("title") or "").strip()
-                            if t:
-                                raw.append({"text": t, "source": src, "pub_utc": "", "category": "INDIA"})
-                    except Exception:
-                        pass
-                if raw:
-                    from priority import prioritize_news
-                    scored = prioritize_news(raw, summarize=False) or []
-                print(f"[DIGEST] fallback: {len(scored)} items", flush=True)
-            except Exception as fe:
-                print(f"[DIGEST] fallback error: {fe}", flush=True)
+        # Only look at fresh items (last 5 min) with score >= 8 (breaking) or >= 5 (important)
+        cutoff     = _time.time() - 310
+        fresh_high = []
+        fresh_med  = []
 
-        # Step 3 — build and send
-        msg, buzz = _build_digest_message(scored)
+        for entry in scored:
+            try:
+                if not isinstance(entry, (list, tuple)) or len(entry) != 2:
+                    continue
+                score, item = entry
+                if not isinstance(item, dict):
+                    continue
+                headline = (item.get("text") or "").strip()
+                if not headline:
+                    continue
+                # Skip already sent headlines
+                if headline in _sent_headlines:
+                    continue
+                pub_utc = item.get("pub_utc", "")
+                if not pub_utc:
+                    continue
+                try:
+                    pub_ts = datetime.fromisoformat(pub_utc.replace("Z", "+00:00")).timestamp()
+                except Exception:
+                    continue
+                if pub_ts < cutoff:
+                    continue
+                if score >= 8:
+                    fresh_high.append((score, item, headline))
+                elif score >= 5:
+                    fresh_med.append((score, item, headline))
+            except Exception:
+                continue
+
+        # Skip cycle completely if nothing genuinely new
+        if not fresh_high and not fresh_med:
+            print(f"[DIGEST] no new breaking stories — skipping Telegram", flush=True)
+            _digest_state["count"] = cycle_num
+            return
+
+        # Build message from only new headlines
+        fresh_high.sort(key=lambda x: -x[0])
+        fresh_med.sort(key=lambda x: -x[0])
+        ist_now = datetime.now(IST).strftime("%d %b %Y  %H:%M IST")
+        lines   = [f"📊 <b>AI MARKET TERMINAL</b>  •  {ist_now}", ""]
+        n       = len(fresh_high) + len(fresh_med)
+        lines.append(f"<b>🔔 {n} new stor{'y' if n==1 else 'ies'}:</b>")
+        lines.append("")
+
+        new_sent = []
+        if fresh_high:
+            lines.append("🔴 <b>BREAKING:</b>")
+            for score, item, hl in fresh_high[:5]:
+                src = item.get("source", "")
+                s = f"  <i>[{src}]</i>" if src else ""
+                lines.append(f"• {item['text']}{s}  <b>({score}/10)</b>")
+                new_sent.append(hl)
+            lines.append("")
+        if fresh_med:
+            lines.append("🟡 <b>IMPORTANT:</b>")
+            for score, item, hl in fresh_med[:5]:
+                src = item.get("source", "")
+                s = f"  <i>[{src}]</i>" if src else ""
+                lines.append(f"• {item['text']}{s}  ({score}/10)")
+                new_sent.append(hl)
+
+        lines.append("")
+        lines.append("⚡️ <i>AI Market Terminal  |  Live</i>")
+        msg = "\n".join(lines)
+        buzz = len(fresh_high) > 0
+
         ok = _tg_send(msg, silent=not buzz)
-        print(f"[DIGEST] sent={ok}  buzz={buzz}  items={len(scored)}", flush=True)
+        print(f"[DIGEST] sent={ok}  buzz={buzz}  new={len(new_sent)}", flush=True)
+
+        # Mark sent so we never repeat them
+        _sent_headlines.update(new_sent)
+        if len(_sent_headlines) > 500:   # prevent unbounded memory growth
+            _sent_headlines = set(list(_sent_headlines)[-300:])
 
         _digest_state["count"]     = cycle_num
         _digest_state["last_sent"] = datetime.now(IST).strftime("%d %b %H:%M IST")
@@ -305,11 +349,7 @@ def _run_one_digest_cycle():
     except Exception as e:
         print(f"[DIGEST] cycle error: {e}", flush=True)
         import traceback; traceback.print_exc()
-        _tg_send(
-            f"📊 <b>AI MARKET TERMINAL</b>  •  {datetime.now(IST).strftime('%H:%M IST')}\n\n"
-            f"⚡️ <i>Market feed active — data refreshing...</i>",
-            silent=True
-        )
+        # Do NOT send Telegram on error — that was the source of spam
 
 
 async def _async_digest_loop():
@@ -322,7 +362,7 @@ async def _async_digest_loop():
     _digest_state["running"] = True
     print("[DIGEST] asyncio task started", flush=True)
 
-    await asyncio.sleep(10)   # short boot wait, then first message
+    await asyncio.sleep(180)   # 3-min boot wait — prevents spam on restarts
 
     while True:
         t0 = _time.time()
@@ -649,6 +689,27 @@ def api_news():
     return result
 
 
+# ── AI Summary proxy → forwards to Bun news service (localhost:4000) ──────────
+NEWS_SERVICE_URL = os.environ.get("NEWS_SERVICE_URL", "http://localhost:4000")
+
+@app.post("/api/summary")
+async def api_summary_proxy(request: Request):
+    try:
+        body = await request.body()
+        import httpx
+        async with httpx.AsyncClient(timeout=245) as client:
+            resp = await client.post(
+                f"{NEWS_SERVICE_URL}/api/summary",
+                content=body,
+                headers={"Content-Type": "application/json"},
+            )
+            return JSONResponse(content=resp.json(), status_code=resp.status_code)
+    except httpx.ConnectError:
+        return JSONResponse({"error": "news service unavailable"}, status_code=503)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @app.get("/api/indices")
 def api_indices_cached():
     return _bg_refresh("indices", 30, lambda: _lazy("indices", "get_indices"), empty=[])
@@ -915,6 +976,52 @@ def api_all():
         "signal":  api_signal(),
         "time":    now_ist(),
     }
+
+
+@app.post("/api/hni-summary")
+async def hni_summary_proxy(request: Request):
+    """Proxy to HNI engine — avoids browser CORS. Uses NEWS_SERVICE_URL env var."""
+    import requests as _rqh, json as _json
+    hni_base = NEWS_SERVICE_URL.rstrip("/")
+    try:
+        body = await request.body()
+        payload = {}
+        try:
+            payload = _json.loads(body)
+        except Exception:
+            pass
+
+        ctx = {}
+        # 1. Try the dedicated regime GET endpoint (no news title needed)
+        try:
+            r = _rqh.get(f"{hni_base}/api/hni-regime", timeout=35)
+            if r.status_code == 200:
+                ctx = r.json()
+        except Exception:
+            pass
+
+        # 2. If user provided context text, do a targeted POST to enrich
+        user_ctx = (payload.get("title") or payload.get("context") or "").strip()
+        if user_ctx:
+            try:
+                r2 = _rqh.post(
+                    f"{hni_base}/api/summary",
+                    json={"title": user_ctx, "content": user_ctx},
+                    timeout=35,
+                )
+                if r2.status_code == 200:
+                    ctx = r2.json()
+            except Exception:
+                pass
+
+        if not ctx or "error" in ctx:
+            return JSONResponse(
+                {"error": "HNI engine unavailable", "detail": f"Could not reach {hni_base}"},
+                status_code=502
+            )
+        return JSONResponse(content=ctx)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
 
 
 @app.get("/", response_class=HTMLResponse)
