@@ -1060,29 +1060,36 @@ async def hni_summary_standalone(request: Request):
         macro_raw   = _bg_refresh("macro",   30, lambda: _lazy("macro", "get_macro_data"), empty={})
         news_raw    = _bg_refresh("news",    30, _build_news, empty=[])
 
-        # Format indices
+        # Format indices — api/indices returns a dict {NAME: {price, change, arrow}}
         idx_lines = []
-        for ix in (indices_raw or [])[:8]:
-            if isinstance(ix, dict):
-                name  = ix.get("name", ix.get("symbol", ""))
-                price = ix.get("price", ix.get("last", ""))
-                chg   = ix.get("change_pct", ix.get("pct", ""))
-                if name:
-                    idx_lines.append(f"{name}: {price} ({chg}%)")
+        if isinstance(indices_raw, dict):
+            for name, vals in list(indices_raw.items())[:10]:
+                if isinstance(vals, dict):
+                    price = vals.get("price", "")
+                    chg   = vals.get("change", "")
+                    idx_lines.append(f"{name}: {price} ({chg:+.2f}%)" if isinstance(chg, (int, float)) else f"{name}: {price}")
+        elif isinstance(indices_raw, list):
+            for ix in indices_raw[:8]:
+                if isinstance(ix, dict):
+                    name  = ix.get("name", ix.get("symbol", ""))
+                    price = ix.get("price", ix.get("last", ""))
+                    chg   = ix.get("change_pct", ix.get("change", ix.get("pct", "")))
+                    if name:
+                        idx_lines.append(f"{name}: {price} ({chg}%)")
 
-        # Format macro
+        # Format macro — api/macro returns {fx:{...}, yields:{...}, oil, gold}
         macro = macro_raw if isinstance(macro_raw, dict) else {}
-        fx      = macro.get("FX", macro.get("fx", {}))
-        yields  = macro.get("US_YIELDS", macro.get("yields", {}))
-        oil     = macro.get("OIL", macro.get("oil"))
-        gold    = macro.get("GOLD_SPOT", macro.get("gold"))
+        fx     = macro.get("fx", macro.get("FX", {}))
+        yields = macro.get("yields", macro.get("US_YIELDS", {}))
+        oil    = macro.get("oil",  macro.get("OIL"))
+        gold   = macro.get("gold", macro.get("GOLD_SPOT"))
         macro_lines = []
         if isinstance(fx, dict):
-            for k, v in list(fx.items())[:4]:
+            for k, v in list(fx.items())[:5]:
                 macro_lines.append(f"{k}: {v}")
         if isinstance(yields, dict):
             for k, v in list(yields.items())[:3]:
-                macro_lines.append(f"UST {k}: {v}")
+                macro_lines.append(f"{k}: {v}")
         if oil:  macro_lines.append(f"WTI Crude: {oil}")
         if gold: macro_lines.append(f"Gold: {gold}")
 
