@@ -978,6 +978,65 @@ def api_all():
     }
 
 
+@app.post("/api/explain")
+async def api_explain(request: Request):
+    """ChatGPT-quality news analysis for the Read modal — HNI trader perspective."""
+    import json as _json
+    try:
+        body    = await request.body()
+        payload = _json.loads(body)
+        title   = (payload.get("title")   or "").strip()
+        summary = (payload.get("summary") or payload.get("content") or "").strip()
+        if not title:
+            return JSONResponse({"error": "no title"}, status_code=400)
+
+        cache_key = f"explain:{title[:60]}"
+        cached = _cache.get(cache_key)
+        if cached:
+            return JSONResponse(cached)
+
+        prompt = f"""You are a senior HNI institutional trader with 20 years experience across NSE, global equities, gold, crude and FX.
+
+A client just showed you this news headline:
+HEADLINE: {title}
+{f'CONTEXT: {summary[:300]}' if summary else ''}
+
+Give a sharp, opinionated, ChatGPT-quality trading analysis in this EXACT format:
+
+**WHAT HAPPENED**
+2-3 sentences. State the facts clearly — what this news actually means, not just a restatement.
+
+**WHY IT MATTERS**
+Explain the macro chain reaction. Be specific: how does this move Fed expectations / RBI policy / DXY / INR / gold / equities / crude? What second-order effects will institutions price in over the next 72 hours?
+
+**SMART MONEY POSITIONING**
+What are hedge funds, FII, and institutions likely doing RIGHT NOW based on this? Where is the liquidity flowing? Who is buying, who is selling, and why?
+
+**TRADE BIAS: [BUY / SELL / WAIT]**
+Give a clear directional call. Which specific instrument (NIFTY / GOLD / USDINR / BANKNIFTY / crude)? Entry zone, stop loss, target. Timeframe.
+
+**RISK TO THIS VIEW**
+One key scenario that invalidates this trade. What data or event would flip the direction?
+
+Be direct. Be opinionated. HNI clients pay for a clear POV, not hedged neutral commentary."""
+
+        try:
+            from groq_research import _call_groq_research
+            text = _call_groq_research(prompt)
+        except Exception:
+            text = None
+
+        if not text:
+            return JSONResponse({"error": "groq_unavailable"}, status_code=503)
+
+        result = {"analysis": text, "title": title}
+        _cache[cache_key] = result
+        return JSONResponse(result)
+
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @app.post("/api/hni-summary")
 async def hni_summary_proxy(request: Request):
     """Proxy to HNI engine — avoids browser CORS. Uses NEWS_SERVICE_URL env var."""

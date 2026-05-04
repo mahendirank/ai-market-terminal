@@ -504,14 +504,13 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
       <button class="af-btn" data-asset="FED"   onclick="setAsset(this)">FED</button>
       <button class="af-btn" data-asset="RATES" onclick="setAsset(this)">RATES</button>
     </div>
-    <!-- MASTER SIGNAL PANEL -->
-    <div id="master-panel" style="border:1px solid #ffaa00;padding:10px 12px;margin-bottom:8px;border-radius:6px;background:#0d0d0d;color:#fff;font-size:12px;">
-      <div style="color:#ffaa00;font-weight:bold;letter-spacing:0.5px;margin-bottom:5px;">🧠 MARKET CONSENSUS</div>
-      <div id="ms-assets" style="color:#9ca3af;margin-bottom:4px;">Waiting for first signal...</div>
-      <div id="ms-bias"       style="font-weight:bold;margin-bottom:2px;"></div>
-      <div id="ms-regime"     style="font-size:10px;font-weight:bold;margin-bottom:2px;"></div>
-      <div id="ms-confidence" style="font-size:10px;color:#9ca3af;"></div>
-      <div id="ms-reason"     style="font-size:10px;color:#6b7280;margin-top:2px;"></div>
+    <!-- MASTER SIGNAL PANEL — populated by HNI engine on load -->
+    <div id="master-panel" style="border:1px solid #0e2a36;padding:8px 12px;margin-bottom:8px;border-radius:4px;background:#060d14;color:#fff;font-size:11px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+      <span style="color:#22d3ee;font-weight:bold;letter-spacing:1px;white-space:nowrap;">🧠 REGIME</span>
+      <span id="ms-regime"     style="font-weight:bold;color:#9ca3af;letter-spacing:0.5px;">—</span>
+      <span id="ms-bias"       style="font-weight:bold;"></span>
+      <span id="ms-confidence" style="color:#4b5563;font-size:10px;"></span>
+      <span id="ms-assets"     style="color:#4b5563;font-size:10px;"></span>
     </div>
 
     <div class="news-feed" id="news-feed">
@@ -1726,6 +1725,35 @@ async function loadDecisions() {
   } catch(e) { console.error('decisions', e); }
 }
 
+// ── HNI master panel auto-load ────────────────────────────
+async function loadMasterRegime() {
+  try {
+    const res = await fetch(`${BASE}/api/hni-summary`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ context: '' }),
+      signal: AbortSignal.timeout(35000),
+    });
+    if (!res.ok) return;
+    const d = await res.json();
+    if (d.error) return;
+    const regime = (d.macro_regime || d.market_phase || 'mixed').toUpperCase().replace(/_/g,' ');
+    const bias   = (d.trade_bias   || 'wait').toUpperCase();
+    const conf   = Math.round(d.confidence || 0);
+    const biasCol = bias==='BUY' ? '#4ade80' : bias==='SELL' ? '#f87171' : '#fbbf24';
+    const regimeColors = { 'GOLDILOCKS':'#22d3ee','RISK ON EASING':'#4ade80','STAGFLATION':'#f87171',
+      'DEFLATION RISK':'#a78bfa','RISK OFF TIGHTENING':'#f97316','LATE CYCLE':'#fbbf24',
+      'CRISIS':'#ef4444','MIXED':'#9ca3af','RISK ON':'#4ade80','RISK OFF':'#f87171' };
+    const regCol = regimeColors[regime] || '#9ca3af';
+    document.getElementById('ms-regime').textContent     = regime;
+    document.getElementById('ms-regime').style.color     = regCol;
+    document.getElementById('ms-bias').textContent       = bias;
+    document.getElementById('ms-bias').style.color       = biasCol;
+    document.getElementById('ms-confidence').textContent = `${conf}% confidence`;
+    document.getElementById('ms-assets').textContent     = (d.hni_view || '').slice(0, 80);
+  } catch(e) { /* silent — master panel stays blank if engine down */ }
+}
+
 // ── Boot ──────────────────────────────────────────────────
 async function boot() {
   await Promise.all([loadNews(), loadIndices(), loadMacro()]);
@@ -1735,8 +1763,9 @@ async function boot() {
   loadSocialEarnings();
   loadNSE();
   // AI layer — load after news is ready
-  setTimeout(loadAINews,   8000);
-  setTimeout(loadDecisions, 12000);
+  setTimeout(loadAINews,      8000);
+  setTimeout(loadDecisions,  12000);
+  setTimeout(loadMasterRegime, 5000);   // HNI regime in master bar
 }
 
 boot();
@@ -1986,8 +2015,9 @@ async function loadHniInsights() {
     document.getElementById('hni-results').style.display = 'flex';
 
   } catch (err) {
-    document.getElementById('hni-error').textContent = '⚠ ' + err.message +
-      ' — Make sure HNI engine (port 4000) is running.';
+    document.getElementById('hni-error').innerHTML =
+      `⚠ <b>HNI Engine offline</b> — ${err.message}<br>
+       <span style="color:#6b7280;font-size:10px;">Run: <code style="background:#1a0a0a;padding:2px 6px;">docker compose up -d news</code> in browser-harness-lab/</span>`;
     document.getElementById('hni-error').style.display = 'block';
   } finally {
     document.getElementById('hni-loading').style.display = 'none';
@@ -2766,24 +2796,28 @@ async function openStory(url, headline, source) {
     body.textContent = 'Failed to load article. Click "Open Article" to read on the original site.';
   }
 
-  // Call AI explain
+  // Call AI explain — ChatGPT-quality HNI analysis
   try {
     insightBox.style.display = 'block';
     insightEl.className      = 'ai-insight-text ai-insight-loading';
-    insightEl.textContent    = '⏳ Analyzing…';
-    const aiRes  = await fetchWithTimeout(window.location.origin + '/api/explain', {
+    insightEl.innerHTML      = '<span style="color:#fbbf24;font-size:11px;">🧠 Analyzing with HNI AI…</span>';
+    const aiRes = await fetchWithTimeout(window.location.origin + '/api/explain', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title: headline, summary: articleSummary }),
-    }, 240000);
-    const { bias, confidence, strength, time_horizon, reason, risk, action } = await aiRes.json();
+    }, 45000);
+    const aiData = await aiRes.json();
     insightEl.className = 'ai-insight-text';
-    const biasColor2 = bias === 'BUY' ? '#4ade80' : bias === 'SELL' ? '#f87171' : '#fbbf24';
-    insightEl.innerHTML =
-      `<span style="color:${biasColor2};font-weight:bold">${bias}</span> ` +
-      `<span style="color:#9ca3af">${strength} · ${confidence}% · ${time_horizon}</span><br>` +
-      `${(reason ?? []).join(' · ')}<br>` +
-      `<b style="color:#f0c040">Action:</b> ${action}`;
+    if (aiData.analysis) {
+      // Render **bold** sections and line breaks beautifully
+      const html = aiData.analysis
+        .replace(/\*\*(.+?)\*\*/g, '<b style="color:#fbbf24;letter-spacing:0.5px;">$1</b>')
+        .replace(/\n\n/g, '<br><br>')
+        .replace(/\n/g, '<br>');
+      insightEl.innerHTML = `<div style="font-size:11px;line-height:1.8;color:#c9d1d9;">${html}</div>`;
+    } else {
+      insightEl.textContent = 'Analysis unavailable — check Groq API key.';
+    }
   } catch(e) {
     insightEl.className   = 'ai-insight-text';
     insightEl.textContent = 'AI insight unavailable.';
@@ -2808,8 +2842,8 @@ document.getElementById('story-overlay').addEventListener('click', e => {
     <div class="story-meta" id="story-meta"></div>
     <img id="story-img" class="story-img" style="display:none" alt="article image" onerror="this.style.display='none'">
     <div class="story-body" id="story-body"></div>
-    <div class="ai-insight-box" id="ai-insight-box" style="display:none">
-      <div class="ai-insight-label">AI Insight</div>
+    <div class="ai-insight-box" id="ai-insight-box" style="display:none;border:1px solid #1c3050;border-radius:6px;background:#060d14;padding:14px;margin-top:12px;">
+      <div class="ai-insight-label" style="color:#22d3ee;font-size:10px;font-weight:bold;letter-spacing:1.5px;margin-bottom:10px;">🧠 HNI AI ANALYSIS — INSTITUTIONAL VIEW</div>
       <div class="ai-insight-text" id="story-ai-insight"></div>
     </div>
     <div class="story-actions">
@@ -3116,7 +3150,9 @@ function showSummaryModal(data) {
   const horizon = (data.time_horizon  || 'short_term').replace(/_/g, ' ').toUpperCase();
 
   document.getElementById('sm-smart').innerText   = data.smart_money_view || '';
-  document.getElementById('news-summary').innerText = summary;
+  // Use hni_view (opinionated trader call) as the main quick take — not generic summary
+  const hniView = data.hni_view || data.summary || '';
+  document.getElementById('news-summary').innerText = hniView;
 
   const confEl = document.getElementById('news-confidence');
   confEl.innerText   = 'Confidence: ' + confidence + '%' + (confidence < 50 ? '  ⚠️ LOW' : '');
