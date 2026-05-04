@@ -1037,50 +1037,156 @@ Be direct. Be opinionated. HNI clients pay for a clear POV, not hedged neutral c
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+_hni_cache: dict = {}   # {"data": {...}, "ts": float}
+HNI_CACHE_TTL = 600     # 10 minutes
+
 @app.post("/api/hni-summary")
-async def hni_summary_proxy(request: Request):
-    """Proxy to HNI engine — avoids browser CORS. Uses NEWS_SERVICE_URL env var."""
-    import requests as _rqh, json as _json
-    hni_base = NEWS_SERVICE_URL.rstrip("/")
+async def hni_summary_standalone(request: Request):
+    """Standalone HNI regime analysis using Groq + live terminal data. No Docker required."""
+    import json as _json, requests as _rq
+
+    # ── Serve from cache if fresh ──────────────────────────────
+    cached = _hni_cache.get("data")
+    if cached and (_time.time() - _hni_cache.get("ts", 0)) < HNI_CACHE_TTL:
+        return JSONResponse(cached)
+
+    groq_key = os.environ.get("GROQ_API_KEY", "")
+    if not groq_key:
+        return JSONResponse({"error": "hni_unavailable", "detail": "No GROQ_API_KEY"}, status_code=503)
+
     try:
-        body = await request.body()
-        payload = {}
-        try:
-            payload = _json.loads(body)
-        except Exception:
-            pass
+        # ── Gather live data from terminal caches ──────────────
+        indices_raw = _bg_refresh("indices", 30, lambda: _lazy("indices", "get_indices"), empty=[])
+        macro_raw   = _bg_refresh("macro",   30, lambda: _lazy("macro", "get_macro_data"), empty={})
+        news_raw    = _bg_refresh("news",    30, _build_news, empty=[])
 
-        ctx = {}
-        # 1. Try the dedicated regime GET endpoint (no news title needed)
-        try:
-            r = _rqh.get(f"{hni_base}/api/hni-regime", timeout=35)
-            if r.status_code == 200:
-                ctx = r.json()
-        except Exception:
-            pass
+        # Format indices
+        idx_lines = []
+        for ix in (indices_raw or [])[:8]:
+            if isinstance(ix, dict):
+                name  = ix.get("name", ix.get("symbol", ""))
+                price = ix.get("price", ix.get("last", ""))
+                chg   = ix.get("change_pct", ix.get("pct", ""))
+                if name:
+                    idx_lines.append(f"{name}: {price} ({chg}%)")
 
-        # 2. If user provided context text, do a targeted POST to enrich
-        user_ctx = (payload.get("title") or payload.get("context") or "").strip()
-        if user_ctx:
+        # Format macro
+        macro = macro_raw if isinstance(macro_raw, dict) else {}
+        fx      = macro.get("FX", macro.get("fx", {}))
+        yields  = macro.get("US_YIELDS", macro.get("yields", {}))
+        oil     = macro.get("OIL", macro.get("oil"))
+        gold    = macro.get("GOLD_SPOT", macro.get("gold"))
+        macro_lines = []
+        if isinstance(fx, dict):
+            for k, v in list(fx.items())[:4]:
+                macro_lines.append(f"{k}: {v}")
+        if isinstance(yields, dict):
+            for k, v in list(yields.items())[:3]:
+                macro_lines.append(f"UST {k}: {v}")
+        if oil:  macro_lines.append(f"WTI Crude: {oil}")
+        if gold: macro_lines.append(f"Gold: {gold}")
+
+        # Format news headlines
+        top_headlines = []
+        for entry in (news_raw or [])[:20]:
             try:
-                r2 = _rqh.post(
-                    f"{hni_base}/api/summary",
-                    json={"title": user_ctx, "content": user_ctx},
-                    timeout=35,
-                )
-                if r2.status_code == 200:
-                    ctx = r2.json()
+                if isinstance(entry, (list, tuple)) and len(entry) == 2:
+                    score, item = entry
+                    if isinstance(item, dict) and score >= 4:
+                        top_headlines.append(item.get("text", ""))
             except Exception:
                 pass
 
-        if not ctx or "error" in ctx:
-            return JSONResponse(
-                {"error": "HNI engine unavailable", "detail": f"Could not reach {hni_base}"},
-                status_code=502
-            )
-        return JSONResponse(content=ctx)
+        idx_block  = "\n".join(idx_lines)  or "Data loading..."
+        macro_block = "\n".join(macro_lines) or "Data loading..."
+        news_block  = "\n".join(f"• {h}" for h in top_headlines[:12] if h) or "No high-priority news."
+
+        prompt = f"""You are a senior institutional trader and HNI advisor covering NSE/global markets.
+Analyze the live data below and generate a complete market regime assessment.
+
+=== LIVE INDICES ===
+{idx_block}
+
+=== MACRO DATA ===
+{macro_block}
+
+=== HIGH-PRIORITY NEWS FEED ===
+{news_block}
+
+Respond ONLY with a valid JSON object — no markdown, no explanation, just the JSON.
+Use this EXACT structure:
+
+{{
+  "macro_regime": "one of: BULL_MOMENTUM | BEAR_PRESSURE | RISK_OFF | RISK_ON | SIDEWAYS | BREAKOUT | DISTRIBUTION | ACCUMULATION",
+  "trade_bias": "BUY or SELL or WAIT",
+  "confidence": <integer 0-100>,
+  "hni_view": "<2-3 sentence opinionated trader view with specific levels and reasoning>",
+  "instruments": [
+    {{"name": "NIFTY50",    "signal": "BUY or SELL or WAIT", "rationale": "<20 words max>"}},
+    {{"name": "BANKNIFTY",  "signal": "BUY or SELL or WAIT", "rationale": "<20 words max>"}},
+    {{"name": "USDINR",     "signal": "BUY or SELL or WAIT", "rationale": "<20 words max>"}},
+    {{"name": "GOLD",       "signal": "BUY or SELL or WAIT", "rationale": "<20 words max>"}},
+    {{"name": "CRUDEOIL",   "signal": "BUY or SELL or WAIT", "rationale": "<20 words max>"}}
+  ],
+  "scalp_setup": {{
+    "bias": "BUY or SELL or WAIT",
+    "instrument": "<e.g. BANKNIFTY or NIFTY50>",
+    "entry_zone": "<price range, e.g. 52200-52250>",
+    "stop_loss": "<specific price>",
+    "tp1": "<first target price>",
+    "tp2": "<second target price>",
+    "trigger_condition": "<what must happen for entry, e.g. break above 52250 with volume>"
+  }},
+  "swing_setup": {{
+    "bias": "BUY or SELL or WAIT",
+    "instrument": "<e.g. NIFTY50>",
+    "entry_zone": "<price range>",
+    "stop_loss": "<specific price>",
+    "tp": "<swing target with timeframe, e.g. 24800 in 5-7 sessions>",
+    "catalyst": "<what event or data will drive this move>"
+  }}
+}}"""
+
+        resp = _rq.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
+            json={
+                "model": "llama-3.3-70b-versatile",
+                "messages": [
+                    {"role": "system", "content": "You are a professional institutional trader. Always respond with valid JSON only — no markdown fences, no explanation."},
+                    {"role": "user", "content": prompt},
+                ],
+                "max_tokens": 900,
+                "temperature": 0.2,
+            },
+            timeout=30,
+        )
+
+        if resp.status_code != 200:
+            return JSONResponse({"error": "groq_error", "detail": resp.text[:200]}, status_code=503)
+
+        raw = resp.json()["choices"][0]["message"]["content"].strip()
+
+        # Strip any accidental markdown fences
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        raw = raw.strip().rstrip("`").strip()
+
+        result = _json.loads(raw)
+
+        # Cache it
+        _hni_cache["data"] = result
+        _hni_cache["ts"]   = _time.time()
+
+        return JSONResponse(result)
+
+    except _json.JSONDecodeError as e:
+        return JSONResponse({"error": "json_parse_error", "detail": str(e)}, status_code=500)
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=502)
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @app.get("/", response_class=HTMLResponse)
