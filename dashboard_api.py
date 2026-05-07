@@ -1,5 +1,6 @@
 import sys
 import os
+import json as _json
 sys.path.insert(0, os.path.dirname(__file__))
 
 from contextlib import asynccontextmanager
@@ -17,11 +18,25 @@ _bg_tasks: set = set()   # hold strong refs so asyncio doesn't GC tasks
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start all background tasks when server boots."""
+    # Restore HNI + morning note from disk (survives Railway restarts)
+    saved_hni = _disk_load("hni_summary", HNI_CACHE_TTL)
+    if saved_hni:
+        _hni_cache["data"] = saved_hni
+        _hni_cache["ts"]   = _time.time()
+        print("[HNI] restored from disk cache", flush=True)
+    saved_note = _disk_load("morning_note", 86400)
+    if saved_note and saved_note.get("date") == datetime.now(IST).strftime("%Y-%m-%d"):
+        _morning_note.update(saved_note)
+        print("[MORNING] restored from disk cache", flush=True)
+
     threading.Thread(target=_warm,               daemon=True).start()
     threading.Thread(target=_continuous_refresh, daemon=True).start()
     task = asyncio.create_task(_async_digest_loop())
     _bg_tasks.add(task)
     task.add_done_callback(_bg_tasks.discard)
+    note_task = asyncio.create_task(_morning_note_scheduler())
+    _bg_tasks.add(note_task)
+    note_task.add_done_callback(_bg_tasks.discard)
     try:
         from notify import start_watchdog
         start_watchdog()
@@ -37,6 +52,43 @@ IST = timezone(timedelta(hours=5, minutes=30))
 _cache = {}
 _cache_lock = threading.Lock()
 _startup_done = False
+
+# ── File-based persistent cache (survives Railway restarts) ───
+_CACHE_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "cache")
+try:
+    os.makedirs(_CACHE_DIR, exist_ok=True)
+except Exception:
+    _CACHE_DIR = "/tmp"
+
+def _disk_save(key: str, data: dict) -> None:
+    try:
+        path = os.path.join(_CACHE_DIR, f"{key}.json")
+        with open(path, "w") as f:
+            _json.dump({"data": data, "ts": _time.time()}, f)
+    except Exception:
+        pass
+
+def _disk_load(key: str, ttl: int):
+    try:
+        path = os.path.join(_CACHE_DIR, f"{key}.json")
+        if not os.path.exists(path):
+            return None
+        with open(path) as f:
+            entry = _json.load(f)
+        if (_time.time() - entry.get("ts", 0)) < ttl:
+            return entry.get("data")
+    except Exception:
+        pass
+    return None
+
+# ── HNI deduplicator lock + morning note state ────────────────
+_hni_lock          = asyncio.Lock()
+_morning_note: dict = {}   # {"date": "YYYY-MM-DD", "data": {...}}
+_morning_note_lock = asyncio.Lock()
+
+# Pre-declare so lifespan can reference them before definition
+HNI_CACHE_TTL = 600
+_hni_cache: dict = {}
 
 
 def now_ist():
@@ -1037,18 +1089,30 @@ Be direct. Be opinionated. HNI clients pay for a clear POV, not hedged neutral c
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-_hni_cache: dict = {}   # {"data": {...}, "ts": float}
-HNI_CACHE_TTL = 600     # 10 minutes
-
 @app.post("/api/hni-summary")
 async def hni_summary_standalone(request: Request):
     """Standalone HNI regime analysis using Groq + live terminal data. No Docker required."""
-    import json as _json, requests as _rq
+    import requests as _rq
 
-    # ── Serve from cache if fresh ──────────────────────────────
+    # ── Fast path: memory cache (no lock) ─────────────────────
     cached = _hni_cache.get("data")
     if cached and (_time.time() - _hni_cache.get("ts", 0)) < HNI_CACHE_TTL:
         return JSONResponse(cached)
+
+    # ── Slow path: deduplicated lock — only ONE Groq call ──────
+    # All concurrent requests queue here; only the first calls Groq,
+    # the rest exit the lock and hit the now-populated memory cache.
+    async with _hni_lock:
+        # Double-check inside lock — another request may have just filled it
+        cached = _hni_cache.get("data")
+        if cached and (_time.time() - _hni_cache.get("ts", 0)) < HNI_CACHE_TTL:
+            return JSONResponse(cached)
+        # Check file cache (survives Railway restarts)
+        disk = _disk_load("hni_summary", HNI_CACHE_TTL)
+        if disk:
+            _hni_cache["data"] = disk
+            _hni_cache["ts"]   = _time.time()
+            return JSONResponse(disk)
 
     groq_key = os.environ.get("GROQ_API_KEY", "")
     if not groq_key:
@@ -1184,9 +1248,10 @@ Use this EXACT structure:
 
         result = _json.loads(raw)
 
-        # Cache it
+        # Save to memory + disk (disk survives Railway restarts)
         _hni_cache["data"] = result
         _hni_cache["ts"]   = _time.time()
+        _disk_save("hni_summary", result)
 
         return JSONResponse(result)
 
@@ -1194,6 +1259,294 @@ Use this EXACT structure:
         return JSONResponse({"error": "json_parse_error", "detail": str(e)}, status_code=500)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ── Morning Market Note ───────────────────────────────────────
+
+async def _build_morning_note_data() -> dict:
+    """Call Groq to generate morning market note. Returns structured dict."""
+    import requests as _rq
+    groq_key = os.environ.get("GROQ_API_KEY", "")
+    if not groq_key:
+        return {"error": "no_groq_key"}
+
+    indices_raw = _bg_refresh("indices", 30, lambda: _lazy("indices", "get_indices"), empty=[])
+    macro_raw   = _bg_refresh("macro",   30, lambda: _lazy("macro", "get_macro_data"), empty={})
+    news_raw    = _bg_refresh("news",    30, _build_news, empty=[])
+
+    idx_lines, macro_lines, headlines = [], [], []
+    if isinstance(indices_raw, dict):
+        for name, vals in list(indices_raw.items())[:10]:
+            if isinstance(vals, dict):
+                price = vals.get("price", "")
+                chg   = vals.get("change", "")
+                idx_lines.append(f"{name}: {price} ({chg:+.2f}%)" if isinstance(chg, (int, float)) else f"{name}: {price}")
+    macro = macro_raw if isinstance(macro_raw, dict) else {}
+    for k, v in list(macro.get("fx", macro.get("FX", {})).items())[:4]:
+        macro_lines.append(f"{k}: {v}")
+    for k, v in list(macro.get("yields", macro.get("US_YIELDS", {})).items())[:3]:
+        macro_lines.append(f"{k}: {v}")
+    oil  = macro.get("oil",  macro.get("OIL"))
+    gold = macro.get("gold", macro.get("GOLD_SPOT"))
+    if oil:  macro_lines.append(f"WTI Crude: {oil}")
+    if gold: macro_lines.append(f"Gold: {gold}")
+    for entry in (news_raw or [])[:20]:
+        if isinstance(entry, (list, tuple)) and len(entry) == 2:
+            score, item = entry
+            if isinstance(item, dict) and score >= 5:
+                headlines.append(item.get("text", ""))
+
+    today_str = datetime.now(IST).strftime("%d %b %Y")
+    prompt = f"""You are a senior NSE institutional trader writing the morning briefing for HNI clients.
+Date: {today_str}  |  Market opens in 15 minutes.
+
+LIVE INDICES:
+{chr(10).join(idx_lines) or 'Loading...'}
+
+MACRO DATA:
+{chr(10).join(macro_lines) or 'Loading...'}
+
+TOP OVERNIGHT NEWS:
+{chr(10).join(f'• {h}' for h in headlines[:10] if h) or 'No major news.'}
+
+Write a sharp morning note in this EXACT JSON format — no markdown, just JSON:
+{{
+  "date": "{today_str}",
+  "headline": "<one bold market theme for today, max 12 words>",
+  "global_cues": "<2-3 sentences on overnight US/Asia cues and impact on India>",
+  "key_levels": {{
+    "nifty":     {{"support": "<level>", "resistance": "<level>", "bias": "BUY or SELL or WAIT"}},
+    "banknifty": {{"support": "<level>", "resistance": "<level>", "bias": "BUY or SELL or WAIT"}}
+  }},
+  "top_3_ideas": [
+    {{"instrument": "<name>", "direction": "BUY or SELL", "rationale": "<20 words max>", "entry": "<level>", "sl": "<level>", "target": "<level>"}},
+    {{"instrument": "<name>", "direction": "BUY or SELL", "rationale": "<20 words max>", "entry": "<level>", "sl": "<level>", "target": "<level>"}},
+    {{"instrument": "<name>", "direction": "BUY or SELL", "rationale": "<20 words max>", "entry": "<level>", "sl": "<level>", "target": "<level>"}}
+  ],
+  "watch_out_for": "<key risk or event to watch today, 1 sentence>",
+  "overall_bias": "BULLISH or BEARISH or NEUTRAL"
+}}"""
+
+    try:
+        resp = _rq.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
+            json={
+                "model": "llama-3.3-70b-versatile",
+                "messages": [
+                    {"role": "system", "content": "You are a professional institutional trader. Respond with valid JSON only."},
+                    {"role": "user",   "content": prompt},
+                ],
+                "max_tokens": 800, "temperature": 0.3,
+            },
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            return {"error": "groq_error"}
+        raw = resp.json()["choices"][0]["message"]["content"].strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"): raw = raw[4:]
+        raw = raw.strip().rstrip("`").strip()
+        data = _json.loads(raw)
+        data["generated_at"] = datetime.now(IST).strftime("%I:%M %p IST")
+        return data
+    except Exception as e:
+        return {"error": str(e)}
+
+
+async def _morning_note_scheduler():
+    """Background task: generates morning note at 9:15 AM IST every trading day."""
+    print("[MORNING] scheduler started", flush=True)
+    await asyncio.sleep(60)   # wait for server to warm up
+    while True:
+        now = datetime.now(IST)
+        today = now.strftime("%Y-%m-%d")
+        # Generate at 9:15 AM IST on weekdays (Mon=0 ... Fri=4)
+        if now.weekday() < 5 and now.hour == 9 and now.minute >= 15:
+            if _morning_note.get("date") != today:
+                async with _morning_note_lock:
+                    if _morning_note.get("date") != today:
+                        print("[MORNING] generating morning note...", flush=True)
+                        data = await _build_morning_note_data()
+                        if "error" not in data:
+                            _morning_note["date"] = today
+                            _morning_note["data"] = data
+                            _disk_save("morning_note", {"date": today, "data": data})
+                            print(f"[MORNING] note ready: {data.get('headline','')}", flush=True)
+        await asyncio.sleep(60)   # check every minute
+
+
+@app.get("/api/morning-note")
+async def api_morning_note():
+    """Today's pre-generated morning market note (auto-generated at 9:15 AM IST)."""
+    today = datetime.now(IST).strftime("%Y-%m-%d")
+    # Serve from memory
+    if _morning_note.get("date") == today and _morning_note.get("data"):
+        return JSONResponse(_morning_note["data"])
+    # On-demand generation if before 9:15 or note missing
+    async with _morning_note_lock:
+        if _morning_note.get("date") == today and _morning_note.get("data"):
+            return JSONResponse(_morning_note["data"])
+        data = await _build_morning_note_data()
+        if "error" not in data:
+            _morning_note["date"] = today
+            _morning_note["data"] = data
+            _disk_save("morning_note", {"date": today, "data": data})
+        return JSONResponse(data)
+
+
+# ── Catalyst Calendar ─────────────────────────────────────────
+
+@app.get("/api/catalyst-calendar")
+def api_catalyst_calendar():
+    """Upcoming NSE earnings, RBI dates, economic events — with impact ratings."""
+    def _build():
+        events = []
+        today = datetime.now(IST)
+
+        # RBI MPC dates 2026
+        rbi_dates = [
+            {"date": "2026-06-04", "event": "RBI MPC Decision", "category": "RBI", "impact": "HIGH",
+             "note": "Interest rate decision — watch for CPI trajectory"},
+            {"date": "2026-08-06", "event": "RBI MPC Decision", "category": "RBI", "impact": "HIGH",
+             "note": "Mid-year policy review"},
+            {"date": "2026-10-07", "event": "RBI MPC Decision", "category": "RBI", "impact": "HIGH",
+             "note": "Pre-festival season policy"},
+            {"date": "2026-12-04", "event": "RBI MPC Decision", "category": "RBI", "impact": "HIGH",
+             "note": "Year-end policy stance"},
+        ]
+        for r in rbi_dates:
+            try:
+                d = datetime.strptime(r["date"], "%Y-%m-%d").replace(tzinfo=IST)
+                days_away = (d.date() - today.date()).days
+                if -1 <= days_away <= 60:
+                    r["days_away"] = days_away
+                    r["days_label"] = "Today" if days_away == 0 else f"In {days_away}d" if days_away > 0 else "Yesterday"
+                    events.append(r)
+            except Exception:
+                pass
+
+        # Upcoming NSE earnings from cache
+        try:
+            earnings_data = _cache.get("earnings", {}).get("data") or []
+            for e in earnings_data[:20]:
+                if isinstance(e, dict):
+                    earn_date = e.get("earn_date") or e.get("date", "")
+                    name = e.get("name") or e.get("symbol", "")
+                    if earn_date and name:
+                        events.append({
+                            "date": earn_date, "event": f"{name} Earnings",
+                            "category": "EARNINGS", "impact": "MEDIUM",
+                            "note": e.get("sector", ""), "days_away": None, "days_label": earn_date
+                        })
+        except Exception:
+            pass
+
+        # Key economic events from econ module
+        try:
+            from econ import get_economic_data
+            econ_events = get_economic_data()
+            for ev in (econ_events or [])[:15]:
+                if isinstance(ev, dict):
+                    events.append({
+                        "date": ev.get("date", ""),
+                        "event": ev.get("event", ev.get("name", "")),
+                        "category": "MACRO",
+                        "impact": "HIGH" if ev.get("importance", "").upper() in ("HIGH", "CRITICAL") else "MEDIUM",
+                        "note": ev.get("forecast", ev.get("previous", "")),
+                        "days_away": None,
+                        "days_label": ev.get("date", "")
+                    })
+        except Exception:
+            pass
+
+        # Sort by impact then date
+        impact_order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
+        events.sort(key=lambda x: (impact_order.get(x.get("impact", "LOW"), 2), x.get("date", "")))
+        return {"events": events[:30], "generated_at": now_ist()}
+
+    return _bg_refresh("catalyst_calendar", 3600, _build, empty={"events": []})
+
+
+# ── Sector Rotation Signal ────────────────────────────────────
+
+@app.get("/api/sector-rotation")
+def api_sector_rotation():
+    """Hourly NSE sector momentum — Leading / Lagging / Reversing with strength score."""
+    def _build():
+        try:
+            from sector_pulse import get_sector_pulse
+            raw = get_sector_pulse()
+        except Exception:
+            raw = {}
+
+        sectors = []
+        news_raw = _cache.get("news", {}).get("data") or []
+        # Build sentiment per sector from news
+        sector_news: dict = {}
+        sector_keywords = {
+            "IT":      ["infosys", "tcs", "wipro", "hcl", "tech mahindra", "software", "it sector"],
+            "BANKING": ["hdfc bank", "sbi", "icici", "kotak", "axis bank", "banking", "npa", "rbi"],
+            "FMCG":    ["hindustan unilever", "itc", "nestle", "fmcg", "consumer", "dabur"],
+            "AUTO":    ["maruti", "tata motors", "bajaj auto", "auto", "vehicle", "ev"],
+            "PHARMA":  ["sun pharma", "cipla", "dr reddy", "pharma", "drug"],
+            "METAL":   ["tata steel", "jsw", "hindalco", "metal", "steel", "copper"],
+            "REALTY":  ["dlf", "godrej properties", "real estate", "realty"],
+            "ENERGY":  ["reliance", "ongc", "oil", "crude", "gas", "power"],
+        }
+        for entry in (news_raw or [])[:60]:
+            if not isinstance(entry, (list, tuple)) or len(entry) != 2:
+                continue
+            score, item = entry
+            if not isinstance(item, dict):
+                continue
+            text = (item.get("text") or "").lower()
+            for sec, keywords in sector_keywords.items():
+                if any(kw in text for kw in keywords):
+                    if sec not in sector_news:
+                        sector_news[sec] = []
+                    sector_news[sec].append(score)
+
+        # Define sector rotation status
+        rotation_data = []
+        sector_list = ["IT", "BANKING", "FMCG", "AUTO", "PHARMA", "METAL", "REALTY", "ENERGY"]
+        for sec in sector_list:
+            news_scores = sector_news.get(sec, [])
+            news_sentiment = round(sum(news_scores) / len(news_scores), 1) if news_scores else 5.0
+            # Get price data from sector_pulse if available
+            price_chg = 0.0
+            if isinstance(raw, dict):
+                sec_data = raw.get(sec, raw.get(sec.title(), {}))
+                if isinstance(sec_data, dict):
+                    price_chg = float(sec_data.get("change_pct", sec_data.get("change", 0)) or 0)
+
+            # Determine status
+            combined = (news_sentiment / 10) * 0.4 + (1 if price_chg > 0 else -1 if price_chg < 0 else 0) * 0.6
+            if price_chg > 0.5 and news_sentiment >= 6:
+                status = "LEADING"
+            elif price_chg < -0.5 and news_sentiment <= 4:
+                status = "LAGGING"
+            elif abs(price_chg) > 0.3:
+                status = "REVERSING"
+            else:
+                status = "NEUTRAL"
+
+            rotation_data.append({
+                "sector":        sec,
+                "status":        status,
+                "price_change":  round(price_chg, 2),
+                "news_score":    news_sentiment,
+                "news_count":    len(news_scores),
+                "signal":        "BUY" if status == "LEADING" else "SELL" if status == "LAGGING" else "WATCH",
+            })
+
+        # Sort: Leading first, then Reversing, Neutral, Lagging
+        order = {"LEADING": 0, "REVERSING": 1, "NEUTRAL": 2, "LAGGING": 3}
+        rotation_data.sort(key=lambda x: order.get(x["status"], 2))
+        return {"sectors": rotation_data, "generated_at": now_ist()}
+
+    return _bg_refresh("sector_rotation", 3600, _build, empty={"sectors": []})
 
 
 @app.get("/", response_class=HTMLResponse)
