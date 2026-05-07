@@ -14,6 +14,9 @@ RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
 # newspaper3k is optional (has BeautifulSoup fallback) — install best-effort
 RUN pip install --no-cache-dir --prefer-binary newspaper3k || true
 
+# tvdatafeed is optional — install best-effort (falls back gracefully if unavailable)
+RUN pip install --no-cache-dir --prefer-binary tvdatafeed || true
+
 # Pre-download NLTK data at build time
 RUN python -c "import nltk; nltk.download('punkt', quiet=True); nltk.download('punkt_tab', quiet=True)" || true
 
