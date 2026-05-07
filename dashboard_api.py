@@ -1387,18 +1387,22 @@ async def _morning_note_scheduler():
 async def api_morning_note():
     """Today's pre-generated morning market note (auto-generated at 9:15 AM IST)."""
     today = datetime.now(IST).strftime("%Y-%m-%d")
-    # Serve from memory
+    # Serve from memory if today's note exists
     if _morning_note.get("date") == today and _morning_note.get("data"):
         return JSONResponse(_morning_note["data"])
-    # On-demand generation if before 9:15 or note missing
+    # On-demand generation
     async with _morning_note_lock:
         if _morning_note.get("date") == today and _morning_note.get("data"):
             return JSONResponse(_morning_note["data"])
         data = await _build_morning_note_data()
-        if "error" not in data:
-            _morning_note["date"] = today
-            _morning_note["data"] = data
-            _disk_save("morning_note", {"date": today, "data": data})
+        err = data.get("error")
+        if err:
+            msg = ("GROQ_API_KEY not configured on Railway — add it in Railway Variables"
+                   if err == "no_groq_key" else f"AI generation failed: {err}")
+            return JSONResponse({"error": msg}, status_code=503)
+        _morning_note["date"] = today
+        _morning_note["data"] = data
+        _disk_save("morning_note", {"date": today, "data": data})
         return JSONResponse(data)
 
 
@@ -1411,68 +1415,94 @@ def api_catalyst_calendar():
         events = []
         today = datetime.now(IST)
 
-        # RBI MPC dates 2026
-        rbi_dates = [
-            {"date": "2026-06-04", "event": "RBI MPC Decision", "category": "RBI", "impact": "HIGH",
-             "note": "Interest rate decision — watch for CPI trajectory"},
-            {"date": "2026-08-06", "event": "RBI MPC Decision", "category": "RBI", "impact": "HIGH",
-             "note": "Mid-year policy review"},
-            {"date": "2026-10-07", "event": "RBI MPC Decision", "category": "RBI", "impact": "HIGH",
-             "note": "Pre-festival season policy"},
-            {"date": "2026-12-04", "event": "RBI MPC Decision", "category": "RBI", "impact": "HIGH",
-             "note": "Year-end policy stance"},
+        # ── Fixed calendar events (next 6 months) ───────────────
+        fixed_events = [
+            # RBI MPC 2026
+            {"date": "2026-06-04", "event": "RBI MPC Decision",       "category": "RBI",   "impact": "HIGH",   "note": "Rate decision — watch CPI trajectory"},
+            {"date": "2026-08-06", "event": "RBI MPC Decision",       "category": "RBI",   "impact": "HIGH",   "note": "Mid-year policy review"},
+            {"date": "2026-10-07", "event": "RBI MPC Decision",       "category": "RBI",   "impact": "HIGH",   "note": "Pre-festival season policy"},
+            {"date": "2026-12-04", "event": "RBI MPC Decision",       "category": "RBI",   "impact": "HIGH",   "note": "Year-end policy stance"},
+            # US Fed FOMC 2026
+            {"date": "2026-06-17", "event": "US Fed FOMC Decision",   "category": "GLOBAL","impact": "HIGH",   "note": "US rate decision — impacts FII flows & INR"},
+            {"date": "2026-07-29", "event": "US Fed FOMC Decision",   "category": "GLOBAL","impact": "HIGH",   "note": "US rate decision — impacts FII flows & INR"},
+            {"date": "2026-09-16", "event": "US Fed FOMC Decision",   "category": "GLOBAL","impact": "HIGH",   "note": "US rate decision — impacts FII flows & INR"},
+            {"date": "2026-11-04", "event": "US Fed FOMC Decision",   "category": "GLOBAL","impact": "HIGH",   "note": "US rate decision — impacts FII flows & INR"},
+            # NSE F&O Monthly Expiry (last Thursday of each month)
+            {"date": "2026-05-28", "event": "NSE F&O May Expiry",     "category": "F&O",   "impact": "MEDIUM", "note": "Monthly options expiry — expect high volatility"},
+            {"date": "2026-06-25", "event": "NSE F&O June Expiry",    "category": "F&O",   "impact": "MEDIUM", "note": "Monthly options expiry — expect high volatility"},
+            {"date": "2026-07-30", "event": "NSE F&O July Expiry",    "category": "F&O",   "impact": "MEDIUM", "note": "Monthly options expiry — expect high volatility"},
+            {"date": "2026-08-27", "event": "NSE F&O Aug Expiry",     "category": "F&O",   "impact": "MEDIUM", "note": "Monthly options expiry — expect high volatility"},
+            {"date": "2026-09-24", "event": "NSE F&O Sep Expiry",     "category": "F&O",   "impact": "MEDIUM", "note": "Monthly options expiry — expect high volatility"},
+            {"date": "2026-10-29", "event": "NSE F&O Oct Expiry",     "category": "F&O",   "impact": "MEDIUM", "note": "Monthly options expiry — expect high volatility"},
+            # Key India macro
+            {"date": "2026-05-12", "event": "India CPI Inflation",    "category": "MACRO", "impact": "HIGH",   "note": "April CPI — key for RBI rate path"},
+            {"date": "2026-05-15", "event": "India WPI Data",         "category": "MACRO", "impact": "MEDIUM", "note": "April WPI wholesale inflation"},
+            {"date": "2026-05-30", "event": "India GDP Q4 FY26",      "category": "MACRO", "impact": "HIGH",   "note": "FY2026 full-year GDP — market sentiment driver"},
+            {"date": "2026-06-12", "event": "India CPI Inflation",    "category": "MACRO", "impact": "HIGH",   "note": "May CPI — key for RBI rate path"},
+            {"date": "2026-07-14", "event": "India CPI Inflation",    "category": "MACRO", "impact": "HIGH",   "note": "June CPI data release"},
+            # US macro
+            {"date": "2026-05-13", "event": "US CPI Inflation",       "category": "GLOBAL","impact": "HIGH",   "note": "April US CPI — drives Fed rate expectations"},
+            {"date": "2026-06-11", "event": "US CPI Inflation",       "category": "GLOBAL","impact": "HIGH",   "note": "May US CPI — drives Fed rate expectations"},
         ]
-        for r in rbi_dates:
+
+        for r in fixed_events:
             try:
                 d = datetime.strptime(r["date"], "%Y-%m-%d").replace(tzinfo=IST)
                 days_away = (d.date() - today.date()).days
-                if -1 <= days_away <= 60:
-                    r["days_away"] = days_away
-                    r["days_label"] = "Today" if days_away == 0 else f"In {days_away}d" if days_away > 0 else "Yesterday"
-                    events.append(r)
+                if -2 <= days_away <= 180:   # show past 2 days + next 6 months
+                    ev = dict(r)
+                    ev["days_away"] = days_away
+                    ev["days_label"] = ("TODAY" if days_away == 0
+                                        else "TOMORROW" if days_away == 1
+                                        else f"In {days_away}d" if days_away > 0
+                                        else f"{abs(days_away)}d ago")
+                    events.append(ev)
             except Exception:
                 pass
 
-        # Upcoming NSE earnings from cache
+        # ── NSE earnings from cache ───────────────────────────────
         try:
             earnings_data = _cache.get("earnings", {}).get("data") or []
             for e in earnings_data[:20]:
                 if isinstance(e, dict):
                     earn_date = e.get("earn_date") or e.get("date", "")
-                    name = e.get("name") or e.get("symbol", "")
+                    name      = e.get("name") or e.get("symbol", "")
                     if earn_date and name:
                         events.append({
-                            "date": earn_date, "event": f"{name} Earnings",
+                            "date": earn_date, "event": f"{name} Results",
                             "category": "EARNINGS", "impact": "MEDIUM",
-                            "note": e.get("sector", ""), "days_away": None, "days_label": earn_date
+                            "note": e.get("sector", ""), "days_away": None,
+                            "days_label": earn_date
                         })
         except Exception:
             pass
 
-        # Key economic events from econ module
+        # ── Econ events from econ module ──────────────────────────
         try:
             from econ import get_economic_data
-            econ_events = get_economic_data()
-            for ev in (econ_events or [])[:15]:
-                if isinstance(ev, dict):
+            for ev in (get_economic_data() or [])[:10]:
+                if isinstance(ev, dict) and ev.get("date"):
                     events.append({
-                        "date": ev.get("date", ""),
-                        "event": ev.get("event", ev.get("name", "")),
-                        "category": "MACRO",
-                        "impact": "HIGH" if ev.get("importance", "").upper() in ("HIGH", "CRITICAL") else "MEDIUM",
-                        "note": ev.get("forecast", ev.get("previous", "")),
-                        "days_away": None,
-                        "days_label": ev.get("date", "")
+                        "date":      ev.get("date", ""),
+                        "event":     ev.get("event", ev.get("name", "")),
+                        "category":  "MACRO",
+                        "impact":    "HIGH" if ev.get("importance", "").upper() in ("HIGH", "CRITICAL") else "MEDIUM",
+                        "note":      ev.get("forecast", ev.get("previous", "")),
+                        "days_away": None, "days_label": ev.get("date", "")
                     })
         except Exception:
             pass
 
-        # Sort by impact then date
         impact_order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
-        events.sort(key=lambda x: (impact_order.get(x.get("impact", "LOW"), 2), x.get("date", "")))
-        return {"events": events[:30], "generated_at": now_ist()}
+        events.sort(key=lambda x: (x.get("days_away") or 999, impact_order.get(x.get("impact", "LOW"), 2)))
+        return {"events": events[:40], "generated_at": now_ist()}
 
-    return _bg_refresh("catalyst_calendar", 3600, _build, empty={"events": []})
+    # Build synchronously on first call so tab always has data immediately
+    with _cache_lock:
+        entry = _cache.get("catalyst_calendar")
+    if entry and (_time.time() - entry["ts"]) < 3600:
+        return entry["data"]
+    return _cached("catalyst_calendar", 3600, _build)
 
 
 # ── Sector Rotation Signal ────────────────────────────────────
@@ -1550,7 +1580,12 @@ def api_sector_rotation():
         return {"sectors": rotation_data, "generated_at": now_ist(),
                 "breadth": raw.get("breadth", ""), "nse_live": bool(sectors_dict)}
 
-    return _bg_refresh("sector_rotation", 60, _build, empty={"sectors": []})
+    # Build synchronously on first call — sectors are always populated (news fallback)
+    with _cache_lock:
+        entry = _cache.get("sector_rotation")
+    if entry and (_time.time() - entry["ts"]) < 60:
+        return entry["data"]
+    return _cached("sector_rotation", 60, _build)
 
 
 @app.get("/api/nse/live")
