@@ -10,5 +10,6 @@ lxml
 python-multipart
 httpx
 aiohttp
+aiofiles
 nltk
 websocket-client

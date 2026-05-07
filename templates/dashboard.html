@@ -1941,11 +1941,7 @@ document.getElementById('src-modal').addEventListener('click', e => {
 let _researchActive = false;
 
 function showResearch(tab) {
-  hideSignals();
-  hideHniInsights();
-  hideMorningNote();
-  hideCatalyst();
-  hideSectorRotation();
+  _hideAllSpecialPanels();
   document.querySelectorAll('.ctab').forEach(t => t.classList.remove('active'));
   tab.classList.add('active');
   document.getElementById('news-feed').style.display    = 'none';
@@ -1971,11 +1967,7 @@ let _signalsActive = false;
 let _signalsLoaded = false;
 
 function showSignals(tab) {
-  hideResearch();
-  hideHniInsights();
-  hideMorningNote();
-  hideCatalyst();
-  hideSectorRotation();
+  _hideAllSpecialPanels();
   document.querySelectorAll('.ctab').forEach(t => t.classList.remove('active'));
   tab.classList.add('active');
   document.getElementById('news-feed').style.display     = 'none';
@@ -2000,11 +1992,7 @@ function hideSignals() {
 let _hniLoaded = false;
 
 function showHniInsights(tab) {
-  hideResearch();
-  hideSignals();
-  hideMorningNote();
-  hideCatalyst();
-  hideSectorRotation();
+  _hideAllSpecialPanels();
   document.querySelectorAll('.ctab').forEach(t => t.classList.remove('active'));
   if (tab) tab.classList.add('active');
   document.getElementById('news-feed').style.display     = 'none';
@@ -3423,37 +3411,41 @@ function closeModal() {
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
-// ── MORNING NOTE PANEL ────────────────────────────────────────────────────────
-let _morningLoaded = false;
-
-function hideMorningNote() {
-  const p = document.getElementById('morning-note-panel');
-  if (p) p.style.display = 'none';
-  const nf = document.getElementById('news-feed');
-  if (nf) nf.style.display = '';
-  const af = document.getElementById('asset-filters');
-  if (af) af.style.display = 'flex';
+// ── SHARED HELPER: hide all special panels, restore news feed ────────────────
+function _hideAllSpecialPanels() {
+  ['ai-research-panel','signals-panel','hni-insights-panel',
+   'morning-note-panel','catalyst-panel','sector-panel'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+  if (typeof _researchActive !== 'undefined') _researchActive = false;
+  if (typeof _signalsActive  !== 'undefined') _signalsActive  = false;
 }
 
-function showMorningNote(tab) {
-  hideResearch();
-  hideSignals();
-  hideHniInsights();
-  hideCatalyst();
-  hideSectorRotation();
-  document.querySelectorAll('.ctab').forEach(t => t.classList.remove('active'));
+function _showSpecialPanel(panelId, tab) {
+  _hideAllSpecialPanels();
+  document.querySelectorAll('.ctab').forEach(function(t) { t.classList.remove('active'); });
   if (tab) tab.classList.add('active');
   document.getElementById('news-feed').style.display     = 'none';
   document.getElementById('asset-filters').style.display = 'none';
-  const p = document.getElementById('morning-note-panel');
-  p.style.display      = 'flex';
-  p.style.flexDirection = 'column';
-  if (!_morningLoaded) loadMorningNote();
+  var p = document.getElementById(panelId);
+  if (p) { p.style.display = 'flex'; p.style.flexDirection = 'column'; }
+}
+
+// ── MORNING NOTE ─────────────────────────────────────────────────────────────
+function hideMorningNote() {
+  var p = document.getElementById('morning-note-panel');
+  if (p) p.style.display = 'none';
+}
+
+function showMorningNote(tab) {
+  _showSpecialPanel('morning-note-panel', tab);
+  loadMorningNote(false);
 }
 
 async function loadMorningNote(force) {
-  if (!force && _morningLoaded) return;
-  _morningLoaded = true;
+  var content = document.getElementById('morning-content');
+  if (!force && content && content.style.display === 'flex') return;
   document.getElementById('morning-loading').style.display = 'block';
   document.getElementById('morning-content').style.display = 'none';
   document.getElementById('morning-error').style.display   = 'none';
@@ -3519,44 +3511,26 @@ async function loadMorningNote(force) {
     document.getElementById('morning-loading').style.display = 'none';
     document.getElementById('morning-content').style.display = 'flex';
   } catch (err) {
-    _morningLoaded = false;
     document.getElementById('morning-loading').style.display = 'none';
     document.getElementById('morning-error').style.display   = 'block';
-    document.getElementById('morning-error').innerText       = `Error: ${err.message}`;
+    document.getElementById('morning-error').innerText       = 'Error: ' + err.message;
   }
 }
 
-// ── CATALYST CALENDAR PANEL ───────────────────────────────────────────────────
-let _catalystLoaded = false;
-
+// ── CATALYST CALENDAR ─────────────────────────────────────────────────────────
 function hideCatalyst() {
-  const p = document.getElementById('catalyst-panel');
+  var p = document.getElementById('catalyst-panel');
   if (p) p.style.display = 'none';
-  const nf = document.getElementById('news-feed');
-  if (nf) nf.style.display = '';
-  const af = document.getElementById('asset-filters');
-  if (af) af.style.display = 'flex';
 }
 
 function showCatalyst(tab) {
-  hideResearch();
-  hideSignals();
-  hideHniInsights();
-  hideMorningNote();
-  hideSectorRotation();
-  document.querySelectorAll('.ctab').forEach(t => t.classList.remove('active'));
-  if (tab) tab.classList.add('active');
-  document.getElementById('news-feed').style.display     = 'none';
-  document.getElementById('asset-filters').style.display = 'none';
-  const p = document.getElementById('catalyst-panel');
-  p.style.display      = 'flex';
-  p.style.flexDirection = 'column';
-  if (!_catalystLoaded) loadCatalystCalendar();
+  _showSpecialPanel('catalyst-panel', tab);
+  loadCatalystCalendar(false);
 }
 
 async function loadCatalystCalendar(force) {
-  if (!force && _catalystLoaded) return;
-  _catalystLoaded = true;
+  var content = document.getElementById('calendar-content');
+  if (!force && content && content.children.length > 0) return;
   document.getElementById('calendar-loading').style.display = 'block';
   document.getElementById('calendar-content').style.display = 'none';
   document.getElementById('calendar-error').style.display   = 'none';
@@ -3592,44 +3566,26 @@ async function loadCatalystCalendar(force) {
     document.getElementById('calendar-loading').style.display = 'none';
     document.getElementById('calendar-content').style.display = 'flex';
   } catch (err) {
-    _catalystLoaded = false;
     document.getElementById('calendar-loading').style.display = 'none';
     document.getElementById('calendar-error').style.display   = 'block';
-    document.getElementById('calendar-error').innerText       = `Error: ${err.message}`;
+    document.getElementById('calendar-error').innerText       = 'Error: ' + err.message;
   }
 }
 
-// ── SECTOR ROTATION PANEL ─────────────────────────────────────────────────────
-let _sectorLoaded = false;
-
+// ── SECTOR ROTATION ───────────────────────────────────────────────────────────
 function hideSectorRotation() {
-  const p = document.getElementById('sector-panel');
+  var p = document.getElementById('sector-panel');
   if (p) p.style.display = 'none';
-  const nf = document.getElementById('news-feed');
-  if (nf) nf.style.display = '';
-  const af = document.getElementById('asset-filters');
-  if (af) af.style.display = 'flex';
 }
 
 function showSectorRotation(tab) {
-  hideResearch();
-  hideSignals();
-  hideHniInsights();
-  hideMorningNote();
-  hideCatalyst();
-  document.querySelectorAll('.ctab').forEach(t => t.classList.remove('active'));
-  if (tab) tab.classList.add('active');
-  document.getElementById('news-feed').style.display     = 'none';
-  document.getElementById('asset-filters').style.display = 'none';
-  const p = document.getElementById('sector-panel');
-  p.style.display      = 'flex';
-  p.style.flexDirection = 'column';
-  if (!_sectorLoaded) loadSectorRotation();
+  _showSpecialPanel('sector-panel', tab);
+  loadSectorRotation(false);
 }
 
 async function loadSectorRotation(force) {
-  if (!force && _sectorLoaded) return;
-  _sectorLoaded = true;
+  var content = document.getElementById('sector-content');
+  if (!force && content && content.children.length > 0) return;
   document.getElementById('sector-loading').style.display = 'block';
   document.getElementById('sector-content').style.display = 'none';
   document.getElementById('sector-error').style.display   = 'none';
@@ -3669,10 +3625,9 @@ async function loadSectorRotation(force) {
     document.getElementById('sector-loading').style.display = 'none';
     document.getElementById('sector-content').style.display = 'flex';
   } catch (err) {
-    _sectorLoaded = false;
     document.getElementById('sector-loading').style.display = 'none';
     document.getElementById('sector-error').style.display   = 'block';
-    document.getElementById('sector-error').innerText       = `Error: ${err.message}`;
+    document.getElementById('sector-error').innerText       = 'Error: ' + err.message;
   }
 }
 </script>
