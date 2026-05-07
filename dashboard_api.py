@@ -1481,9 +1481,11 @@ def api_sector_rotation():
         except Exception:
             raw = {}
 
-        sectors = []
+        # sectors_dict: {"IT": {"change_pct": x, "price": y}, ...} keyed by label
+        sectors_dict = raw.get("sectors_dict", {}) if isinstance(raw, dict) else {}
+
+        # News sentiment per sector
         news_raw = _cache.get("news", {}).get("data") or []
-        # Build sentiment per sector from news
         sector_news: dict = {}
         sector_keywords = {
             "IT":      ["infosys", "tcs", "wipro", "hcl", "tech mahindra", "software", "it sector"],
@@ -1504,25 +1506,19 @@ def api_sector_rotation():
             text = (item.get("text") or "").lower()
             for sec, keywords in sector_keywords.items():
                 if any(kw in text for kw in keywords):
-                    if sec not in sector_news:
-                        sector_news[sec] = []
-                    sector_news[sec].append(score)
+                    sector_news.setdefault(sec, []).append(score)
 
-        # Define sector rotation status
         rotation_data = []
         sector_list = ["IT", "BANKING", "FMCG", "AUTO", "PHARMA", "METAL", "REALTY", "ENERGY"]
         for sec in sector_list:
-            news_scores = sector_news.get(sec, [])
+            news_scores    = sector_news.get(sec, [])
             news_sentiment = round(sum(news_scores) / len(news_scores), 1) if news_scores else 5.0
-            # Get price data from sector_pulse if available
-            price_chg = 0.0
-            if isinstance(raw, dict):
-                sec_data = raw.get(sec, raw.get(sec.title(), {}))
-                if isinstance(sec_data, dict):
-                    price_chg = float(sec_data.get("change_pct", sec_data.get("change", 0)) or 0)
 
-            # Determine status
-            combined = (news_sentiment / 10) * 0.4 + (1 if price_chg > 0 else -1 if price_chg < 0 else 0) * 0.6
+            # Real price change from tvdatafeed via sector_pulse
+            sec_data  = sectors_dict.get(sec, {})
+            price_chg = float(sec_data.get("change_pct", 0) or 0)
+            price_now = sec_data.get("price", 0)
+
             if price_chg > 0.5 and news_sentiment >= 6:
                 status = "LEADING"
             elif price_chg < -0.5 and news_sentiment <= 4:
@@ -1533,20 +1529,48 @@ def api_sector_rotation():
                 status = "NEUTRAL"
 
             rotation_data.append({
-                "sector":        sec,
-                "status":        status,
-                "price_change":  round(price_chg, 2),
-                "news_score":    news_sentiment,
-                "news_count":    len(news_scores),
-                "signal":        "BUY" if status == "LEADING" else "SELL" if status == "LAGGING" else "WATCH",
+                "sector":       sec,
+                "status":       status,
+                "price_change": round(price_chg, 2),
+                "price":        price_now,
+                "news_score":   news_sentiment,
+                "news_count":   len(news_scores),
+                "signal":       "BUY" if status == "LEADING" else "SELL" if status == "LAGGING" else "WATCH",
+                "source":       "tvdatafeed" if sec_data else "news_only",
             })
 
-        # Sort: Leading first, then Reversing, Neutral, Lagging
         order = {"LEADING": 0, "REVERSING": 1, "NEUTRAL": 2, "LAGGING": 3}
         rotation_data.sort(key=lambda x: order.get(x["status"], 2))
-        return {"sectors": rotation_data, "generated_at": now_ist()}
+        return {"sectors": rotation_data, "generated_at": now_ist(),
+                "breadth": raw.get("breadth", ""), "nse_live": bool(sectors_dict)}
 
-    return _bg_refresh("sector_rotation", 3600, _build, empty={"sectors": []})
+    return _bg_refresh("sector_rotation", 60, _build, empty={"sectors": []})
+
+
+@app.get("/api/nse/live")
+def api_nse_live(sector: str = None):
+    """Live NSE stock prices via tvdatafeed. ?sector=IT|BANKING|FMCG|AUTO|PHARMA|METAL|REALTY|ENERGY"""
+    def _build():
+        try:
+            from tvdata import get_nse_stocks
+            sectors = [sector.upper()] if sector else None
+            return get_nse_stocks(sectors)
+        except Exception as e:
+            return {"error": str(e)}
+    return _bg_refresh(f"nse_live_{sector or 'all'}", 30, _build, empty={})
+
+
+@app.get("/api/nse/price")
+def api_nse_price(symbol: str, exchange: str = "NSE"):
+    """Single symbol live price. ?symbol=TCS or ?symbol=NIFTY50&exchange=NSE"""
+    try:
+        from tvdata import get_price
+        data = get_price(symbol.upper(), exchange.upper())
+        if data:
+            return {"symbol": symbol.upper(), "exchange": exchange.upper(), **data}
+        return JSONResponse({"error": "not_found"}, status_code=404)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @app.get("/", response_class=HTMLResponse)

@@ -1,71 +1,44 @@
 """
-Sector Pulse — US sector ETF performance + market breadth.
-Uses SPDR sector ETFs (free via yfinance fast_info).
-Replaces Finviz (JS-rendered, hard to scrape) with direct ETF data.
-Sectors: Tech, Finance, Energy, Health, Industrials, Consumer, Utilities, Materials, RE
+sector_pulse.py — NSE sector index live prices + US broad market.
+NSE sectors: real-time via tvdatafeed (CNXIT, BANKNIFTY, CNXFMCG, etc.)
+US broad: yfinance ETFs (SPY, QQQ, etc.) for global context.
 """
-import os, json, time, sqlite3, threading
+
+import os, json, time, threading
 from datetime import datetime, timezone, timedelta
 
 IST       = timezone(timedelta(hours=5, minutes=30))
-CACHE_TTL = 300   # 5 minutes
-DB_PATH   = os.path.join(os.path.dirname(os.path.abspath(__file__)), "db", "sector_cache.db")
-_db_lock  = threading.Lock()
+CACHE_TTL = 60    # 1 minute for sector data
 
-SECTORS = {
-    "XLK":  "Technology",
-    "XLF":  "Financials",
-    "XLE":  "Energy",
-    "XLV":  "Healthcare",
-    "XLI":  "Industrials",
-    "XLY":  "Consumer Disc.",
-    "XLP":  "Consumer Staples",
-    "XLU":  "Utilities",
-    "XLB":  "Materials",
-    "XLRE": "Real Estate",
-    "XLC":  "Comm. Services",
-}
+_cache_lock = threading.Lock()
+_mem_cache  : dict = {}   # {"sectors": {data, ts}, "broad": {data, ts}}
 
-BROAD = {
-    "SPY":  "S&P 500",
-    "QQQ":  "NASDAQ 100",
+# US broad market ETFs (yfinance) for global context
+_US_BROAD = {
+    "SPY":  "S&P 500 ETF",
+    "QQQ":  "NASDAQ 100 ETF",
     "IWM":  "Russell 2000",
-    "EEM":  "Emerging Markets",
     "GLD":  "Gold ETF",
     "TLT":  "20Y Bond ETF",
     "UUP":  "Dollar ETF",
+    "EEM":  "Emerging Markets",
 }
 
 
-def _db():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.execute("CREATE TABLE IF NOT EXISTS sp (key TEXT PRIMARY KEY, data TEXT NOT NULL, ts REAL NOT NULL)")
-    conn.commit()
-    return conn
-
-def _cache_get(key):
-    try:
-        with _db_lock:
-            conn = _db()
-            row  = conn.execute("SELECT data,ts FROM sp WHERE key=?", (key,)).fetchone()
-            conn.close()
-        if row and (time.time() - row[1]) < CACHE_TTL:
-            return json.loads(row[0])
-    except: pass
+def _mem_get(key: str):
+    with _cache_lock:
+        entry = _mem_cache.get(key)
+        if entry and (time.time() - entry["ts"]) < CACHE_TTL:
+            return entry["data"]
     return None
 
-def _cache_set(key, data):
-    try:
-        with _db_lock:
-            conn = _db()
-            conn.execute("INSERT OR REPLACE INTO sp(key,data,ts) VALUES(?,?,?)",
-                         (key, json.dumps(data), time.time()))
-            conn.commit(); conn.close()
-    except: pass
+
+def _mem_set(key: str, data):
+    with _cache_lock:
+        _mem_cache[key] = {"data": data, "ts": time.time()}
 
 
-def _get_etf(sym, label):
+def _yf_etf(sym: str, label: str) -> dict | None:
     try:
         import yfinance as yf
         fi   = yf.Ticker(sym).fast_info
@@ -84,55 +57,103 @@ def _get_etf(sym, label):
     return None
 
 
-def get_sector_pulse():
-    cached = _cache_get("sectors")
-    if cached: return cached
-    import gc
-    from concurrent.futures import ThreadPoolExecutor
+def get_nse_sectors_live() -> list:
+    """
+    NSE sector indices via tvdatafeed.
+    Returns list of sector dicts sorted by change desc.
+    """
+    cached = _mem_get("nse_sectors")
+    if cached:
+        return cached
 
-    sectors = {}
-    broad   = {}
+    try:
+        from tvdata import get_nse_sectors, NSE_SECTORS, NSE_STOCKS
+        raw = get_nse_sectors()
 
+        sectors_out = []
+        for label, data in raw.items():
+            chg = data.get("change", 0.0)
+            # pick top mover from sector stocks (optional enrichment)
+            sectors_out.append({
+                "label":      label,
+                "symbol":     NSE_SECTORS.get(label, ("", ""))[0],
+                "exchange":   NSE_SECTORS.get(label, ("", ""))[1],
+                "price":      data["price"],
+                "chg":        chg,
+                "arrow":      data["arrow"],
+                "open":       data.get("open", 0),
+                "high":       data.get("high", 0),
+                "low":        data.get("low",  0),
+                "color":      "bull" if chg > 0 else "bear" if chg < 0 else "neu",
+                "change_pct": chg,   # alias for dashboard_api sector rotation
+            })
+
+        sectors_out.sort(key=lambda x: -x["chg"])
+        _mem_set("nse_sectors", sectors_out)
+        return sectors_out
+
+    except Exception as e:
+        print(f"[sector_pulse] NSE sectors failed: {e}", flush=True)
+        return []
+
+
+def get_us_broad() -> list:
+    """US broad market ETFs via yfinance for global context."""
+    cached = _mem_get("us_broad")
+    if cached:
+        return cached
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    broad = []
     with ThreadPoolExecutor(max_workers=8) as pool:
-        sec_futs  = {sym: pool.submit(_get_etf, sym, lbl) for sym, lbl in SECTORS.items()}
-        broad_futs = {sym: pool.submit(_get_etf, sym, lbl) for sym, lbl in BROAD.items()}
+        futs = {pool.submit(_yf_etf, sym, lbl): sym for sym, lbl in _US_BROAD.items()}
+        for fut in as_completed(futs, timeout=15):
+            try:
+                r = fut.result()
+                if r:
+                    broad.append(r)
+            except Exception:
+                pass
 
-    for sym, fut in sec_futs.items():
-        try:
-            r = fut.result(timeout=8)
-            if r: sectors[sym] = r
-        except: pass
+    broad.sort(key=lambda x: -x["chg"])
+    if broad:
+        _mem_set("us_broad", broad)
+    return broad
 
-    for sym, fut in broad_futs.items():
-        try:
-            r = fut.result(timeout=8)
-            if r: broad[sym] = r
-        except: pass
 
-    # Sort sectors by performance
-    sorted_sectors = sorted(sectors.values(), key=lambda x: -x["chg"])
+def get_sector_pulse() -> dict:
+    """
+    Main entry point — used by dashboard_api sector rotation.
+    Returns NSE sectors + US broad + breadth signal.
+    """
+    nse_sectors = get_nse_sectors_live()
+    us_broad    = get_us_broad()
 
-    # Market breadth signal
-    advancing = sum(1 for s in sectors.values() if s["chg"] > 0)
-    total     = len(sectors)
-    if advancing >= 8:        breadth = "BROAD RALLY"
-    elif advancing >= 6:      breadth = "BULLISH"
-    elif advancing >= 4:      breadth = "MIXED"
-    elif advancing >= 2:      breadth = "BEARISH"
-    else:                     breadth = "BROAD SELLOFF"
-    breadth_cls = "bull" if advancing >= 6 else "bear" if advancing <= 3 else "neu"
+    advancing = sum(1 for s in nse_sectors if s.get("chg", 0) > 0)
+    total     = len(nse_sectors) or 1
 
-    gc.collect()
-    result = {
-        "sectors":     sorted_sectors,
-        "broad":       list(broad.values()),
-        "breadth":     breadth,
-        "breadth_cls": breadth_cls,
-        "advancing":   advancing,
-        "declining":   total - advancing,
-        "total":       total,
-        "timestamp":   datetime.now(IST).strftime("%d-%b-%Y %H:%M IST"),
+    if   advancing >= 7: breadth = "BROAD RALLY"
+    elif advancing >= 5: breadth = "BULLISH"
+    elif advancing >= 3: breadth = "MIXED"
+    elif advancing >= 1: breadth = "BEARISH"
+    else:                breadth = "BROAD SELLOFF"
+    breadth_cls = "bull" if advancing > total // 2 else "bear" if advancing < total // 2 else "neu"
+
+    # Build dict keyed by sector label (for dashboard_api sector rotation lookup)
+    sectors_by_label = {
+        s["label"]: {"change_pct": s["chg"], "price": s["price"]}
+        for s in nse_sectors
     }
-    if sorted_sectors:
-        _cache_set("sectors", result)
-    return result
+
+    import gc; gc.collect()
+    return {
+        "sectors":      nse_sectors,
+        "sectors_dict": sectors_by_label,   # quick lookup by label
+        "broad":        us_broad,
+        "breadth":      breadth,
+        "breadth_cls":  breadth_cls,
+        "advancing":    advancing,
+        "declining":    total - advancing,
+        "total":        total,
+        "timestamp":    datetime.now(IST).strftime("%d-%b-%Y %H:%M IST"),
+    }
