@@ -3462,49 +3462,49 @@ async function loadMorningNote(force) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Failed');
 
-    // Headline + bias
+    // Headline + bias  (API key: overall_bias)
     document.getElementById('mn-headline').innerText = data.headline || '—';
     const biasEl = document.getElementById('mn-bias-badge');
-    const bias   = (data.bias || '').toUpperCase();
+    const bias   = (data.overall_bias || '').toUpperCase();
     biasEl.innerText = bias || '—';
     biasEl.style.background = bias === 'BULLISH' ? '#14532d' : bias === 'BEARISH' ? '#7f1d1d' : '#1c1f26';
     biasEl.style.color      = bias === 'BULLISH' ? '#4ade80' : bias === 'BEARISH' ? '#f87171' : '#9ca3af';
     biasEl.style.border     = `1px solid ${bias === 'BULLISH' ? '#16a34a' : bias === 'BEARISH' ? '#dc2626' : '#374151'}`;
     document.getElementById('mn-date').innerText   = data.date   || '';
-    document.getElementById('mn-gen-at').innerText = data.gen_at ? `Generated ${data.gen_at}` : '';
+    document.getElementById('mn-gen-at').innerText = data.generated_at ? `Generated ${data.generated_at}` : '';
 
     // Global cues
     document.getElementById('mn-global').innerText = data.global_cues || '—';
 
-    // Nifty levels
-    const niftyLevels = data.nifty_levels || {};
+    // Nifty levels  (API key: key_levels.nifty)
+    const niftyLevels = (data.key_levels || {}).nifty || {};
     document.getElementById('mn-nifty-levels').innerHTML = [
       `<div style="display:flex;justify-content:space-between;"><span style="color:#6b7280;">Support</span><span style="color:#4ade80;">${niftyLevels.support || '—'}</span></div>`,
       `<div style="display:flex;justify-content:space-between;"><span style="color:#6b7280;">Resistance</span><span style="color:#f87171;">${niftyLevels.resistance || '—'}</span></div>`,
-      `<div style="display:flex;justify-content:space-between;"><span style="color:#6b7280;">VWAP</span><span style="color:#60a5fa;">${niftyLevels.vwap || '—'}</span></div>`,
-      `<div style="display:flex;justify-content:space-between;"><span style="color:#6b7280;">Trend</span><span style="color:#e2e8f0;">${niftyLevels.trend || '—'}</span></div>`,
+      `<div style="display:flex;justify-content:space-between;"><span style="color:#6b7280;">Bias</span><span style="color:#60a5fa;">${niftyLevels.bias || '—'}</span></div>`,
     ].join('');
 
-    // BankNifty levels
-    const bnfLevels = data.banknifty_levels || {};
+    // BankNifty levels  (API key: key_levels.banknifty)
+    const bnfLevels = (data.key_levels || {}).banknifty || {};
     document.getElementById('mn-bnf-levels').innerHTML = [
       `<div style="display:flex;justify-content:space-between;"><span style="color:#6b7280;">Support</span><span style="color:#4ade80;">${bnfLevels.support || '—'}</span></div>`,
       `<div style="display:flex;justify-content:space-between;"><span style="color:#6b7280;">Resistance</span><span style="color:#f87171;">${bnfLevels.resistance || '—'}</span></div>`,
-      `<div style="display:flex;justify-content:space-between;"><span style="color:#6b7280;">VWAP</span><span style="color:#60a5fa;">${bnfLevels.vwap || '—'}</span></div>`,
-      `<div style="display:flex;justify-content:space-between;"><span style="color:#6b7280;">Trend</span><span style="color:#e2e8f0;">${bnfLevels.trend || '—'}</span></div>`,
+      `<div style="display:flex;justify-content:space-between;"><span style="color:#6b7280;">Bias</span><span style="color:#60a5fa;">${bnfLevels.bias || '—'}</span></div>`,
     ].join('');
 
-    // Top 3 trade ideas
-    const ideas = data.trade_ideas || [];
+    // Top 3 trade ideas  (API key: top_3_ideas[].instrument / rationale)
+    const ideas = data.top_3_ideas || [];
     document.getElementById('mn-ideas').innerHTML = ideas.map(idea => {
       const dir = (idea.direction || '').toUpperCase();
-      const c   = dir === 'LONG' ? '#4ade80' : dir === 'SHORT' ? '#f87171' : '#e2e8f0';
+      const isBuy = dir === 'BUY' || dir === 'LONG';
+      const isSell = dir === 'SELL' || dir === 'SHORT';
+      const c = isBuy ? '#4ade80' : isSell ? '#f87171' : '#e2e8f0';
       return `<div style="background:#070b10;border:1px solid #1c2a3a;border-radius:4px;padding:10px;display:flex;flex-direction:column;gap:4px;">
         <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span style="color:#e2e8f0;font-size:12px;font-weight:bold;">${idea.symbol || ''}</span>
+          <span style="color:#e2e8f0;font-size:12px;font-weight:bold;">${idea.instrument || ''}</span>
           <span style="color:${c};font-size:10px;font-weight:bold;border:1px solid ${c};padding:2px 8px;border-radius:3px;">${dir}</span>
         </div>
-        <div style="color:#9ca3af;font-size:10px;">${idea.reason || ''}</div>
+        <div style="color:#9ca3af;font-size:10px;">${idea.rationale || ''}</div>
         <div style="display:flex;gap:12px;font-size:9px;margin-top:2px;">
           <span>Entry <span style="color:#e2e8f0;">${idea.entry || '—'}</span></span>
           <span>SL <span style="color:#f87171;">${idea.sl || '—'}</span></span>
@@ -3513,8 +3513,8 @@ async function loadMorningNote(force) {
       </div>`;
     }).join('') || '<div style="color:#4b5563;font-size:11px;">No trade ideas available</div>';
 
-    // Watch out
-    document.getElementById('mn-watchout').innerText = data.watch_out || '—';
+    // Watch out  (API key: watch_out_for)
+    document.getElementById('mn-watchout').innerText = data.watch_out_for || '—';
 
     document.getElementById('morning-loading').style.display = 'none';
     document.getElementById('morning-content').style.display = 'flex';
@@ -3578,7 +3578,7 @@ async function loadCatalystCalendar(force) {
         </div>
         <div style="flex:1;">
           <div style="color:#e2e8f0;font-size:12px;font-weight:bold;">${ev.event || ''}</div>
-          <div style="color:#6b7280;font-size:10px;margin-top:3px;">${ev.description || ''}</div>
+          <div style="color:#6b7280;font-size:10px;margin-top:3px;">${ev.description || ev.note || ''}</div>
         </div>
         <div style="color:#60a5fa;font-size:10px;min-width:60px;text-align:right;">${ev.category || ''}</div>
       </div>`).join('') : '<div style="color:#4b5563;font-size:11px;padding:20px 0;text-align:center;">No upcoming events</div>';
@@ -3642,9 +3642,11 @@ async function loadSectorRotation(force) {
 
     document.getElementById('sector-content').innerHTML = sectors.length ? sectors.map(sec => {
       const st  = statusStyle[sec.status] || statusStyle.NEUTRAL;
-      const chg = parseFloat(sec.change_pct || 0);
+      const chg = parseFloat(sec.price_change || sec.change_pct || 0);  // API key: price_change
       const chgColor = chg > 0 ? '#4ade80' : chg < 0 ? '#f87171' : '#9ca3af';
       const chgSign  = chg > 0 ? '+' : '';
+      const signalTag = sec.signal ? `<span style="color:#6b7280;font-size:9px;background:#111827;padding:2px 6px;border-radius:3px;">${sec.signal}</span>` : '';
+      const newsTag   = sec.news_count > 0 ? `<span style="color:#6b7280;font-size:9px;background:#111827;padding:2px 6px;border-radius:3px;">${sec.news_count} news</span>` : '';
       return `<div style="background:${st.bg};border:1px solid ${st.border};border-radius:5px;padding:12px 14px;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
           <div style="display:flex;align-items:center;gap:10px;">
@@ -3653,11 +3655,8 @@ async function loadSectorRotation(force) {
           </div>
           <span style="color:${chgColor};font-size:13px;font-weight:bold;">${chgSign}${chg.toFixed(2)}%</span>
         </div>
-        <div style="color:#6b7280;font-size:10px;margin-bottom:6px;">${sec.top_stock ? `Leader: <span style="color:#93c5fd;">${sec.top_stock}</span>` : ''}</div>
-        <div style="color:#9ca3af;font-size:10px;line-height:1.5;">${sec.summary || ''}</div>
-        <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
-          ${(sec.signals || []).map(s => `<span style="color:#6b7280;font-size:9px;background:#111827;padding:2px 6px;border-radius:3px;">${s}</span>`).join('')}
-        </div>
+        <div style="color:#6b7280;font-size:10px;margin-bottom:6px;">News sentiment score: <span style="color:#93c5fd;">${sec.news_score ?? '—'}</span></div>
+        <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">${signalTag}${newsTag}</div>
       </div>`;
     }).join('') : '<div style="color:#4b5563;font-size:11px;padding:20px 0;text-align:center;">No sector data available</div>';
 
