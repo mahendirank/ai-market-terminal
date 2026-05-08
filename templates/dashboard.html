@@ -3583,9 +3583,12 @@ function showSectorRotation(tab) {
   loadSectorRotation(false);
 }
 
+var _sectorAutoRefreshTimer = null;
+
 async function loadSectorRotation(force) {
   var content = document.getElementById('sector-content');
-  if (!force && content && content.children.length > 0) return;
+  if (!force && content && content.getAttribute('data-nse-live') === 'true') return;
+  if (_sectorAutoRefreshTimer) { clearTimeout(_sectorAutoRefreshTimer); _sectorAutoRefreshTimer = null; }
   document.getElementById('sector-loading').style.display = 'block';
   document.getElementById('sector-content').style.display = 'none';
   document.getElementById('sector-error').style.display   = 'none';
@@ -3594,7 +3597,8 @@ async function loadSectorRotation(force) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Failed');
 
-    const sectors = data.sectors || [];
+    const sectors   = data.sectors || [];
+    const nseLive   = !!data.nse_live;
     const statusStyle = {
       LEADING:   { bg: '#0a1a0a', border: '#14532d', badge: '#4ade80', badgeBg: '#052e16' },
       LAGGING:   { bg: '#1a0a0a', border: '#7f1d1d', badge: '#f87171', badgeBg: '#450a0a' },
@@ -3602,9 +3606,15 @@ async function loadSectorRotation(force) {
       NEUTRAL:   { bg: '#0d1117', border: '#1c2a3a', badge: '#9ca3af', badgeBg: '#1c2a3a' },
     };
 
-    document.getElementById('sector-content').innerHTML = sectors.length ? sectors.map(sec => {
+    const loadingNotice = !nseLive
+      ? `<div style="background:#0a0d14;border:1px solid #1e3a5f;border-radius:4px;padding:8px 12px;margin-bottom:2px;display:flex;align-items:center;gap:8px;">
+           <span style="color:#60a5fa;font-size:11px;">⏳ Live NSE prices loading in background — news sentiment shown. Click ↺ REFRESH for live prices.</span>
+         </div>`
+      : '';
+
+    document.getElementById('sector-content').innerHTML = loadingNotice + (sectors.length ? sectors.map(sec => {
       const st  = statusStyle[sec.status] || statusStyle.NEUTRAL;
-      const chg = parseFloat(sec.price_change || sec.change_pct || 0);  // API key: price_change
+      const chg = parseFloat(sec.price_change || sec.change_pct || 0);
       const chgColor = chg > 0 ? '#4ade80' : chg < 0 ? '#f87171' : '#9ca3af';
       const chgSign  = chg > 0 ? '+' : '';
       const signalTag = sec.signal ? `<span style="color:#6b7280;font-size:9px;background:#111827;padding:2px 6px;border-radius:3px;">${sec.signal}</span>` : '';
@@ -3620,10 +3630,16 @@ async function loadSectorRotation(force) {
         <div style="color:#6b7280;font-size:10px;margin-bottom:6px;">News sentiment score: <span style="color:#93c5fd;">${sec.news_score ?? '—'}</span></div>
         <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">${signalTag}${newsTag}</div>
       </div>`;
-    }).join('') : '<div style="color:#4b5563;font-size:11px;padding:20px 0;text-align:center;">No sector data available</div>';
+    }).join('') : '<div style="color:#4b5563;font-size:11px;padding:20px 0;text-align:center;">No sector data available</div>');
 
+    content.setAttribute('data-nse-live', nseLive ? 'true' : 'false');
     document.getElementById('sector-loading').style.display = 'none';
     document.getElementById('sector-content').style.display = 'flex';
+
+    // Auto-refresh once after 15s when background thread should have real data ready
+    if (!nseLive) {
+      _sectorAutoRefreshTimer = setTimeout(function() { loadSectorRotation(true); }, 15000);
+    }
   } catch (err) {
     document.getElementById('sector-loading').style.display = 'none';
     document.getElementById('sector-error').style.display   = 'block';

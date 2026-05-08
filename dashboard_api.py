@@ -1511,11 +1511,18 @@ def api_catalyst_calendar():
 def api_sector_rotation():
     """Hourly NSE sector momentum — Leading / Lagging / Reversing with strength score."""
     def _build():
+        # Fetch sector price data with strict 8s timeout so we never block the HTTP response
+        raw: dict = {}
         try:
-            from sector_pulse import get_sector_pulse
-            raw = get_sector_pulse()
-        except Exception:
-            raw = {}
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as _ex:
+                _fut = _ex.submit(__import__("sector_pulse").get_sector_pulse)
+                try:
+                    raw = _fut.result(timeout=8)
+                except concurrent.futures.TimeoutError:
+                    print("[sector_rotation] get_sector_pulse timed out — using news-only", flush=True)
+        except Exception as _e:
+            print(f"[sector_rotation] sector_pulse failed: {_e}", flush=True)
 
         # sectors_dict: {"IT": {"change_pct": x, "price": y}, ...} keyed by label
         sectors_dict = raw.get("sectors_dict", {}) if isinstance(raw, dict) else {}
@@ -1580,12 +1587,17 @@ def api_sector_rotation():
         return {"sectors": rotation_data, "generated_at": now_ist(),
                 "breadth": raw.get("breadth", ""), "nse_live": bool(sectors_dict)}
 
-    # Build synchronously on first call — sectors are always populated (news fallback)
-    with _cache_lock:
-        entry = _cache.get("sector_rotation")
-    if entry and (_time.time() - entry["ts"]) < 60:
-        return entry["data"]
-    return _cached("sector_rotation", 60, _build)
+    # Return immediately with neutral sectors; background thread builds real data.
+    # This prevents the tvdatafeed 429 delays from blocking the HTTP response.
+    _NEUTRAL = {
+        "sectors": [
+            {"sector": sec, "status": "NEUTRAL", "price_change": 0.0, "price": 0,
+             "news_score": 5.0, "news_count": 0, "signal": "WATCH", "source": "loading"}
+            for sec in ["IT", "BANKING", "FMCG", "AUTO", "PHARMA", "METAL", "REALTY", "ENERGY"]
+        ],
+        "generated_at": now_ist(), "breadth": "LOADING", "nse_live": False
+    }
+    return _bg_refresh("sector_rotation", 60, _build, empty=_NEUTRAL)
 
 
 @app.get("/api/nse/live")

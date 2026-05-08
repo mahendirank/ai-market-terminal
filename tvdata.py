@@ -148,7 +148,7 @@ def _fetch_many(symbols_map: dict, max_workers: int = 12) -> dict:
             pool.submit(_fetch_one, sym, exch): label
             for label, (sym, exch) in symbols_map.items()
         }
-        for fut in as_completed(futures, timeout=20):
+        for fut in as_completed(futures, timeout=8):
             label = futures[fut]
             try:
                 data = fut.result()
