@@ -1,9 +1,15 @@
 """
 live_prices.py — Unified real-time price feed.
-Primary source: Stooq.com (spot prices — matches TradingView exactly, free, no key).
-Fallback: yfinance fast_info (15-min delayed futures/ETF prices).
-Frankfurter (ECB) for FX cross-rates.
-All asset classes: NSE, global indices, FX, bonds, commodities, crypto, VIX.
+
+Source priority (best accuracy first):
+  1. Stooq.com    — free spot prices, matches TradingView (daily limit: ~500 req)
+  2. Swissquote   — institutional spot bid/ask mid (no limit, no key needed)
+  3. yfinance     — 15-min delayed; futures for commodities
+  4. FRED         — authoritative for US bond yields
+
+Stooq is blocked for the rest of the day once limit is hit.
+Swissquote covers Gold/Silver/major FX spot.
+yfinance covers indices, crypto, VIX, bonds, and EM FX.
 """
 import time, threading, gc, requests
 from concurrent.futures import ThreadPoolExecutor
@@ -11,225 +17,290 @@ from datetime import datetime, timezone, timedelta
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
-# ── Stooq symbol map (spot prices — match TradingView) ────────────────────────
-# Stooq: https://stooq.com/q/l/?s=SYMBOL&f=sd2t2ohlcv&h&e=csv
-STOOQ_SYMBOLS = {
-    # Commodities — SPOT (not futures, so price = TradingView spot chart)
-    "GOLD":    ("xauusd",   1.0,    "Spot USD/oz"),
-    "SILVER":  ("xagusd",   1.0,    "Spot USD/oz"),
-    "CRUDE":   ("cl.f",     1.0,    "WTI Futures"),
-    "NATGAS":  ("ng.f",     1.0,    "Henry Hub Futures"),
-    "COPPER":  ("hg.f",     0.01,   "COMEX cents→$/lb"),   # Stooq gives cents/lb
+# ── Rate-limit state ──────────────────────────────────────────────────────────
+_stooq_blocked  = False          # True when daily limit hit
+_stooq_lock     = threading.Lock()
+STOOQ_HEADERS   = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+SQ_HEADERS      = {"User-Agent": "Mozilla/5.0"}
 
-    # FX — spot mid-rates
-    "DXY":     ("dx.f",     1.0,    "DXY Index"),
-    "EURUSD":  ("eurusd",   1.0,    "EUR/USD spot"),
-    "GBPUSD":  ("gbpusd",   1.0,    "GBP/USD spot"),
-    "USDJPY":  ("usdjpy",   1.0,    "USD/JPY spot"),
-    "USDINR":  ("usdinr",   1.0,    "USD/INR spot"),
-    "AUDUSD":  ("audusd",   1.0,    "AUD/USD spot"),
-    "USDCAD":  ("usdcad",   1.0,    "USD/CAD spot"),
-    "USDCNY":  ("usdcny",   1.0,    "USD/CNY spot"),
+# ── Symbol tables ─────────────────────────────────────────────────────────────
 
-    # Global indices
-    "SPX":     ("^spx",     1.0,    "S&P 500"),
-    "NASDAQ":  ("^ndx",     1.0,    "NASDAQ 100"),
-    "DAX":     ("^dax",     1.0,    "DAX"),
-    "HSI":     ("^hsi",     1.0,    "Hang Seng"),
+# Stooq spot symbols  (key, stooq_sym, multiplier)
+STOOQ_MAP = {
+    "GOLD":    ("xauusd",  1.0),
+    "SILVER":  ("xagusd",  1.0),
+    "CRUDE":   ("cl.f",    1.0),
+    "NATGAS":  ("ng.f",    1.0),
+    "COPPER":  ("hg.f",    0.01),   # Stooq gives cents/lb → $/lb
+    "DXY":     ("dx.f",    1.0),
+    "EURUSD":  ("eurusd",  1.0),
+    "GBPUSD":  ("gbpusd",  1.0),
+    "USDJPY":  ("usdjpy",  1.0),
+    "USDINR":  ("usdinr",  1.0),
+    "AUDUSD":  ("audusd",  1.0),
+    "USDCAD":  ("usdcad",  1.0),
+    "USDCNY":  ("usdcny",  1.0),
+    "SPX":     ("^spx",    1.0),
+    "NASDAQ":  ("^ndx",    1.0),
+    "DAX":     ("^dax",    1.0),
+    "HSI":     ("^hsi",    1.0),
 }
 
-# Instruments not on Stooq → yfinance fallback
-YF_FALLBACK = {
-    # Global indices
-    "DOW":    "^DJI",
-    "FTSE":   "^FTSE",
-    "NIKKEI": "^N225",
-    # Bonds
-    "US_3M":  "^IRX",
-    "US_5Y":  "^FVX",
-    "US_10Y": "^TNX",
-    "US_30Y": "^TYX",
-    # Crypto
-    "BTC":    "BTC-USD",
-    "ETH":    "ETH-USD",
-    # VIX
-    "VIX":    "^VIX",
+# Swissquote forex-data-feed pairs  (key, base, quote)
+SQ_MAP = {
+    "GOLD":    ("XAU", "USD"),
+    "SILVER":  ("XAG", "USD"),
+    "EURUSD":  ("EUR", "USD"),
+    "GBPUSD":  ("GBP", "USD"),
+    "USDJPY":  ("USD", "JPY"),
+    "AUDUSD":  ("AUD", "USD"),
+    "USDCAD":  ("USD", "CAD"),
+    "USDCNY":  ("USD", "CNH"),   # CNH ≈ CNY
 }
 
-# NSE via yfinance (tvdatafeed fallback if available)
-YF_NSE = {
-    "NIFTY50":    "^NSEI",
-    "BANKNIFTY":  "^NSEBANK",
-    "SENSEX":     "^BSESN",
-    "INDIA_VIX":  "^INDIAVIX",
+# yfinance fallback  (key, yf_symbol)
+YF_MAP = {
+    "GOLD":     "GC=F",   "SILVER":  "SI=F",    "CRUDE":   "CL=F",
+    "NATGAS":   "NG=F",   "COPPER":  "HG=F",
+    "DXY":      "DX-Y.NYB","EURUSD": "EURUSD=X","GBPUSD":  "GBPUSD=X",
+    "USDJPY":   "USDJPY=X","USDINR": "USDINR=X","AUDUSD":  "AUDUSD=X",
+    "USDCAD":   "USDCAD=X","USDCNY": "USDCNY=X",
+    "SPX":      "^GSPC",  "NASDAQ":  "^IXIC",   "DOW":     "^DJI",
+    "DAX":      "^GDAXI", "FTSE":    "^FTSE",   "NIKKEI":  "^N225",   "HSI": "^HSI",
+    "US_3M":    "^IRX",   "US_5Y":   "^FVX",    "US_10Y":  "^TNX",    "US_30Y": "^TYX",
+    "BTC":      "BTC-USD","ETH":     "ETH-USD",
+    "VIX":      "^VIX",   "INDIA_VIX": "^INDIAVIX",
+    "NIFTY50":  "^NSEI",  "BANKNIFTY": "^NSEBANK","SENSEX": "^BSESN",
 }
 
-# Valid range guards — reject garbage data
+# Valid ranges to reject garbage
 _VALID = {
-    "GOLD":    (2000, 8000), "SILVER": (10, 200), "CRUDE": (20, 200),
-    "NATGAS":  (0.5, 20),    "COPPER": (1, 15),
-    "DXY":     (80, 120),    "EURUSD": (0.9, 1.5), "GBPUSD": (1.0, 1.7),
-    "USDJPY":  (100, 175),   "USDINR": (70, 110),  "AUDUSD": (0.5, 0.9),
-    "USDCAD":  (1.0, 1.6),   "USDCNY": (6.0, 8.0),
-    "SPX":     (2000,12000), "NASDAQ": (5000,35000), "DOW": (20000,65000),
-    "DAX":     (5000,25000), "FTSE": (5000,12000),   "NIKKEI": (10000,80000),
-    "HSI":     (10000,40000),
-    "NIFTY50": (10000,35000),"BANKNIFTY":(30000,80000),"SENSEX":(30000,90000),
-    "INDIA_VIX":(5,90),      "VIX": (5,90),
-    "US_3M":   (0,8), "US_5Y":(0,8), "US_10Y":(0,8), "US_30Y":(0,8),
-    "BTC":     (5000,300000),"ETH":(50,20000),
+    "GOLD":   (2000,9000),"SILVER":(10,200),"CRUDE":(20,200),"NATGAS":(0.5,20),"COPPER":(1,15),
+    "DXY":(80,120),"EURUSD":(0.9,1.5),"GBPUSD":(1.0,1.7),"USDJPY":(100,175),
+    "USDINR":(70,115),"AUDUSD":(0.5,0.9),"USDCAD":(1.0,1.6),"USDCNY":(6.0,8.0),
+    "SPX":(2000,12000),"NASDAQ":(5000,35000),"DOW":(20000,65000),"DAX":(5000,25000),
+    "FTSE":(5000,12000),"NIKKEI":(10000,80000),"HSI":(10000,40000),
+    "NIFTY50":(10000,35000),"BANKNIFTY":(30000,80000),"SENSEX":(30000,95000),
+    "US_3M":(0,8),"US_5Y":(0,8),"US_10Y":(0,8),"US_30Y":(0,8),"US_2Y":(0,8),
+    "VIX":(5,90),"INDIA_VIX":(5,90),"BTC":(5000,300000),"ETH":(50,25000),
 }
 
-STOOQ_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-
-
-def _chk(name, val):
+def _ok(name, val):
     lo, hi = _VALID.get(name, (None, None))
     return lo is None or lo <= float(val) <= hi
 
+def _entry(price, prev, source):
+    if not price or price <= 0:
+        return None
+    chg = round((price - prev) / prev * 100, 3) if prev and prev > 0 else 0.0
+    dp  = 4 if price < 10 else 3 if price < 100 else 2
+    return {
+        "price":  round(price, dp),
+        "prev":   round(prev,  dp),
+        "change": chg,
+        "arrow":  "▲" if chg > 0 else "▼" if chg < 0 else "─",
+        "source": source,
+    }
 
-def _stooq_one(key: str, sym: str, mult: float) -> tuple:
-    """Fetch one Stooq symbol. Returns (key, dict|None)."""
-    for attempt in range(2):
-        try:
-            if attempt > 0:
-                time.sleep(0.4)
-            r = requests.get(
-                f"https://stooq.com/q/l/?s={sym}&f=sd2t2ohlcv&h&e=csv",
-                headers=STOOQ_HEADERS, timeout=8
-            )
-            lines = [l for l in r.text.strip().splitlines()
-                     if l and not l.startswith("Symbol") and "," in l]
-            if not lines:
-                continue
-            parts = lines[-1].split(",")
-            if len(parts) < 7:
-                continue
-            close = float(parts[6]) * mult
-            open_ = float(parts[3]) * mult
-            if close <= 0 or not _chk(key, close):
-                continue
-            chg = round((close - open_) / open_ * 100, 3) if open_ > 0 else 0.0
-            return key, {
-                "price":  round(close, 4 if close < 10 else 2),
-                "prev":   round(open_, 4 if open_ < 10 else 2),
-                "change": chg,
-                "arrow":  "▲" if chg > 0 else "▼" if chg < 0 else "─",
-                "source": "stooq",
-            }
-        except Exception:
-            pass
-    return key, None
+# ── Source 1: Stooq ───────────────────────────────────────────────────────────
 
+def _stooq_one(name, sym, mult=1.0):
+    global _stooq_blocked
+    if _stooq_blocked:
+        return None
+    try:
+        r = requests.get(
+            f"https://stooq.com/q/l/?s={sym}&f=sd2t2ohlcv&h&e=csv",
+            headers=STOOQ_HEADERS, timeout=8
+        )
+        body = r.text.strip()
+        if "Exceeded" in body or "limit" in body.lower():
+            with _stooq_lock:
+                _stooq_blocked = True
+            print("[live_prices] Stooq daily limit hit — switching to Swissquote+yfinance", flush=True)
+            return None
+        lines = [l for l in body.splitlines() if l and not l.startswith("Symbol") and "," in l]
+        if not lines:
+            return None
+        parts = lines[-1].split(",")
+        if len(parts) < 7:
+            return None
+        close = float(parts[6]) * mult
+        open_ = float(parts[3]) * mult
+        if close <= 0 or not _ok(name, close):
+            return None
+        return _entry(close, open_, "stooq")
+    except Exception:
+        return None
 
-def _stooq_batch(symbols: dict) -> dict:
-    """
-    Fetch multiple Stooq symbols with limited concurrency (3 max) to avoid rate-limits.
-    symbols = {"KEY": ("stooq_sym", multiplier, label)}
-    """
+def _stooq_batch(keys: list) -> dict:
+    """Fetch symbols from Stooq with max 3 concurrent connections."""
+    if _stooq_blocked:
+        return {}
     results = {}
-    # Max 3 concurrent requests to Stooq to stay under rate limit
     with ThreadPoolExecutor(max_workers=3) as pool:
         futs = {
-            pool.submit(_stooq_one, k, sym, mult): k
-            for k, (sym, mult, _) in symbols.items()
+            pool.submit(_stooq_one, k, STOOQ_MAP[k][0], STOOQ_MAP[k][1]): k
+            for k in keys if k in STOOQ_MAP
         }
         for fut in futs:
             k = futs[fut]
             try:
-                _, v = fut.result(timeout=15)
+                v = fut.result(timeout=15)
                 if v:
                     results[k] = v
             except Exception:
                 pass
     return results
 
+# ── Source 2: Swissquote ──────────────────────────────────────────────────────
 
-def _yf_quote(sym: str, name: str) -> dict | None:
-    """yfinance fast_info quote with validation."""
+def _sq_prev_closes(keys: list) -> dict:
+    """Get previous closes from yfinance for Swissquote instruments (for % change)."""
+    out = {}
+    try:
+        import yfinance as yf
+        for k in keys:
+            if k not in YF_MAP:
+                continue
+            try:
+                fi = yf.Ticker(YF_MAP[k]).fast_info
+                out[k] = float(fi.previous_close)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return out
+
+def _sq_one(name, base, quote, prev=0.0):
+    try:
+        r = requests.get(
+            f"https://forex-data-feed.swissquote.com/public-quotes/bboquotes/instrument/{base}/{quote}",
+            headers=SQ_HEADERS, timeout=7
+        )
+        if r.status_code == 200:
+            data = r.json()
+            if data and isinstance(data, list):
+                p   = data[0].get("spreadProfilePrices", [{}])[0]
+                bid = float(p.get("bid", 0))
+                ask = float(p.get("ask", 0))
+                if bid > 0 and ask > 0:
+                    mid = (bid + ask) / 2
+                    if _ok(name, mid):
+                        return _entry(mid, prev if prev > 0 else mid, "swissquote")
+    except Exception:
+        pass
+    return None
+
+def _sq_batch(keys: list) -> dict:
+    """Fetch Swissquote spot prices — no rate limit. Includes % change via yfinance prev close."""
+    results = {}
+    # Get prev closes in parallel with SQ fetches
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        prev_fut = pool.submit(_sq_prev_closes, keys)
+        sq_futs  = {
+            pool.submit(_sq_one, k, SQ_MAP[k][0], SQ_MAP[k][1]): k
+            for k in keys if k in SQ_MAP
+        }
+        prevs = {}
+        try:
+            prevs = prev_fut.result(timeout=15) or {}
+        except Exception:
+            pass
+        for fut in sq_futs:
+            k = sq_futs[fut]
+            try:
+                raw = fut.result(timeout=10)
+                if raw:
+                    # patch in prev close for proper % change
+                    if k in prevs and prevs[k] > 0:
+                        raw = _entry(raw["price"], prevs[k], "swissquote")
+                    results[k] = raw
+            except Exception:
+                pass
+    return results
+
+# ── Source 3: yfinance ────────────────────────────────────────────────────────
+
+def _yf_one(name, sym):
     try:
         import yfinance as yf
         fi   = yf.Ticker(sym).fast_info
         last = float(fi.last_price)
         prev = float(fi.previous_close)
-        if last <= 0 or not _chk(name, last):
-            return None
-        chg = round((last - prev) / prev * 100, 3) if prev > 0 else 0.0
-        return {
-            "price":  round(last, 4 if last < 10 else 2),
-            "prev":   round(prev, 4 if prev < 10 else 2),
-            "change": chg,
-            "arrow":  "▲" if chg > 0 else "▼" if chg < 0 else "─",
-            "source": "yfinance",
-        }
-    except Exception:
-        return None
-
-
-def _fred_yield(series_id: str, name: str) -> dict | None:
-    """FRED bond yields — authoritative, free."""
-    try:
-        r = requests.get(
-            f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}",
-            timeout=7, headers=STOOQ_HEADERS
-        )
-        lines = [l for l in r.text.strip().splitlines()
-                 if not l.startswith("DATE") and "." in l]
-        if len(lines) >= 2:
-            prev = float(lines[-2].split(",")[1])
-            val  = float(lines[-1].split(",")[1])
-            if _chk(name, val):
-                chg = round((val - prev) / prev * 100, 3) if prev > 0 else 0.0
-                return {
-                    "price":  round(val, 3),
-                    "prev":   round(prev, 3),
-                    "change": chg,
-                    "arrow":  "▲" if chg > 0 else "▼" if chg < 0 else "─",
-                    "source": "fred",
-                }
+        if last > 0 and _ok(name, last):
+            return _entry(last, prev, "yfinance")
     except Exception:
         pass
     return None
 
+def _yf_batch(keys: list) -> dict:
+    results = {}
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futs = {
+            pool.submit(_yf_one, k, YF_MAP[k]): k
+            for k in keys if k in YF_MAP
+        }
+        for fut in futs:
+            k = futs[fut]
+            try:
+                v = fut.result(timeout=20)
+                if v:
+                    results[k] = v
+            except Exception:
+                pass
+    return results
 
-def _fetch_nse() -> dict:
-    """NSE indices: tvdatafeed → yfinance fallback."""
-    out = {}
-    # Try tvdatafeed
+# ── Source 4: FRED ────────────────────────────────────────────────────────────
+
+def _fred_yield(name, series_id):
     try:
-        import sys
-        sys.path.insert(0, "/Users/mahendiran/ai-system/core")
-        from tvdata import get_nse_indices
-        for k, v in (get_nse_indices() or {}).items():
-            if v and _chk(k, v.get("price", 0)):
-                out[k] = {**v, "source": "tvdatafeed"}
+        r = requests.get(
+            f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}",
+            timeout=8, headers=STOOQ_HEADERS
+        )
+        lines = [l for l in r.text.strip().splitlines()
+                 if not l.startswith("DATE") and "." in l and "," in l]
+        if len(lines) >= 2:
+            prev = float(lines[-2].split(",")[1])
+            val  = float(lines[-1].split(",")[1])
+            if _ok(name, val):
+                return _entry(val, prev, "fred")
     except Exception:
         pass
-    # yfinance fallback for any missing
+    return None
+
+# ── NSE via tvdatafeed + yfinance fallback ────────────────────────────────────
+
+def _fetch_nse() -> dict:
+    out = {}
     import yfinance as yf
-    for label, sym in YF_NSE.items():
-        if label in out:
+    for label in ["NIFTY50", "BANKNIFTY", "SENSEX", "INDIA_VIX"]:
+        sym = YF_MAP.get(label)
+        if not sym:
             continue
         try:
             fi   = yf.Ticker(sym).fast_info
             last = float(fi.last_price)
             prev = float(fi.previous_close)
-            name_key = label.replace("_", "")
-            if last > 0 and _chk(name_key, last):
-                chg = round((last - prev) / prev * 100, 3) if prev > 0 else 0.0
-                out[label] = {
-                    "price": round(last, 2), "prev": round(prev, 2),
-                    "change": chg,
-                    "arrow": "▲" if chg > 0 else "▼" if chg < 0 else "─",
-                    "source": "yfinance",
-                }
+            if last > 0 and _ok(label, last):
+                out[label] = _entry(last, prev, "yfinance")
         except Exception:
             pass
     return out
 
+# ── Main fetch ────────────────────────────────────────────────────────────────
+
+# All keys by category
+_CMDTY_KEYS  = ["GOLD","SILVER","CRUDE","NATGAS","COPPER"]
+_FX_KEYS     = ["DXY","EURUSD","GBPUSD","USDJPY","USDINR","AUDUSD","USDCAD","USDCNY"]
+_GLOBAL_KEYS = ["SPX","NASDAQ","DAX","HSI","DOW","FTSE","NIKKEI"]
+_BOND_KEYS   = ["US_3M","US_5Y","US_10Y","US_30Y","US_2Y"]
+_CRYPTO_KEYS = ["BTC","ETH"]
+_VIX_KEYS    = ["VIX"]
+
 
 def _fetch_all() -> dict:
-    """Fetch all prices concurrently. Returns full price dict."""
     result = {
         "indices":     {},
         "global":      {},
@@ -240,67 +311,97 @@ def _fetch_all() -> dict:
         "vix":         {},
         "ts":          datetime.now(IST).strftime("%H:%M:%S IST"),
         "ts_epoch":    time.time(),
+        "stooq_ok":    not _stooq_blocked,
     }
 
-    # Split Stooq symbols by category
-    stooq_commodities = {k: v for k, v in STOOQ_SYMBOLS.items()
-                         if k in ("GOLD","SILVER","CRUDE","NATGAS","COPPER")}
-    stooq_fx          = {k: v for k, v in STOOQ_SYMBOLS.items()
-                         if k in ("DXY","EURUSD","GBPUSD","USDJPY","USDINR","AUDUSD","USDCAD","USDCNY")}
-    stooq_global      = {k: v for k, v in STOOQ_SYMBOLS.items()
-                         if k in ("SPX","NASDAQ","DAX","HSI")}
+    # Keys we still need after trying each source
+    needed_cmdty  = set(_CMDTY_KEYS)
+    needed_fx     = set(_FX_KEYS)
+    needed_global = set(_GLOBAL_KEYS)
 
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        fut_nse   = pool.submit(_fetch_nse)
-        fut_cmd   = pool.submit(_stooq_batch, stooq_commodities)
-        fut_fx    = pool.submit(_stooq_batch, stooq_fx)
-        fut_glo_s = pool.submit(_stooq_batch, stooq_global)
+    with ThreadPoolExecutor(max_workers=6) as outer:
+        # All sources run in parallel
+        fut_nse    = outer.submit(_fetch_nse)
+        fut_stooq  = outer.submit(_stooq_batch, _CMDTY_KEYS + _FX_KEYS + ["SPX","NASDAQ","DAX","HSI"])
+        fut_yf_glo = outer.submit(_yf_batch, ["DOW","FTSE","NIKKEI","HSI"])
+        fut_yf_bnd = outer.submit(_yf_batch, _BOND_KEYS[:-1])   # US_2Y from FRED
+        fut_yf_cry = outer.submit(_yf_batch, _CRYPTO_KEYS)
+        fut_yf_vix = outer.submit(_yf_batch, _VIX_KEYS)
+        fut_fred   = outer.submit(_fred_yield, "US_2Y", "DGS2")
 
-        # yfinance for DOW, FTSE, NIKKEI, crypto, VIX, bonds
-        yf_tasks = {}
-        for k, sym in YF_FALLBACK.items():
-            yf_tasks[k] = pool.submit(_yf_quote, sym, k)
-
-        # FRED for US_2Y (most authoritative)
-        fut_2y = pool.submit(_fred_yield, "DGS2", "US_2Y")
-
-        # Collect Stooq results
-        try: result["indices"].update(fut_nse.result(timeout=25))
-        except: pass
-
-        try: result["commodities"].update(fut_cmd.result(timeout=12))
-        except: pass
-
-        try: result["fx"].update(fut_fx.result(timeout=12))
-        except: pass
-
-        try: result["global"].update(fut_glo_s.result(timeout=12))
-        except: pass
-
-        # yfinance results
-        for k, fut in yf_tasks.items():
-            try:
-                v = fut.result(timeout=15)
-                if not v:
-                    continue
-                if k in ("DOW","FTSE","NIKKEI"):
-                    result["global"][k] = v
-                elif k in ("US_3M","US_5Y","US_10Y","US_30Y"):
-                    result["bonds"][k] = v
-                elif k in ("BTC","ETH"):
-                    result["crypto"][k] = v
-                elif k == "VIX":
-                    result["vix"][k] = v
-            except:
-                pass
-
-        # FRED US_2Y
+        # NSE
         try:
-            v2y = fut_2y.result(timeout=10)
-            if v2y:
-                result["bonds"]["US_2Y"] = v2y
-        except:
-            pass
+            for k, v in (fut_nse.result(timeout=35) or {}).items():
+                result["indices"][k] = v
+        except: pass
+
+        # Stooq (spot — best accuracy)
+        stooq_got = {}
+        try:
+            stooq_got = fut_stooq.result(timeout=20) or {}
+        except: pass
+
+        for k in _CMDTY_KEYS:
+            if k in stooq_got:
+                result["commodities"][k] = stooq_got[k]
+                needed_cmdty.discard(k)
+        for k in _FX_KEYS:
+            if k in stooq_got:
+                result["fx"][k] = stooq_got[k]
+                needed_fx.discard(k)
+        for k in ["SPX","NASDAQ","DAX","HSI"]:
+            if k in stooq_got:
+                result["global"][k] = stooq_got[k]
+                needed_global.discard(k)
+
+    # Round 2: Swissquote for anything Stooq missed (Gold/Silver/FX spot)
+    sq_keys = ([k for k in needed_cmdty if k in SQ_MAP] +
+               [k for k in needed_fx    if k in SQ_MAP])
+    if sq_keys:
+        sq_got = _sq_batch(sq_keys)
+        for k in list(needed_cmdty):
+            if k in sq_got:
+                result["commodities"][k] = sq_got[k]
+                needed_cmdty.discard(k)
+        for k in list(needed_fx):
+            if k in sq_got:
+                result["fx"][k] = sq_got[k]
+                needed_fx.discard(k)
+
+    # Round 3: yfinance for anything still missing
+    yf_still = list(needed_cmdty) + list(needed_fx) + list(needed_global)
+    if yf_still:
+        yf_got = _yf_batch(yf_still)
+        for k in list(needed_cmdty):
+            if k in yf_got: result["commodities"][k] = yf_got[k]
+        for k in list(needed_fx):
+            if k in yf_got: result["fx"][k] = yf_got[k]
+        for k in list(needed_global):
+            if k in yf_got: result["global"][k] = yf_got[k]
+
+    # Collect remaining (bonds, crypto, VIX, global indices from outer futures)
+    try:
+        bnd = fut_yf_bnd.result(timeout=5) or {}
+        for k,v in bnd.items():
+            result["bonds"][k] = v
+    except: pass
+    try:
+        fred2y = fut_fred.result(timeout=5)
+        if fred2y: result["bonds"]["US_2Y"] = fred2y
+    except: pass
+    try:
+        for k,v in (fut_yf_cry.result(timeout=5) or {}).items():
+            result["crypto"][k] = v
+    except: pass
+    try:
+        for k,v in (fut_yf_vix.result(timeout=5) or {}).items():
+            result["vix"][k] = v
+    except: pass
+    try:
+        for k,v in (fut_yf_glo.result(timeout=5) or {}).items():
+            if k not in result["global"]:
+                result["global"][k] = v
+    except: pass
 
     # Move INDIA_VIX from indices → vix panel
     if "INDIA_VIX" in result["indices"]:
@@ -311,33 +412,18 @@ def _fetch_all() -> dict:
 
 
 def get_live_prices(force: bool = False) -> dict:
-    """Return all live prices. No internal caching — caller (_bg_refresh) handles TTL."""
     return _fetch_all()
 
 
 def get_ticker_items() -> list:
-    """Flat list for scrolling ticker. Ordered: NSE→Global→FX→Cmdty→Bonds→Crypto→VIX."""
     d = get_live_prices()
     items = []
-    ORDER = [
-        ("indices",     d.get("indices", {}),     "NSE"),
-        ("global",      d.get("global", {}),      "GLOBAL"),
-        ("fx",          d.get("fx", {}),          "FX"),
-        ("commodities", d.get("commodities", {}), "CMDTY"),
-        ("bonds",       d.get("bonds", {}),       "BONDS"),
-        ("crypto",      d.get("crypto", {}),      "CRYPTO"),
-        ("vix",         d.get("vix", {}),         "VIX"),
-    ]
-    for _, grp, label in ORDER:
+    for cat, grp in [("NSE",d["indices"]),("GLOBAL",d["global"]),("FX",d["fx"]),
+                      ("CMDTY",d["commodities"]),("BONDS",d["bonds"]),
+                      ("CRYPTO",d["crypto"]),("VIX",d["vix"])]:
         for sym, v in grp.items():
-            if not v:
-                continue
-            items.append({
-                "symbol":   sym,
-                "price":    v.get("price", 0),
-                "change":   v.get("change", 0),
-                "arrow":    v.get("arrow", "─"),
-                "category": label,
-                "source":   v.get("source", ""),
-            })
+            if v:
+                items.append({"symbol":sym,"price":v.get("price",0),
+                               "change":v.get("change",0),"arrow":v.get("arrow","─"),
+                               "category":cat,"source":v.get("source","")})
     return items
