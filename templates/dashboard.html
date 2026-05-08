@@ -805,20 +805,49 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
     </div>
 
     <!-- CATALYST CALENDAR PANEL -->
-    <div id="catalyst-panel" style="display:none;flex:1;overflow-y:auto;padding:14px;background:#070b10;flex-direction:column;gap:12px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #0a2a1a;padding-bottom:10px;">
+    <div id="catalyst-panel" style="display:none;flex:1;overflow-y:auto;padding:14px;background:#070b10;flex-direction:column;gap:10px;">
+      <!-- Header -->
+      <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #0a2a1a;padding-bottom:10px;flex-shrink:0;">
         <div>
-          <div style="color:#34d399;font-size:13px;font-weight:bold;letter-spacing:1.5px;">📅 CATALYST CALENDAR</div>
-          <div style="color:#4b5563;font-size:9px;letter-spacing:1px;margin-top:2px;">NSE EARNINGS · RBI DATES · MACRO EVENTS · NEXT 60 DAYS</div>
+          <div style="color:#34d399;font-size:13px;font-weight:bold;letter-spacing:1.5px;">📅 ECONOMIC CALENDAR</div>
+          <div id="cal-source-label" style="color:#4b5563;font-size:9px;letter-spacing:1px;margin-top:2px;">FOREXFACTORY · RBI · NSE F&O · MACRO EVENTS</div>
         </div>
         <button onclick="loadCatalystCalendar(true)" style="background:#001a0a;border:1px solid #059669;color:#34d399;padding:5px 14px;cursor:pointer;font-family:inherit;font-size:10px;border-radius:3px;letter-spacing:1px;">↺ REFRESH</button>
       </div>
+      <!-- Country filters -->
+      <div style="display:flex;gap:5px;flex-wrap:wrap;flex-shrink:0;">
+        <span style="color:#4b5563;font-size:9px;letter-spacing:1px;align-self:center;margin-right:2px;">COUNTRY:</span>
+        <button class="cal-filter-btn active" data-filter="country" data-val="ALL"  onclick="setCalFilter('country',this)" style="font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;background:#0a3a1a;border:1px solid #059669;color:#34d399;font-family:inherit;letter-spacing:1px;">ALL</button>
+        <button class="cal-filter-btn" data-filter="country" data-val="INR"  onclick="setCalFilter('country',this)" style="font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;background:#0a0d14;border:1px solid #1c2a3a;color:#6b7280;font-family:inherit;">🇮🇳 IN</button>
+        <button class="cal-filter-btn" data-filter="country" data-val="USD"  onclick="setCalFilter('country',this)" style="font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;background:#0a0d14;border:1px solid #1c2a3a;color:#6b7280;font-family:inherit;">🇺🇸 US</button>
+        <button class="cal-filter-btn" data-filter="country" data-val="EUR"  onclick="setCalFilter('country',this)" style="font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;background:#0a0d14;border:1px solid #1c2a3a;color:#6b7280;font-family:inherit;">🇪🇺 EU</button>
+        <button class="cal-filter-btn" data-filter="country" data-val="GBP"  onclick="setCalFilter('country',this)" style="font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;background:#0a0d14;border:1px solid #1c2a3a;color:#6b7280;font-family:inherit;">🇬🇧 UK</button>
+        <button class="cal-filter-btn" data-filter="country" data-val="JPY"  onclick="setCalFilter('country',this)" style="font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;background:#0a0d14;border:1px solid #1c2a3a;color:#6b7280;font-family:inherit;">🇯🇵 JP</button>
+        <button class="cal-filter-btn" data-filter="country" data-val="AUD"  onclick="setCalFilter('country',this)" style="font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;background:#0a0d14;border:1px solid #1c2a3a;color:#6b7280;font-family:inherit;">🇦🇺 AU</button>
+      </div>
+      <!-- Star / impact filters -->
+      <div style="display:flex;gap:5px;flex-wrap:wrap;flex-shrink:0;">
+        <span style="color:#4b5563;font-size:9px;letter-spacing:1px;align-self:center;margin-right:2px;">IMPACT:</span>
+        <button class="cal-filter-btn active" data-filter="stars" data-val="0"  onclick="setCalFilter('stars',this)" style="font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;background:#0a3a1a;border:1px solid #059669;color:#34d399;font-family:inherit;letter-spacing:1px;">ALL</button>
+        <button class="cal-filter-btn" data-filter="stars" data-val="3"  onclick="setCalFilter('stars',this)" style="font-size:9px;padding:3px 9px;border-radius:3px;cursor:pointer;background:#0a0d14;border:1px solid #1c2a3a;color:#f87171;font-family:inherit;">🔴 3-STAR HIGH</button>
+        <button class="cal-filter-btn" data-filter="stars" data-val="2"  onclick="setCalFilter('stars',this)" style="font-size:9px;padding:3px 9px;border-radius:3px;cursor:pointer;background:#0a0d14;border:1px solid #1c2a3a;color:#fbbf24;font-family:inherit;">🟡 2-STAR MED</button>
+        <button class="cal-filter-btn" data-filter="stars" data-val="1"  onclick="setCalFilter('stars',this)" style="font-size:9px;padding:3px 9px;border-radius:3px;cursor:pointer;background:#0a0d14;border:1px solid #1c2a3a;color:#6b7280;font-family:inherit;">⚪ 1-STAR LOW</button>
+      </div>
+      <!-- Loading / Error / Content -->
       <div id="calendar-loading" style="display:none;text-align:center;padding:40px 0;">
         <div style="color:#34d399;font-size:22px;animation:spin 1s linear infinite;display:inline-block;">◌</div>
-        <div style="color:#e2e8f0;font-size:12px;font-weight:bold;margin-top:12px;">LOADING EVENTS...</div>
+        <div style="color:#e2e8f0;font-size:12px;font-weight:bold;margin-top:12px;">FETCHING LIVE CALENDAR...</div>
+        <div style="color:#4b5563;font-size:10px;margin-top:6px;">Loading from ForexFactory + RBI + NSE</div>
       </div>
-      <div id="calendar-content" style="display:none;flex-direction:column;gap:8px;"></div>
-      <div id="calendar-error" style="display:none;background:#1a0a0a;border:1px solid #7f1d1d;border-radius:5px;padding:14px;color:#f87171;font-size:11px;"></div>
+      <!-- Table header (ForexFactory style) -->
+      <div id="calendar-header" style="display:none;background:#050810;border:1px solid #0f2030;border-radius:4px;padding:6px 12px;font-size:9px;font-weight:bold;letter-spacing:1.5px;color:#374151;display:grid;grid-template-columns:64px 40px 40px 1fr 70px 70px 70px;gap:4px;align-items:center;flex-shrink:0;">
+        <span>DATE</span><span>TIME</span><span>C</span><span>EVENT</span><span style="text-align:right;">ACTUAL</span><span style="text-align:right;">FORECAST</span><span style="text-align:right;">PREV</span>
+      </div>
+      <div id="calendar-content" style="display:none;flex-direction:column;gap:3px;"></div>
+      <div id="calendar-error"   style="display:none;background:#1a0a0a;border:1px solid #7f1d1d;border-radius:5px;padding:14px;color:#f87171;font-size:11px;"></div>
+      <div style="text-align:center;color:#1f2937;font-size:9px;letter-spacing:1px;padding-top:6px;border-top:1px solid #0e1a24;flex-shrink:0;">
+        SOURCE: FOREXFACTORY · TIMES IN ET (US EASTERN) · INDIA EVENTS IN IST
+      </div>
     </div>
 
     <!-- SECTOR ROTATION PANEL -->
@@ -921,13 +950,14 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 <div class="earn-panel" id="earn-panel">
   <div class="earn-head">
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-      <span class="earn-head-title" onclick="toggleEarnings()" style="cursor:pointer;">EARNINGS MONITOR — EPS · REVENUE · MARGINS · GUIDANCE · ANALYST SCORE</span>
-      <div style="display:flex;gap:5px;">
-        <span class="ertab active" data-reg="ALL"   onclick="setEarnRegion(this)">ALL</span>
-        <span class="ertab" data-reg="USA"    onclick="setEarnRegion(this)">🇺🇸 USA</span>
-        <span class="ertab" data-reg="INDIA"  onclick="setEarnRegion(this)">🇮🇳 INDIA</span>
-        <span class="ertab" data-reg="EUROPE" onclick="setEarnRegion(this)">🇪🇺 EUROPE</span>
-        <span class="ertab" data-reg="JAPAN"  onclick="setEarnRegion(this)">🇯🇵 JAPAN</span>
+      <span class="earn-head-title" onclick="toggleEarnings()" style="cursor:pointer;">EARNINGS MONITOR — NSE/BSE · USA · GLOBAL</span>
+      <div style="display:flex;gap:5px;flex-wrap:wrap;">
+        <span class="ertab active" data-reg="ALL"        onclick="setEarnRegion(this)">ALL</span>
+        <span class="ertab" data-reg="NSE_UPCOMING"      onclick="setEarnRegion(this)" style="color:#34d399;border-color:#0a3a1a;">🇮🇳 NSE UPCOMING</span>
+        <span class="ertab" data-reg="NSE_RESULTS"       onclick="setEarnRegion(this)" style="color:#60a5fa;border-color:#0a1a3a;">🇮🇳 NSE RESULTS</span>
+        <span class="ertab" data-reg="USA"        onclick="setEarnRegion(this)">🇺🇸 USA</span>
+        <span class="ertab" data-reg="EUROPE"     onclick="setEarnRegion(this)">🇪🇺 EUROPE</span>
+        <span class="ertab" data-reg="JAPAN"      onclick="setEarnRegion(this)">🇯🇵 JAPAN</span>
       </div>
     </div>
     <span class="earn-head-right" id="earn-toggle" onclick="toggleEarnings()" style="cursor:pointer;">▲ COLLAPSE</span>
@@ -1503,16 +1533,25 @@ async function loadSignal() {
 }
 
 // ── Earnings region filter ────────────────────────────────
-let _allEarnData = [];
+let _allEarnData  = [];
 let _activeRegion = 'ALL';
+let _nseEarnData  = null;   // cached NSE earnings response
+
 function setEarnRegion(el) {
   document.querySelectorAll('.ertab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
   _activeRegion = el.dataset.reg;
-  renderEarnings();
+  if (_activeRegion === 'NSE_UPCOMING' || _activeRegion === 'NSE_RESULTS') {
+    loadNseEarnings();
+  } else {
+    renderEarnings();
+  }
 }
 
 function renderEarnings() {
+  if (_activeRegion === 'NSE_UPCOMING' || _activeRegion === 'NSE_RESULTS') {
+    renderNseEarnings(); return;
+  }
   const filtered = _activeRegion === 'ALL' ? _allEarnData
                  : _allEarnData.filter(e => e.region === _activeRegion);
   const COLS = 16;
@@ -1625,6 +1664,79 @@ async function loadEarnings() {
     _allEarnData = data;
     renderEarnings();
   } catch(e) { console.error('earnings',e); }
+}
+
+// ── NSE/BSE Live Earnings (real quarterly results) ────────
+async function loadNseEarnings() {
+  document.getElementById('earn-body').innerHTML =
+    '<tr><td colspan="16" class="loading"><span class="spinner">◌</span> Fetching live NSE/BSE results...</td></tr>';
+  try {
+    const data = await fetch(`${BASE}/api/nse-earnings`).then(r => r.json());
+    _nseEarnData = data;
+    renderNseEarnings();
+  } catch(e) {
+    document.getElementById('earn-body').innerHTML =
+      `<tr><td colspan="16" class="loading" style="color:#f87171;">NSE earnings error: ${e.message}</td></tr>`;
+  }
+}
+
+function renderNseEarnings() {
+  if (!_nseEarnData) { loadNseEarnings(); return; }
+
+  if (_activeRegion === 'NSE_UPCOMING') {
+    const items = _nseEarnData.upcoming || [];
+    if (!items.length) {
+      document.getElementById('earn-body').innerHTML =
+        '<tr><td colspan="16" class="loading">No upcoming NSE earnings dates available via yfinance</td></tr>';
+      return;
+    }
+    const rows = items.map(e => `<tr>
+      <td>
+        <span class="earn-sym">${e.symbol}</span>
+        <div style="color:var(--muted);font-size:9px;margin-top:1px;">${e.name||''}</div>
+      </td>
+      <td colspan="2" style="color:#34d399;font-weight:bold;">${e.days_label||e.date}</td>
+      <td style="color:var(--muted)">${e.date||'—'}</td>
+      <td style="color:var(--muted)">${e.sector||'—'}</td>
+      <td colspan="2" style="color:var(--muted)">${e.exchange||'NSE'}</td>
+      <td colspan="4" style="color:#4b5563;font-size:9px;">Upcoming quarter results</td>
+      <td colspan="5" style="color:#4b5563;font-size:9px;">Source: ${e.source||'yfinance'}</td>
+    </tr>`);
+    document.getElementById('earn-body').innerHTML = rows.join('');
+    return;
+  }
+
+  if (_activeRegion === 'NSE_RESULTS') {
+    const items = _nseEarnData.recent || [];
+    if (!items.length) {
+      document.getElementById('earn-body').innerHTML =
+        '<tr><td colspan="16" class="loading">NSE/BSE results loading from live API — may take 10-15 sec...</td></tr>';
+      return;
+    }
+    const rows = items.map(e => {
+      const srcBadge = e.source === 'NSE'
+        ? '<span style="color:#34d399;font-size:8px;border:1px solid #0a3a1a;border-radius:2px;padding:1px 4px;margin-left:4px;">NSE</span>'
+        : '<span style="color:#60a5fa;font-size:8px;border:1px solid #0a1a3a;border-radius:2px;padding:1px 4px;margin-left:4px;">BSE</span>';
+      return `<tr>
+        <td>
+          <span class="earn-sym">${e.symbol}</span>${srcBadge}
+          <div style="color:var(--muted);font-size:9px;margin-top:1px;">${e.name||''}</div>
+        </td>
+        <td colspan="2" style="color:var(--muted)">${e.date||'—'}</td>
+        <td style="color:var(--muted)">${e.period||'—'}</td>
+        <td colspan="2" style="color:var(--muted)">${e.sector||'—'}</td>
+        <td colspan="2" style="color:var(--head)">${e.revenue||'—'}</td>
+        <td colspan="2" style="color:#4ade80">${e.pat||'—'}</td>
+        <td colspan="6" style="color:#4b5563;font-size:9px;">${e.exchange||'NSE'}</td>
+      </tr>`;
+    });
+    const gen = _nseEarnData.generated_at || '';
+    const note = `<tr><td colspan="16" style="color:#1f2937;font-size:9px;text-align:center;padding:4px;">
+      NSE/BSE API DATA · UPDATED ${gen} · <span style="color:#374151;">Click ↺ to refresh</span>
+    </td></tr>`;
+    document.getElementById('earn-body').innerHTML = rows.join('') + note;
+    return;
+  }
 }
 
 // ── Load social earnings commentary ──────────────────────
@@ -3525,6 +3637,10 @@ async function loadMorningNote(force) {
 }
 
 // ── CATALYST CALENDAR ─────────────────────────────────────────────────────────
+var _calAllEvents    = [];
+var _calCountryFilter = 'ALL';
+var _calStarFilter    = 0;   // 0 = all, 1/2/3 = min stars
+
 function hideCatalyst() {
   var p = document.getElementById('catalyst-panel');
   if (p) p.style.display = 'none';
@@ -3535,43 +3651,116 @@ function showCatalyst(tab) {
   loadCatalystCalendar(false);
 }
 
+function setCalFilter(type, btn) {
+  // Update active state on buttons
+  document.querySelectorAll(`.cal-filter-btn[data-filter="${type}"]`).forEach(function(b) {
+    b.style.background = '#0a0d14';
+    b.style.borderColor = '#1c2a3a';
+    b.style.color = '#6b7280';
+  });
+  btn.style.background   = '#0a3a1a';
+  btn.style.borderColor  = '#059669';
+  btn.style.color        = '#34d399';
+  btn.classList.add('active');
+
+  if (type === 'country') _calCountryFilter = btn.getAttribute('data-val');
+  if (type === 'stars')   _calStarFilter    = parseInt(btn.getAttribute('data-val')) || 0;
+  _renderCalendar();
+}
+
+function _starsHtml(n) {
+  var icons = {3:'🔴', 2:'🟡', 1:'⚪', 0:'📅'};
+  return icons[n] || '⚪';
+}
+
+function _renderCalendar() {
+  var events = _calAllEvents.filter(function(ev) {
+    if (_calCountryFilter !== 'ALL' && ev.country !== _calCountryFilter) return false;
+    if (_calStarFilter > 0 && ev.stars !== _calStarFilter) return false;
+    return true;
+  });
+
+  var content = document.getElementById('calendar-content');
+  if (!content) return;
+
+  // Group by date
+  var groups = {};
+  events.forEach(function(ev) {
+    var key = ev.date || '';
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(ev);
+  });
+
+  var html = '';
+  Object.keys(groups).sort().forEach(function(dateKey) {
+    var evs      = groups[dateKey];
+    var first    = evs[0];
+    var isToday  = first.is_today;
+    var isTomorrow = first.is_tomorrow;
+    var dateLabel = first.days_label || first.date_label || dateKey;
+    var dateColor = isToday ? '#fbbf24' : isTomorrow ? '#34d399' : '#6b7280';
+    var dateBg    = isToday ? '#120d00' : '#0a0e14';
+
+    // Date group separator
+    html += `<div style="background:${dateBg};border-radius:3px;padding:5px 10px;display:flex;align-items:center;gap:10px;margin-top:4px;">
+      <span style="color:${dateColor};font-size:10px;font-weight:bold;letter-spacing:1.5px;min-width:76px;">${dateLabel}</span>
+      <span style="color:#4b5563;font-size:9px;">${first.date_label || dateKey}</span>
+      <span style="color:#1f2937;font-size:9px;margin-left:auto;">${evs.length} event${evs.length>1?'s':''}</span>
+    </div>`;
+
+    evs.forEach(function(ev) {
+      var starIcon = _starsHtml(ev.stars);
+      var rowBg    = isToday ? '#100d00' : (ev.bg || '#0d1117');
+      var rowBdr   = isToday ? '#3a2800' : (ev.border || '#1c2a3a');
+      var actColor = ev.actual ? (parseFloat(ev.actual) >= parseFloat(ev.forecast || '0') ? '#4ade80' : '#f87171') : '#374151';
+
+      html += `<div style="background:${rowBg};border:1px solid ${rowBdr};border-radius:4px;padding:7px 10px;display:grid;grid-template-columns:40px 32px 1fr 68px 68px 68px;gap:6px;align-items:center;font-size:10px;">
+        <span style="color:${ev.color||'#6b7280'};font-weight:bold;">${starIcon}</span>
+        <span style="font-size:11px;">${ev.flag || ''}</span>
+        <div>
+          <div style="color:#e2e8f0;font-weight:bold;font-size:11px;line-height:1.3;">${ev.event || ''}</div>
+          <div style="color:#4b5563;font-size:9px;margin-top:1px;">${ev.time || ''} ${ev.cname ? '· '+ev.cname : ''}</div>
+        </div>
+        <div style="text-align:right;color:${actColor};font-weight:bold;">${ev.actual || '<span style="color:#374151;">—</span>'}</div>
+        <div style="text-align:right;color:#60a5fa;">${ev.forecast || '<span style="color:#374151;">—</span>'}</div>
+        <div style="text-align:right;color:#6b7280;">${ev.previous || '<span style="color:#374151;">—</span>'}</div>
+      </div>`;
+    });
+  });
+
+  content.innerHTML = html || '<div style="color:#4b5563;font-size:11px;padding:30px 0;text-align:center;">No events match selected filters</div>';
+
+  // Show header + content
+  var hdr = document.getElementById('calendar-header');
+  if (hdr) hdr.style.display = 'grid';
+  content.style.display = 'flex';
+}
+
 async function loadCatalystCalendar(force) {
   var content = document.getElementById('calendar-content');
-  if (!force && content && content.children.length > 0) return;
+  if (!force && _calAllEvents.length > 0) { _renderCalendar(); return; }
   document.getElementById('calendar-loading').style.display = 'block';
   document.getElementById('calendar-content').style.display = 'none';
   document.getElementById('calendar-error').style.display   = 'none';
+  var hdr = document.getElementById('calendar-header');
+  if (hdr) hdr.style.display = 'none';
   try {
     const res  = await fetch(`${BASE}/api/catalyst-calendar`);
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Failed');
 
-    const events = data.events || [];
-    const impactColor = { HIGH: '#f87171', MEDIUM: '#fbbf24', LOW: '#4ade80' };
-    const impactBg    = { HIGH: '#1a0a0a', MEDIUM: '#1a1200', LOW: '#0a1a0a' };
-    const impactBdr   = { HIGH: '#7f1d1d', MEDIUM: '#d97706', LOW: '#14532d' };
-
-    document.getElementById('calendar-content').innerHTML = events.length ? events.map(ev => {
-      const isToday    = ev.days_label === 'TODAY';
-      const isTomorrow = ev.days_label === 'TOMORROW';
-      const rowBg  = isToday ? '#1a1000' : (impactBg[ev.impact]  || '#0d1117');
-      const rowBdr = isToday ? '#d97706' : (impactBdr[ev.impact] || '#1c2a3a');
-      return `<div style="background:${rowBg};border:1px solid ${rowBdr};border-radius:5px;padding:10px 14px;display:flex;align-items:center;gap:14px;">
-        <div style="min-width:80px;text-align:center;">
-          <div style="color:${isToday ? '#fbbf24' : isTomorrow ? '#34d399' : '#9ca3af'};font-size:9px;font-weight:bold;letter-spacing:1px;">${ev.days_label || ev.date}</div>
-          <div style="color:#4b5563;font-size:8px;margin-top:2px;">${ev.date || ''}</div>
-          <div style="color:${impactColor[ev.impact] || '#e2e8f0'};font-size:8px;font-weight:bold;letter-spacing:1px;margin-top:2px;padding:1px 4px;background:${impactBg[ev.impact]||'#111'};border-radius:2px;display:inline-block;">${ev.impact || ''}</div>
-        </div>
-        <div style="flex:1;">
-          <div style="color:#e2e8f0;font-size:12px;font-weight:bold;">${ev.event || ''}</div>
-          <div style="color:#6b7280;font-size:10px;margin-top:3px;">${ev.note || ev.description || ''}</div>
-        </div>
-        <div style="color:#60a5fa;font-size:9px;min-width:60px;text-align:right;font-weight:bold;letter-spacing:1px;">${ev.category || ''}</div>
-      </div>`;
-    }).join('') : '<div style="color:#4b5563;font-size:11px;padding:20px 0;text-align:center;">No upcoming events</div>';
-
+    _calAllEvents = data.events || [];
+    var src = data.source || '';
+    var lbl = document.getElementById('cal-source-label');
+    if (lbl) {
+      lbl.innerText = src === 'forexfactory'
+        ? 'LIVE · FOREXFACTORY · RBI · NSE F&O · ' + (data.total||0) + ' EVENTS'
+        : src === 'fixed_only'
+        ? 'FOREXFACTORY UNAVAILABLE — SHOWING FIXED EVENTS · ' + (data.total||0) + ' EVENTS'
+        : 'LOADING LIVE CALENDAR...';
+    }
     document.getElementById('calendar-loading').style.display = 'none';
-    document.getElementById('calendar-content').style.display = 'flex';
+    _renderCalendar();
   } catch (err) {
     document.getElementById('calendar-loading').style.display = 'none';
     document.getElementById('calendar-error').style.display   = 'block';
