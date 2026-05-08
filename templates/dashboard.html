@@ -1059,9 +1059,16 @@ let activeAsset = 'ALL';
 let aiNewsMap   = {};   // headline → {sentiment, impact, assets, summary, why}
 
 function setCat(el) {
+  // Hide all special panels including the new tabs (morning note, calendar, sectors)
+  if (typeof _hideAllSpecialPanels === 'function') _hideAllSpecialPanels();
   hideResearch();
   hideSignals();
   hideHniInsights();
+  // Restore news feed + filters that special panels hide
+  var _nf = document.getElementById('news-feed');
+  if (_nf) _nf.style.display = '';
+  var _af = document.getElementById('asset-filters');
+  if (_af) _af.style.display = 'flex';
   document.querySelectorAll('.ctab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
   activeCat = el.dataset.cat;
