@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Body, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import asyncio
@@ -1541,6 +1541,76 @@ def api_sector_rotation():
         "generated_at": now_ist(), "breadth": "LOADING", "nse_live": False
     }
     return _bg_refresh("sector_rotation", 60, _build, empty=_NEUTRAL)
+
+
+# ── Live Prices — all asset classes in one call ───────────────────────────────
+
+@app.get("/api/live-prices")
+def api_live_prices(force: bool = False):
+    """
+    Unified live price feed: NSE indices, global indices, FX, bonds, commodities, crypto, VIX.
+    Cached 15 seconds. Fast-path returns cached data immediately.
+    """
+    def _build():
+        from live_prices import get_live_prices
+        return get_live_prices(force=force)
+
+    empty = {
+        "indices": {}, "global": {}, "fx": {}, "bonds": {},
+        "commodities": {}, "crypto": {}, "vix": {},
+        "ts": now_ist(), "ts_epoch": _time.time(),
+    }
+    return _bg_refresh("live_prices", 15, _build, empty=empty)
+
+
+@app.get("/api/live-ticker")
+def api_live_ticker():
+    """Flat ticker list for the scrolling price bar. Returns [{symbol, price, change, arrow, category}]"""
+    def _build():
+        from live_prices import get_ticker_items
+        return get_ticker_items()
+    return _bg_refresh("live_ticker", 15, lambda: _build(), empty=[])
+
+
+@app.get("/api/stream")
+async def api_stream():
+    """
+    Server-Sent Events stream — pushes live price updates every 15 seconds.
+    Frontend connects once: const es = new EventSource('/api/stream');
+    """
+    import asyncio
+
+    async def _gen():
+        import json
+        yield "retry: 15000\n\n"   # tell browser to reconnect after 15s if disconnected
+        last_ts = 0
+        while True:
+            try:
+                from live_prices import get_live_prices
+                data = get_live_prices()
+                ts   = data.get("ts_epoch", 0)
+                if ts != last_ts:
+                    last_ts = ts
+                    payload = json.dumps({
+                        "type": "prices",
+                        "data": data,
+                        "ts":   data.get("ts", ""),
+                    })
+                    yield f"data: {payload}\n\n"
+                else:
+                    yield ": heartbeat\n\n"
+            except Exception as e:
+                yield f"data: {{\"type\":\"error\",\"msg\":\"{str(e)[:60]}\"}}\n\n"
+            await asyncio.sleep(15)
+
+    return StreamingResponse(
+        _gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control":    "no-cache",
+            "X-Accel-Buffering":"no",
+        },
+    )
 
 
 @app.get("/api/nse/live")

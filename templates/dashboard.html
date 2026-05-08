@@ -43,13 +43,28 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 /* ── PRICE TICKER ── */
 .price-strip { background:#020408; border-bottom:1px solid var(--border); height:26px; display:flex; overflow:hidden; align-items:center; flex-shrink:0; }
 .p-label { background:#1c2230; color:var(--accent); font-size:9px; font-weight:bold; padding:0 8px; height:26px; display:flex; align-items:center; white-space:nowrap; flex-shrink:0; letter-spacing:1px; }
-.p-track { display:flex; align-items:center; animation:pscroll 45s linear infinite; white-space:nowrap; }
+.p-track { display:flex; align-items:center; animation:pscroll 90s linear infinite; white-space:nowrap; }
 .p-track:hover { animation-play-state:paused; }
 @keyframes pscroll { 0%{transform:translateX(0)}100%{transform:translateX(-50%)} }
-.p-item { display:inline-flex; align-items:center; gap:4px; padding:0 14px; font-size:10px; border-right:1px solid #1c2230; }
-.p-sym  { color:var(--muted); }
+.p-item { display:inline-flex; align-items:center; gap:4px; padding:0 12px; font-size:10px; border-right:1px solid #1c2230; }
+.p-sym  { color:var(--muted); font-size:9px; letter-spacing:0.5px; }
+.p-cat  { color:#1e3a5a; font-size:8px; margin-right:2px; }
 .p-val  { color:var(--head); font-weight:bold; }
 .p-chg.up{color:var(--green)}.p-chg.dn{color:var(--red)}.p-chg.fl{color:var(--muted)}
+/* Flash animation when price updates */
+@keyframes flash-up { 0%{background:#052a10}50%{background:#0a4020}100%{background:transparent} }
+@keyframes flash-dn { 0%{background:#2a0508}50%{background:#400a10}100%{background:transparent} }
+.p-item.flash-up { animation:flash-up 1.2s ease-out; }
+.p-item.flash-dn { animation:flash-dn 1.2s ease-out; }
+/* Live indicator */
+.live-dot { display:inline-block; width:6px; height:6px; background:#22c55e; border-radius:50%; animation:livepulse 2s ease-in-out infinite; margin-right:4px; }
+@keyframes livepulse { 0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.4;transform:scale(0.8)} }
+.live-ts { color:#374151; font-size:8px; padding:0 8px; border-right:1px solid #1c2230; white-space:nowrap; }
+/* dbr flash */
+@keyframes dbr-flash-up { 0%{color:#4ade80}100%{color:inherit} }
+@keyframes dbr-flash-dn { 0%{color:#f87171}100%{color:inherit} }
+.dbr-v.flash-u { animation:dbr-flash-up 1.5s ease-out; }
+.dbr-v.flash-d { animation:dbr-flash-dn 1.5s ease-out; }
 
 /* ── MAIN LAYOUT ── */
 .main-wrap { display: flex; flex: 1; overflow: hidden; }
@@ -463,8 +478,8 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 
 <!-- PRICE STRIP -->
 <div class="price-strip">
-  <div class="p-label">INDICES</div>
-  <div style="overflow:hidden;flex:1;"><div class="p-track" id="price-strip"></div></div>
+  <div class="p-label"><span class="live-dot"></span>LIVE</div>
+  <div style="overflow:hidden;flex:1;"><div class="p-track" id="price-strip"><span class="live-ts" id="ticker-ts">─</span></div></div>
 </div>
 
 <!-- MAIN -->
@@ -1430,45 +1445,125 @@ async function loadNews() {
 }
 
 // ── Load indices ──────────────────────────────────────────
-async function loadIndices() {
-  try {
-    const d = await fetch(`${BASE}/api/indices`).then(r=>r.json());
-    let strip='', idx='';
-    for (const [k,v] of Object.entries(d)) {
-      const c = v.change>0?'up':v.change<0?'dn':'fl';
-      const a = v.change>0?'▲':v.change<0?'▼':'─';
-      strip += `<span class="p-item"><span class="p-sym">${k}</span><span class="p-val">${v.price.toLocaleString()}</span><span class="p-chg ${c}">${a}${Math.abs(v.change)}%</span></span>`;
-      idx   += `<div class="dbr"><span class="dbr-k">${k}</span><span class="dbr-v ${c}">${v.price.toLocaleString()} <span style="font-size:9px;">${a}${Math.abs(v.change)}%</span></span></div>`;
+// ── Price state for flash-on-change detection ──────────────
+var _prevPrices = {};
+
+function _fmt(price, cat) {
+  if (price == null) return '─';
+  const p = parseFloat(price);
+  if (isNaN(p)) return '─';
+  if (cat === 'FX' && p < 10)   return p.toFixed(4);
+  if (cat === 'BONDS')           return p.toFixed(3) + '%';
+  if (p >= 10000)                return p.toLocaleString('en-IN', {maximumFractionDigits:0});
+  if (p >= 100)                  return p.toLocaleString('en-US', {maximumFractionDigits:2});
+  return p.toFixed(4);
+}
+
+function _flashDbr(el, dir) {
+  el.classList.remove('flash-u','flash-d');
+  void el.offsetWidth;
+  el.classList.add(dir > 0 ? 'flash-u' : 'flash-d');
+}
+
+function _renderDbr(containerId, data, fmtSuffix) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  let html = '';
+  for (const [k, v] of Object.entries(data)) {
+    if (!v) continue;
+    const price  = v.price != null ? v.price : v;
+    const chg    = v.change != null ? v.change : 0;
+    const cls    = chg > 0 ? 'up' : chg < 0 ? 'dn' : 'fl';
+    const arrow  = chg > 0 ? '▲' : chg < 0 ? '▼' : '─';
+    const prevK  = containerId + '_' + k;
+    const changed = _prevPrices[prevK] != null && _prevPrices[prevK] !== price;
+    const fid    = `dbv_${containerId}_${k.replace(/[^a-z0-9]/gi,'_')}`;
+    const suffix = fmtSuffix || '';
+    html += `<div class="dbr"><span class="dbr-k">${k}</span>` +
+            `<span class="dbr-v ${cls}" id="${fid}">${_fmt(price, suffix)} ` +
+            `<span style="font-size:8px;opacity:0.7;">${arrow}${Math.abs(chg).toFixed(2)}%</span></span></div>`;
+    _prevPrices[prevK] = price;
+  }
+  el.innerHTML = html;
+}
+
+// ── Build scrolling ticker from live-prices ────────────────
+function _buildTicker(lp) {
+  const CAT_COLORS = {
+    NSE:'#38bdf8', GLOBAL:'#818cf8', FX:'#fbbf24',
+    CMDTY:'#fb923c', BONDS:'#a78bfa', CRYPTO:'#34d399', VIX:'#f87171'
+  };
+  let items = [];
+  const add = (grp, cat) => {
+    for (const [sym, v] of Object.entries(grp||{})) {
+      if (!v) continue;
+      const chg = v.change || 0;
+      const cls = chg>0?'up':chg<0?'dn':'fl';
+      const arrow = v.arrow || (chg>0?'▲':chg<0?'▼':'─');
+      const price = _fmt(v.price, cat);
+      const col   = CAT_COLORS[cat]||'#94a3b8';
+      items.push(`<span class="p-item" data-sym="${sym}">` +
+        `<span class="p-cat" style="color:${col}">${cat}</span>` +
+        `<span class="p-sym">${sym}</span>` +
+        `<span class="p-val">${price}</span>` +
+        `<span class="p-chg ${cls}">${arrow}${Math.abs(chg).toFixed(2)}%</span></span>`);
     }
-    const s = document.getElementById('price-strip');
-    if (s) s.innerHTML = strip+strip;
-    document.getElementById('db-idx').innerHTML = idx;
-  } catch(e) {}
+  };
+  add(lp.indices,     'NSE');
+  add(lp.global,      'GLOBAL');
+  add(lp.vix,         'VIX');
+  add(lp.fx,          'FX');
+  add(lp.commodities, 'CMDTY');
+  add(lp.bonds,       'BONDS');
+  add(lp.crypto,      'CRYPTO');
+  return items;
 }
 
-// ── Load macro ────────────────────────────────────────────
-async function loadMacro() {
+async function loadLivePrices() {
   try {
-    const d = await fetch(`${BASE}/api/macro`).then(r=>r.json());
-    if (d.gold) document.getElementById('hdr-gold').textContent = `GOLD $${d.gold}`;
-    if (d.oil)  document.getElementById('hdr-oil').textContent  = `OIL $${d.oil}`;
-    if (d.fx?.DXY) document.getElementById('hdr-dxy').textContent = `DXY ${d.fx.DXY}`;
-    if (d.fx?.USDINR) document.getElementById('hdr-inr').textContent = `INR ${d.fx.USDINR}`;
+    const lp = await fetch(`${BASE}/api/live-prices`).then(r=>r.json());
+    if (!lp || (!Object.keys(lp.indices||{}).length && !Object.keys(lp.global||{}).length)) return;
 
-    let fx='', yld='', cmd='';
-    for (const [k,v] of Object.entries(d.fx||{}))
-      fx  += `<div class="dbr"><span class="dbr-k">${k}</span><span class="dbr-v">${v}</span></div>`;
-    for (const [k,v] of Object.entries(d.yields||{}))
-      yld += `<div class="dbr"><span class="dbr-k">${k}</span><span class="dbr-v">${v}%</span></div>`;
-    for (const [k,v] of Object.entries(d.global_yields||{}))
-      yld += `<div class="dbr"><span class="dbr-k">${k}</span><span class="dbr-v">${v}</span></div>`;
-    if (d.gold) cmd += `<div class="dbr"><span class="dbr-k">GOLD</span><span class="dbr-v up">$${d.gold}</span></div>`;
-    if (d.oil)  cmd += `<div class="dbr"><span class="dbr-k">OIL</span><span class="dbr-v">$${d.oil}</span></div>`;
-    document.getElementById('db-fx').innerHTML  = fx;
-    document.getElementById('db-yld').innerHTML = yld;
-    document.getElementById('db-cmd').innerHTML = cmd;
-  } catch(e) {}
+    // ── Scrolling ticker ─────────────────────────────────
+    const items = _buildTicker(lp);
+    const strip = document.getElementById('price-strip');
+    if (strip && items.length) {
+      const joined = items.join('');
+      strip.innerHTML = joined + joined;  // doubled for seamless scroll
+    }
+    const tsEl = document.getElementById('ticker-ts');
+    if (tsEl) tsEl.textContent = lp.ts || '';
+
+    // ── Header badges ─────────────────────────────────────
+    const gold  = lp.commodities?.GOLD;
+    const crude = lp.commodities?.CRUDE;
+    const dxy   = lp.fx?.DXY;
+    const inr   = lp.fx?.USDINR;
+    if (gold?.price)  document.getElementById('hdr-gold')?.textContent && (document.getElementById('hdr-gold').textContent = `GOLD $${gold.price.toLocaleString()}`);
+    if (crude?.price) document.getElementById('hdr-oil')?.textContent && (document.getElementById('hdr-oil').textContent = `OIL $${crude.price}`);
+    if (dxy?.price)   document.getElementById('hdr-dxy')?.textContent && (document.getElementById('hdr-dxy').textContent = `DXY ${dxy.price}`);
+    if (inr?.price)   document.getElementById('hdr-inr')?.textContent && (document.getElementById('hdr-inr').textContent = `INR ${inr.price}`);
+
+    // ── Sidebar data panels ──────────────────────────────
+    // NSE + Global indices merged
+    _renderDbr('db-idx', {...(lp.indices||{}), ...(lp.global||{})});
+
+    // FX panel
+    _renderDbr('db-fx', lp.fx||{}, 'FX');
+
+    // Yields panel (bonds)
+    _renderDbr('db-yld', lp.bonds||{}, 'BONDS');
+
+    // Commodities + Crypto panel
+    const cmdAll = {...(lp.commodities||{}), ...(lp.crypto||{}), ...(lp.vix||{})};
+    _renderDbr('db-cmd', cmdAll, 'CMDTY');
+
+  } catch(e) { console.warn('live-prices:', e); }
 }
+
+// Keep old names wired to new function for compatibility
+async function loadIndices() { return loadLivePrices(); }
+async function loadMacro()   { return loadLivePrices(); }
 
 // ── Load stocks (add ETFs to commodities) ────────────────
 async function loadStocks() {
@@ -1965,9 +2060,60 @@ async function loadMasterRegime() {
   } catch(e) { /* silent — master panel stays blank if engine down */ }
 }
 
+// ── SSE Live Price Stream ─────────────────────────────────
+var _sseConnected = false;
+function startPriceStream() {
+  if (typeof EventSource === 'undefined') return;
+  var es = new EventSource(BASE + '/api/stream');
+  es.onopen = function() { _sseConnected = true; };
+  es.onmessage = function(e) {
+    try {
+      var msg = JSON.parse(e.data);
+      if (msg.type === 'prices' && msg.data) {
+        var lp = msg.data;
+        // ── Scrolling ticker ─────────────────────────────
+        var items = _buildTicker(lp);
+        var strip = document.getElementById('price-strip');
+        if (strip && items.length) {
+          var joined = items.join('');
+          strip.innerHTML = joined + joined;
+        }
+        var tsEl = document.getElementById('ticker-ts');
+        if (tsEl) tsEl.textContent = msg.ts || lp.ts || '';
+
+        // ── Header badges ─────────────────────────────────
+        var gold  = (lp.commodities||{}).GOLD;
+        var crude = (lp.commodities||{}).CRUDE;
+        var dxy   = (lp.fx||{}).DXY;
+        var inr   = (lp.fx||{}).USDINR;
+        var hGold = document.getElementById('hdr-gold');
+        var hOil  = document.getElementById('hdr-oil');
+        var hDxy  = document.getElementById('hdr-dxy');
+        var hInr  = document.getElementById('hdr-inr');
+        if (hGold && gold?.price)  hGold.textContent = 'GOLD $' + gold.price.toLocaleString();
+        if (hOil  && crude?.price) hOil.textContent  = 'OIL $'  + crude.price;
+        if (hDxy  && dxy?.price)   hDxy.textContent  = 'DXY '   + dxy.price;
+        if (hInr  && inr?.price)   hInr.textContent  = 'INR '   + inr.price;
+
+        // ── Sidebar panels ────────────────────────────────
+        _renderDbr('db-idx', Object.assign({}, lp.indices||{}, lp.global||{}));
+        _renderDbr('db-fx',  lp.fx||{}, 'FX');
+        _renderDbr('db-yld', lp.bonds||{}, 'BONDS');
+        _renderDbr('db-cmd', Object.assign({}, lp.commodities||{}, lp.crypto||{}, lp.vix||{}), 'CMDTY');
+      }
+    } catch(_) {}
+  };
+  es.onerror = function() {
+    _sseConnected = false;
+    es.close();
+    // Fallback to polling if SSE fails
+    setTimeout(function() { setInterval(loadLivePrices, 15000); }, 5000);
+  };
+}
+
 // ── Boot ──────────────────────────────────────────────────
 async function boot() {
-  await Promise.all([loadNews(), loadIndices(), loadMacro()]);
+  await Promise.all([loadNews(), loadLivePrices()]);
   loadStocks();
   loadSignal();
   loadEarnings();
@@ -1977,12 +2123,13 @@ async function boot() {
   setTimeout(loadAINews,      8000);
   setTimeout(loadDecisions,  12000);
   setTimeout(loadMasterRegime, 5000);   // HNI regime in master bar
+  // Start SSE stream for live price push
+  setTimeout(startPriceStream, 2000);
 }
 
 boot();
 setInterval(loadNews,           15000);   // news every 15s
-setInterval(loadIndices,        20000);   // prices every 20s
-setInterval(loadMacro,          30000);   // macro every 30s
+setInterval(loadLivePrices,     15000);   // prices every 15s (SSE also runs)
 setInterval(loadSignal,        120000);
 setInterval(loadEarnings,      600000);
 setInterval(loadSocialEarnings, 90000);
