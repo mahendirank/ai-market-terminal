@@ -269,7 +269,7 @@ def _fetch_all() -> dict:
         done = {}
         for key, fut in tasks.items():
             try:
-                done[key] = fut.result(timeout=12)
+                done[key] = fut.result(timeout=20)
             except Exception:
                 done[key] = None
 
@@ -333,18 +333,8 @@ def _fetch_all() -> dict:
 
 
 def get_live_prices(force: bool = False) -> dict:
-    """Return all live prices. Cached for 15 seconds."""
-    with _lock:
-        entry = _cache.get("all")
-        if entry and not force and (time.time() - entry["ts"]) < CACHE_TTL:
-            return entry["data"]
-
-    data = _fetch_all()
-
-    with _lock:
-        _cache["all"] = {"data": data, "ts": time.time()}
-
-    return data
+    """Return all live prices. No internal caching — caller handles TTL."""
+    return _fetch_all()
 
 
 def get_ticker_items() -> list:
