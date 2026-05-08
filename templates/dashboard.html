@@ -1714,7 +1714,7 @@ function renderNseEarnings() {
       return;
     }
     const rows = items.map(e => {
-      const srcBadge = e.source === 'NSE'
+      const srcBadge = (e.source === 'NSE' || e.source === 'yfinance')
         ? '<span style="color:#34d399;font-size:8px;border:1px solid #0a3a1a;border-radius:2px;padding:1px 4px;margin-left:4px;">NSE</span>'
         : '<span style="color:#60a5fa;font-size:8px;border:1px solid #0a1a3a;border-radius:2px;padding:1px 4px;margin-left:4px;">BSE</span>';
       return `<tr>

@@ -96,77 +96,81 @@ def _nse_session() -> requests.Session:
     return s
 
 
-def _fetch_nse_results() -> list:
-    """Fetch recent quarterly results from NSE API."""
+def _fetch_yf_results() -> list:
+    """Fetch recent quarterly results from yfinance for Nifty50 stocks."""
     results = []
     try:
-        session = _nse_session()
-        url = "https://www.nseindia.com/api/corporate-results-new?index=equities"
-        r = session.get(url, headers=NSE_HEADERS, timeout=15)
-        if r.status_code == 200:
-            raw = r.json()
-            items = raw if isinstance(raw, list) else raw.get("data", raw.get("resultList", []))
-            for item in (items or [])[:60]:
-                sym     = item.get("symbol", "")
-                name    = item.get("companyName") or item.get("comp_name") or sym
-                period  = item.get("period") or item.get("xbrl_period") or ""
-                xdt     = item.get("xDt")  or item.get("xdt")  or item.get("date") or ""
-                # Try to extract basic financials if available
-                rev_cr  = item.get("consolidatedRevenue") or item.get("revenue")
-                pat_cr  = item.get("consolidatedPAT")     or item.get("pat")
-                results.append({
-                    "symbol":   sym,
-                    "name":     name,
-                    "sector":   SECTOR_MAP.get(sym + ".NS", "—"),
-                    "period":   period,
-                    "date":     xdt[:10] if xdt else "",
-                    "revenue":  f"₹{float(rev_cr)/100:.0f} Cr" if rev_cr else "—",
-                    "pat":      f"₹{float(pat_cr)/100:.0f} Cr" if pat_cr else "—",
-                    "region":   "INDIA",
-                    "source":   "NSE",
-                    "exchange": "NSE",
-                })
-        else:
-            print(f"[nse_earnings] NSE API {r.status_code}", flush=True)
-    except Exception as e:
-        print(f"[nse_earnings] NSE results error: {e}", flush=True)
-    return results
+        import yfinance as yf
+        processed = 0
+        for sym in NIFTY50_YF[:40]:
+            try:
+                t  = yf.Ticker(sym)
+                qi = t.quarterly_income_stmt
+                if qi is None or qi.empty:
+                    continue
 
+                base_sym = sym.replace(".NS", "")
+                for col_idx in range(min(2, len(qi.columns))):
+                    col      = qi.columns[col_idx]
+                    period   = str(col)[:10]
+                    try:
+                        qdate = datetime.strptime(period, "%Y-%m-%d")
+                        days_ago = (datetime.now(IST).replace(tzinfo=None) - qdate).days
+                        if days_ago < 0 or days_ago > 180:
+                            continue
+                        period_label = qdate.strftime("Q%q-%Y").replace(
+                            "Q1", "Q1" if qdate.month <= 3 else
+                            "Q2" if qdate.month <= 6 else
+                            "Q3" if qdate.month <= 9 else "Q4"
+                        )
+                        # Determine Indian FY quarter label
+                        m = qdate.month
+                        if m in (1, 2, 3):   ql = f"Q3 FY{qdate.year % 100:02d}"
+                        elif m in (4, 5, 6): ql = f"Q1 FY{(qdate.year+1) % 100:02d}"
+                        elif m in (7, 8, 9): ql = f"Q2 FY{(qdate.year+1) % 100:02d}"
+                        else:                ql = f"Q3 FY{(qdate.year+1) % 100:02d}"
+                    except Exception:
+                        ql = period
 
-def _fetch_bse_results() -> list:
-    """Fetch recent results from BSE Bhav API."""
-    results = []
-    try:
-        from datetime import date
-        today = date.today()
-        start = (today - timedelta(days=30)).strftime("%d/%m/%Y")
-        end   = today.strftime("%d/%m/%Y")
-        url   = (f"https://api.bseindia.com/BseIndiaAPI/api/Corpresults/w"
-                 f"?catg=ET&scripcode=&quarterid=&Etype=C&scripname="
-                 f"&fromdate={start}&todate={end}")
-        r = requests.get(url, headers=BSE_HEADERS, timeout=12)
-        if r.status_code == 200:
-            raw = r.json()
-            items = raw if isinstance(raw, list) else raw.get("Table", raw.get("data", []))
-            for item in (items or [])[:60]:
-                name   = item.get("SLONGNAME") or item.get("NAME") or item.get("scripname") or ""
-                code   = str(item.get("SCRIP_CD") or item.get("scripcd") or "")
-                period = item.get("PERIOD_END") or item.get("quarterid") or ""
-                xdt    = item.get("SUBMISSIONDATE") or item.get("xdt") or ""
-                results.append({
-                    "symbol":   code,
-                    "name":     name,
-                    "sector":   "—",
-                    "period":   period[:10] if period else "",
-                    "date":     xdt[:10]    if xdt    else "",
-                    "revenue":  "—",
-                    "pat":      "—",
-                    "region":   "INDIA",
-                    "source":   "BSE",
-                    "exchange": "BSE",
-                })
+                    row = qi.iloc[:, col_idx]
+                    rev_raw = row.get("Total Revenue")
+                    pat_raw = row.get("Net Income")
+
+                    def _cr(v):
+                        if v is None:
+                            return "—"
+                        try:
+                            f = float(v)
+                            if str(f) == 'nan':
+                                return "—"
+                            cr = f / 1e7  # INR to Crore
+                            if cr >= 100000:
+                                return f"₹{cr/100000:.2f} LCr"   # Lakh Crore
+                            if cr >= 1000:
+                                return f"₹{cr/1000:.1f}K Cr"     # Thousand Crore
+                            return f"₹{cr:.0f} Cr"
+                        except Exception:
+                            return "—"
+
+                    results.append({
+                        "symbol":   base_sym,
+                        "name":     SYMBOL_NAMES.get(sym, base_sym),
+                        "sector":   SECTOR_MAP.get(sym, "—"),
+                        "period":   ql,
+                        "date":     period,
+                        "revenue":  _cr(rev_raw),
+                        "pat":      _cr(pat_raw),
+                        "region":   "INDIA",
+                        "source":   "yfinance",
+                        "exchange": "NSE",
+                    })
+                processed += 1
+                if processed >= 25:
+                    break
+            except Exception:
+                pass
     except Exception as e:
-        print(f"[nse_earnings] BSE results error: {e}", flush=True)
+        print(f"[nse_earnings] yf results error: {e}", flush=True)
     return results
 
 
@@ -247,13 +251,12 @@ def get_nse_earnings(force: bool = False) -> dict:
     recent: list   = []
     upcoming: list = []
 
-    with ThreadPoolExecutor(max_workers=3) as pool:
+    with ThreadPoolExecutor(max_workers=2) as pool:
         futs = {
-            pool.submit(_fetch_nse_results): "nse",
-            pool.submit(_fetch_bse_results): "bse",
+            pool.submit(_fetch_yf_results): "yf_results",
             pool.submit(_fetch_upcoming_yf, NIFTY50_YF): "upcoming",
         }
-        for fut in as_completed(futs, timeout=25):
+        for fut in as_completed(futs, timeout=60):
             tag = futs[fut]
             try:
                 r = fut.result()

@@ -1515,8 +1515,20 @@ def api_sector_rotation():
 
         order = {"LEADING": 0, "REVERSING": 1, "NEUTRAL": 2, "LAGGING": 3}
         rotation_data.sort(key=lambda x: order.get(x["status"], 2))
+        # Compute breadth from rotation data if tvdatafeed not available
+        breadth = raw.get("breadth", "")
+        if not breadth:
+            leading = sum(1 for s in rotation_data if s["status"] == "LEADING")
+            lagging = sum(1 for s in rotation_data if s["status"] == "LAGGING")
+            if leading >= 5:      breadth = "BROAD RALLY"
+            elif leading >= 3:    breadth = "BULLISH"
+            elif lagging >= 5:    breadth = "BROAD SELL"
+            elif lagging >= 3:    breadth = "BEARISH"
+            elif leading > lagging: breadth = "MILD BULLISH"
+            elif lagging > leading: breadth = "MILD BEARISH"
+            else:                 breadth = "NEUTRAL"
         return {"sectors": rotation_data, "generated_at": now_ist(),
-                "breadth": raw.get("breadth", ""), "nse_live": bool(sectors_dict)}
+                "breadth": breadth, "nse_live": bool(sectors_dict)}
 
     # Return immediately with neutral sectors; background thread builds real data.
     # This prevents the tvdatafeed 429 delays from blocking the HTTP response.
