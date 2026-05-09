@@ -507,6 +507,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
       <div class="ctab" data-cat="MORNING" onclick="showMorningNote(this)" id="morning-tab" style="color:#fbbf24;border-left:2px solid #d97706;">🌅 MORNING NOTE</div>
       <div class="ctab" data-cat="CALENDAR" onclick="showCatalyst(this)" id="calendar-tab" style="color:#34d399;border-left:2px solid #059669;">📅 CALENDAR</div>
       <div class="ctab" data-cat="SECTORS" onclick="showSectorRotation(this)" id="sectors-tab" style="color:#f472b6;border-left:2px solid #db2777;">📡 SECTORS</div>
+      <div class="ctab" data-cat="RISKTOOLS" onclick="showRiskTools(this)" id="risktools-tab" style="color:#22d3ee;border-left:2px solid #0891b2;">⚖ RISK TOOLS</div>
     </div>
     <!-- ASSET QUICK FILTERS -->
     <div class="asset-filters" id="asset-filters">
@@ -1030,6 +1031,237 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 
   </div>
 </div>
+
+<!-- ═══ RISK TOOLS PANEL ═══ -->
+<div id="risktools-panel" style="display:none;flex:1;overflow-y:auto;background:#060d14;flex-direction:column;">
+
+  <style>
+    .rc-section   { border:1px solid #0e1e2e; border-radius:6px; margin-bottom:12px; overflow:hidden; }
+    .rc-head      { background:#070f18; border-bottom:1px solid #0e1e2e; padding:8px 14px; display:flex; align-items:center; justify-content:space-between; }
+    .rc-head-title{ color:#22d3ee; font-size:11px; font-weight:bold; letter-spacing:1.5px; }
+    .rc-head-sub  { color:#1e3a4a; font-size:9px; letter-spacing:0.5px; }
+    .rc-body      { padding:14px 16px; }
+
+    /* Asset selector */
+    .asset-btn    { border:1px solid #1a2a3a; background:#0a1520; color:#6b7280; padding:6px 12px; border-radius:4px; cursor:pointer; font-family:inherit; font-size:10px; font-weight:bold; letter-spacing:0.5px; transition:all 0.15s; white-space:nowrap; }
+    .asset-btn:hover { border-color:#22d3ee; color:#22d3ee; }
+    .asset-btn.sel{ border-color:#22d3ee; background:#001e2e; color:#22d3ee; box-shadow:0 0 8px #22d3ee22; }
+
+    /* Inputs */
+    .rc-grid      { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:12px; }
+    .rc-grid-2    { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
+    .rc-field     { display:flex; flex-direction:column; gap:4px; }
+    .rc-label     { color:#4b5563; font-size:9px; letter-spacing:1px; }
+    .rc-input     { background:#0a1520; border:1px solid #1a2a3a; color:#e8eaf0; font-family:inherit; font-size:13px; font-weight:bold; padding:8px 10px; border-radius:4px; outline:none; width:100%; box-sizing:border-box; }
+    .rc-input:focus { border-color:#22d3ee; }
+    .rc-prefix    { position:relative; }
+    .rc-pfx       { position:absolute; left:10px; top:50%; transform:translateY(-50%); color:#4b5563; font-size:11px; pointer-events:none; }
+    .rc-pfx ~ .rc-input { padding-left:22px; }
+
+    /* Output cards */
+    .rc-out-grid  { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-top:14px; }
+    .rc-card      { border:1px solid #0e1e2e; border-radius:6px; padding:12px 14px; background:#070f18; display:flex; flex-direction:column; gap:4px; }
+    .rc-card-lbl  { font-size:9px; color:#4b5563; letter-spacing:1px; }
+    .rc-card-val  { font-size:20px; font-weight:bold; letter-spacing:-0.5px; color:#e8eaf0; }
+    .rc-card-sub  { font-size:9px; color:#6b7280; }
+
+    /* Calc button */
+    .rc-calc-btn  { width:100%; background:#0e2a3a; border:1px solid #22d3ee; color:#22d3ee; font-family:inherit; font-size:12px; font-weight:bold; letter-spacing:2px; padding:10px; border-radius:4px; cursor:pointer; transition:all 0.15s; margin-top:4px; }
+    .rc-calc-btn:hover { background:#22d3ee; color:#000; }
+
+    /* Status bar */
+    .rc-status    { border-radius:4px; padding:8px 12px; font-size:10px; font-weight:bold; letter-spacing:0.5px; margin-top:10px; display:none; }
+    .rc-status.ok { background:#001a11; border:1px solid #00c087; color:#00c087; }
+    .rc-status.warn { background:#1a0e00; border:1px solid #f59e0b; color:#f59e0b; }
+    .rc-status.danger { background:#1a0000; border:1px solid #f87171; color:#f87171; }
+
+    /* Summary table */
+    .rc-summary   { border:1px solid #0e1e2e; border-radius:4px; overflow:hidden; margin-top:12px; display:none; }
+    .rc-sum-row   { display:flex; align-items:center; justify-content:space-between; padding:6px 14px; border-bottom:1px solid #080f18; }
+    .rc-sum-row:last-child { border-bottom:none; }
+    .rc-sum-key   { color:#4b5563; font-size:10px; }
+    .rc-sum-val   { color:#e8eaf0; font-size:10px; font-weight:bold; }
+
+    /* R:R Calculator */
+    .rr-bar       { height:8px; border-radius:4px; background:#0e1e2e; overflow:hidden; margin-top:6px; }
+    .rr-fill-risk { height:100%; background:#f87171; float:left; border-radius:4px 0 0 4px; transition:width 0.4s; }
+    .rr-fill-rwd  { height:100%; background:#00c087; float:left; border-radius:0 4px 4px 0; transition:width 0.4s; }
+  </style>
+
+  <!-- ── Position Size Calculator ── -->
+  <div style="padding:14px 14px 0 14px;">
+    <div class="rc-section">
+      <div class="rc-head">
+        <div>
+          <div class="rc-head-title">⚖ POSITION SIZE CALCULATOR</div>
+          <div class="rc-head-sub">RISK-ADJUSTED LOT SIZING · INSTANT · NO API CALLS</div>
+        </div>
+        <div id="rc-asset-label" style="color:#22d3ee;font-size:10px;font-weight:bold;letter-spacing:1px;">XAUUSD</div>
+      </div>
+      <div class="rc-body">
+
+        <!-- Asset selector -->
+        <div style="margin-bottom:14px;">
+          <div class="rc-label" style="margin-bottom:6px;">SELECT ASSET</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;">
+            <button class="asset-btn sel" onclick="rcSelectAsset(this,'XAUUSD')">🥇 XAUUSD</button>
+            <button class="asset-btn"     onclick="rcSelectAsset(this,'NAS100')">📊 NAS100</button>
+            <button class="asset-btn"     onclick="rcSelectAsset(this,'US30')">🏛 US30</button>
+            <button class="asset-btn"     onclick="rcSelectAsset(this,'BTCUSD')">₿ BTCUSD</button>
+            <button class="asset-btn"     onclick="rcSelectAsset(this,'NIFTY')">🇮🇳 NIFTY</button>
+            <button class="asset-btn"     onclick="rcSelectAsset(this,'BANKNIFTY')">🏦 BANKNIFTY</button>
+          </div>
+        </div>
+
+        <!-- Asset info bar -->
+        <div id="rc-asset-info" style="background:#040a10;border:1px solid #0e1e2e;border-radius:4px;padding:6px 12px;margin-bottom:14px;font-size:9px;color:#4b5563;letter-spacing:0.5px;"></div>
+
+        <!-- Inputs row 1 -->
+        <div class="rc-grid">
+          <div class="rc-field">
+            <div class="rc-label">ACCOUNT BALANCE</div>
+            <div class="rc-prefix">
+              <span class="rc-pfx" id="rc-pfx-bal">$</span>
+              <input class="rc-input" type="number" id="rc-balance" value="10000" min="100" step="100" oninput="rcCalc()">
+            </div>
+          </div>
+          <div class="rc-field">
+            <div class="rc-label">RISK PER TRADE</div>
+            <div class="rc-prefix">
+              <span class="rc-pfx">%</span>
+              <input class="rc-input" type="number" id="rc-risk" value="1" min="0.1" max="10" step="0.1" oninput="rcCalc()">
+            </div>
+          </div>
+          <div class="rc-field">
+            <div class="rc-label">STOP LOSS <span id="rc-sl-unit" style="color:#22d3ee;">POINTS</span></div>
+            <input class="rc-input" type="number" id="rc-sl" value="50" min="1" step="1" oninput="rcCalc()">
+          </div>
+        </div>
+
+        <!-- Inputs row 2 -->
+        <div class="rc-grid-2">
+          <div class="rc-field">
+            <div class="rc-label">CURRENT PRICE <span style="color:#1e3a4a;">(FOR LEVERAGE CALC)</span></div>
+            <div class="rc-prefix">
+              <span class="rc-pfx" id="rc-pfx-price">$</span>
+              <input class="rc-input" type="number" id="rc-price" value="4720" min="1" step="0.01" oninput="rcCalc()">
+            </div>
+          </div>
+          <div class="rc-field">
+            <div class="rc-label">TAKE PROFIT <span style="color:#1e3a4a;">(OPTIONAL — R:R)</span></div>
+            <input class="rc-input" type="number" id="rc-tp" value="150" min="1" step="1" oninput="rcCalc()">
+          </div>
+        </div>
+
+        <!-- Output cards -->
+        <div class="rc-out-grid" id="rc-out-grid">
+          <div class="rc-card">
+            <div class="rc-card-lbl">LOT SIZE</div>
+            <div class="rc-card-val" id="rc-out-lots" style="color:#22d3ee;">—</div>
+            <div class="rc-card-sub" id="rc-out-lots-sub">lots</div>
+          </div>
+          <div class="rc-card">
+            <div class="rc-card-lbl">MAX RISK</div>
+            <div class="rc-card-val" id="rc-out-risk" style="color:#f87171;">—</div>
+            <div class="rc-card-sub" id="rc-out-risk-sub">on this trade</div>
+          </div>
+          <div class="rc-card">
+            <div class="rc-card-lbl">LEVERAGE USED</div>
+            <div class="rc-card-val" id="rc-out-lev" style="color:#f59e0b;">—</div>
+            <div class="rc-card-sub" id="rc-out-lev-sub">of max —x</div>
+          </div>
+        </div>
+
+        <!-- R:R ratio -->
+        <div style="margin-top:12px;background:#040a10;border:1px solid #0e1e2e;border-radius:4px;padding:10px 14px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <span style="color:#4b5563;font-size:9px;letter-spacing:1px;">RISK : REWARD</span>
+            <span id="rc-rr-label" style="color:#e8eaf0;font-size:12px;font-weight:bold;">— : —</span>
+          </div>
+          <div class="rr-bar">
+            <div class="rr-fill-risk" id="rc-rr-risk-bar" style="width:33%;"></div>
+            <div class="rr-fill-rwd"  id="rc-rr-rwd-bar"  style="width:67%;"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:4px;">
+            <span style="color:#f87171;font-size:9px;">RISK <span id="rc-rr-riskpct">—</span></span>
+            <span style="color:#00c087;font-size:9px;">REWARD <span id="rc-rr-rwdpct">—</span></span>
+          </div>
+        </div>
+
+        <!-- Status bar -->
+        <div class="rc-status" id="rc-status"></div>
+
+        <!-- Summary -->
+        <div class="rc-summary" id="rc-summary">
+          <div class="rc-sum-row" style="background:#070f18;border-bottom:1px solid #0e1e2e;">
+            <span style="color:#22d3ee;font-size:9px;font-weight:bold;letter-spacing:1px;">POSITION SUMMARY</span>
+            <span id="rc-sum-asset" style="color:#22d3ee;font-size:9px;font-weight:bold;"></span>
+          </div>
+          <div class="rc-sum-row"><span class="rc-sum-key">Lot Size</span><span class="rc-sum-val" id="rs-lots">—</span></div>
+          <div class="rc-sum-row"><span class="rc-sum-key">Risk per Lot</span><span class="rc-sum-val" id="rs-rpl">—</span></div>
+          <div class="rc-sum-row"><span class="rc-sum-key">Total Risk</span><span class="rc-sum-val" id="rs-risk">—</span></div>
+          <div class="rc-sum-row"><span class="rc-sum-key">Target Profit</span><span class="rc-sum-val" id="rs-tp">—</span></div>
+          <div class="rc-sum-row"><span class="rc-sum-key">Risk : Reward</span><span class="rc-sum-val" id="rs-rr">—</span></div>
+          <div class="rc-sum-row"><span class="rc-sum-key">Notional Value</span><span class="rc-sum-val" id="rs-notional">—</span></div>
+          <div class="rc-sum-row"><span class="rc-sum-key">Effective Leverage</span><span class="rc-sum-val" id="rs-lev">—</span></div>
+          <div class="rc-sum-row"><span class="rc-sum-key">Max Account Risk</span><span class="rc-sum-val" id="rs-accrisk">—</span></div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── Risk Rules Reference ── -->
+    <div class="rc-section">
+      <div class="rc-head">
+        <div>
+          <div class="rc-head-title">📋 RISK MANAGEMENT RULES</div>
+          <div class="rc-head-sub">PROFESSIONAL TRADER GUIDELINES</div>
+        </div>
+      </div>
+      <div class="rc-body" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div style="border:1px solid #0e1e2e;border-radius:4px;padding:10px 12px;">
+          <div style="color:#00c087;font-size:9px;letter-spacing:1px;margin-bottom:8px;">✅ GOLDEN RULES</div>
+          <div style="color:#9ca3af;font-size:10px;line-height:1.8;">
+            • Never risk more than <strong style="color:#22d3ee;">1–2%</strong> per trade<br>
+            • Max daily loss: <strong style="color:#22d3ee;">3%</strong> of capital<br>
+            • Max drawdown: <strong style="color:#22d3ee;">10%</strong> — pause system<br>
+            • Always trade with <strong style="color:#22d3ee;">1:2+ R:R</strong> minimum<br>
+            • Size down after 2 consecutive losses
+          </div>
+        </div>
+        <div style="border:1px solid #0e1e2e;border-radius:4px;padding:10px 12px;">
+          <div style="color:#f59e0b;font-size:9px;letter-spacing:1px;margin-bottom:8px;">⚠ MAX LEVERAGE GUIDE</div>
+          <div style="color:#9ca3af;font-size:10px;line-height:1.8;">
+            • XAUUSD: safe ≤ <strong style="color:#f59e0b;">20x</strong> (max 500x)<br>
+            • NAS100/US30: safe ≤ <strong style="color:#f59e0b;">10x</strong> (max 100x)<br>
+            • BTCUSD: safe ≤ <strong style="color:#f59e0b;">5x</strong> (max 100x)<br>
+            • NIFTY F&O: safe ≤ <strong style="color:#f59e0b;">5x</strong><br>
+            • BANKNIFTY F&O: safe ≤ <strong style="color:#f59e0b;">5x</strong>
+          </div>
+        </div>
+        <div style="border:1px solid #0e1e2e;border-radius:4px;padding:10px 12px;">
+          <div style="color:#a78bfa;font-size:9px;letter-spacing:1px;margin-bottom:8px;">🧮 POSITION SIZE FORMULA</div>
+          <div style="color:#9ca3af;font-size:10px;line-height:1.8;">
+            Risk Amount = Balance × Risk%<br>
+            Risk per Lot = SL points × Lot Value<br>
+            <strong style="color:#a78bfa;">Lots = Risk ÷ Risk per Lot</strong><br>
+            Leverage = Notional ÷ Balance
+          </div>
+        </div>
+        <div style="border:1px solid #0e1e2e;border-radius:4px;padding:10px 12px;">
+          <div style="color:#f87171;font-size:9px;letter-spacing:1px;margin-bottom:8px;">⛔ DANGER SIGNALS</div>
+          <div style="color:#9ca3af;font-size:10px;line-height:1.8;">
+            • Risk &gt; 2% per trade → <strong style="color:#f87171;">reduce size</strong><br>
+            • R:R below 1:1.5 → <strong style="color:#f87171;">skip trade</strong><br>
+            • Leverage &gt; safe limit → <strong style="color:#f87171;">danger zone</strong><br>
+            • 3 losses in a row → <strong style="color:#f87171;">stop for day</strong>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- end padding wrapper -->
+</div><!-- end risktools-panel -->
 
 <!-- EARNINGS PANEL -->
 <div class="earn-panel" id="earn-panel">
@@ -2179,6 +2411,222 @@ function startPriceStream() {
     // Fallback to polling if SSE fails
     setTimeout(function() { setInterval(loadLivePrices, 15000); }, 5000);
   };
+}
+
+// ══════════════════════════════════════════════════════════
+// RISK TOOLS — POSITION SIZE CALCULATOR
+// Pure JS — zero API calls — instant calculation
+// ══════════════════════════════════════════════════════════
+
+var _rcAsset = 'XAUUSD';
+
+// Asset specifications
+// pointValue = P&L in account currency per 1 point SL per 1 lot
+// lotSize    = underlying units per lot (used for notional calc)
+// safeMaxLev = maximum safe leverage for warnings
+const RC_ASSETS = {
+  XAUUSD: {
+    name:       'Gold (XAUUSD)',
+    currency:   'USD', currSym: '$',
+    pointValue: 100,          // $100 per $1 move per standard lot (100 oz)
+    lotSize:    100,          // 100 oz per lot
+    minLot:     0.01, lotStep: 0.01,
+    safeMaxLev: 20,  absMaxLev: 500,
+    defaultPrice: 4720, defaultSL: 5,
+    info: '1 lot = 100 oz · $1 price move = $100 P&L per lot · Min 0.01 lot'
+  },
+  NAS100: {
+    name:       'NASDAQ 100 (NAS100)',
+    currency:   'USD', currSym: '$',
+    pointValue: 1,            // $1 per 1-index-point move per lot (CFD)
+    lotSize:    1,
+    minLot:     0.01, lotStep: 0.01,
+    safeMaxLev: 10,  absMaxLev: 100,
+    defaultPrice: 21000, defaultSL: 100,
+    info: '1 lot = 1 contract · 1 index point = $1 per lot (CFD)'
+  },
+  US30: {
+    name:       'Dow Jones (US30)',
+    currency:   'USD', currSym: '$',
+    pointValue: 1,
+    lotSize:    1,
+    minLot:     0.01, lotStep: 0.01,
+    safeMaxLev: 10,  absMaxLev: 100,
+    defaultPrice: 42000, defaultSL: 150,
+    info: '1 lot = 1 contract · 1 index point = $1 per lot (CFD)'
+  },
+  BTCUSD: {
+    name:       'Bitcoin (BTCUSD)',
+    currency:   'USD', currSym: '$',
+    pointValue: 1,            // $1 per $1 BTC move per lot (1 lot = 1 BTC)
+    lotSize:    1,
+    minLot:     0.001, lotStep: 0.001,
+    safeMaxLev: 5,   absMaxLev: 100,
+    defaultPrice: 80000, defaultSL: 1000,
+    info: '1 lot = 1 BTC · $1000 SL per lot = $1000 risk per lot'
+  },
+  NIFTY: {
+    name:       'NIFTY 50',
+    currency:   'INR', currSym: '₹',
+    pointValue: 50,           // 50 units per lot
+    lotSize:    50,
+    minLot:     1,   lotStep: 1,
+    safeMaxLev: 5,   absMaxLev: 10,
+    defaultPrice: 24000, defaultSL: 50,
+    info: '1 lot = 50 units · 1 point SL = ₹50 risk per lot · F&O trading'
+  },
+  BANKNIFTY: {
+    name:       'BANKNIFTY',
+    currency:   'INR', currSym: '₹',
+    pointValue: 15,           // 15 units per lot (current lot size)
+    lotSize:    15,
+    minLot:     1,   lotStep: 1,
+    safeMaxLev: 5,   absMaxLev: 10,
+    defaultPrice: 52000, defaultSL: 100,
+    info: '1 lot = 15 units · 1 point SL = ₹15 risk per lot · F&O trading'
+  }
+};
+
+function showRiskTools(tab) {
+  _showSpecialPanel('risktools-panel', tab);
+  // Init on first open
+  if (!document.getElementById('rc-asset-info').textContent) {
+    rcSelectAsset(document.querySelector('.asset-btn.sel'), 'XAUUSD');
+    rcCalc();
+  }
+}
+
+function rcSelectAsset(btn, assetKey) {
+  _rcAsset = assetKey;
+  document.querySelectorAll('.asset-btn').forEach(function(b) { b.classList.remove('sel'); });
+  if (btn) btn.classList.add('sel');
+
+  var a = RC_ASSETS[assetKey];
+  document.getElementById('rc-asset-label').textContent = a.name;
+  document.getElementById('rc-asset-info').textContent  = a.info;
+  document.getElementById('rc-sl-unit').textContent     = a.currency === 'INR' ? 'POINTS (₹)' : 'POINTS ($)';
+  document.getElementById('rc-pfx-bal').textContent     = a.currSym;
+  document.getElementById('rc-pfx-price').textContent   = a.currSym;
+
+  // Pre-fill defaults
+  document.getElementById('rc-price').value = a.defaultPrice;
+  document.getElementById('rc-sl').value    = a.defaultSL;
+  document.getElementById('rc-tp').value    = Math.round(a.defaultSL * 2.5);
+
+  rcCalc();
+}
+
+function rcFmt(val, sym, decimals) {
+  if (val === null || val === undefined || isNaN(val)) return '—';
+  var n   = Number(val);
+  var abs = Math.abs(n);
+  if (abs >= 1e7) return sym + (n/1e7).toFixed(1) + 'Cr';
+  if (abs >= 1e5) return sym + (n/1e5).toFixed(2) + 'L';
+  if (abs >= 1e3) return sym + n.toLocaleString('en-IN', {maximumFractionDigits: decimals || 0});
+  return sym + n.toFixed(decimals !== undefined ? decimals : 2);
+}
+
+function rcCalc() {
+  var a      = RC_ASSETS[_rcAsset];
+  var sym    = a.currSym;
+  var bal    = parseFloat(document.getElementById('rc-balance').value) || 0;
+  var riskPc = parseFloat(document.getElementById('rc-risk').value)    || 0;
+  var slPts  = parseFloat(document.getElementById('rc-sl').value)      || 0;
+  var price  = parseFloat(document.getElementById('rc-price').value)   || 0;
+  var tpPts  = parseFloat(document.getElementById('rc-tp').value)      || 0;
+
+  if (!bal || !riskPc || !slPts) return;
+
+  // Core calc
+  var riskAmt    = bal * riskPc / 100;           // e.g. $100 on $10k 1%
+  var riskPerLot = slPts * a.pointValue;          // e.g. 5pts × $100 = $500
+  var rawLots    = riskPerLot > 0 ? riskAmt / riskPerLot : 0;
+
+  // Floor to lot step (avoid over-risking)
+  var lots = Math.floor(rawLots / a.lotStep) * a.lotStep;
+  lots = Math.max(lots, 0);
+
+  // Actual risk after rounding
+  var actualRisk = lots * riskPerLot;
+
+  // Notional value  (lots × underlying units per lot × price)
+  var notional = lots * a.lotSize * price;
+  var leverage = (notional > 0 && bal > 0) ? notional / bal : 0;
+
+  // R:R ratio
+  var reward = tpPts > 0 ? lots * tpPts * a.pointValue : 0;
+  var rr     = (actualRisk > 0 && reward > 0) ? (reward / actualRisk) : 0;
+  var rrRiskPct = 100 * (slPts / (slPts + tpPts));
+  var rrRwdPct  = 100 - rrRiskPct;
+
+  // ── Update output cards ──
+  var lotsDisplay = lots >= 1 ? lots.toFixed(2) : lots.toPrecision(2);
+  document.getElementById('rc-out-lots').textContent     = lots > 0 ? lotsDisplay : '0';
+  document.getElementById('rc-out-lots-sub').textContent = a.currency === 'INR' ? 'lots (F&O)' : 'standard lots';
+  document.getElementById('rc-out-risk').textContent     = rcFmt(actualRisk, sym, 0);
+  document.getElementById('rc-out-risk-sub').textContent = riskPc + '% of ' + rcFmt(bal, sym, 0);
+  document.getElementById('rc-out-lev').textContent      = leverage > 0 ? leverage.toFixed(1) + 'x' : '—';
+  document.getElementById('rc-out-lev-sub').textContent  = 'safe ≤ ' + a.safeMaxLev + 'x';
+
+  // Leverage color
+  var levEl = document.getElementById('rc-out-lev');
+  if (leverage <= 0)             { levEl.style.color = '#4b5563'; }
+  else if (leverage <= a.safeMaxLev) { levEl.style.color = '#00c087'; }
+  else if (leverage <= a.absMaxLev)  { levEl.style.color = '#f59e0b'; }
+  else                           { levEl.style.color = '#f87171'; }
+
+  // ── R:R bar ──
+  document.getElementById('rc-rr-label').textContent = rr > 0 ? '1 : ' + rr.toFixed(2) : '— : —';
+  document.getElementById('rc-rr-risk-bar').style.width = rrRiskPct.toFixed(0) + '%';
+  document.getElementById('rc-rr-rwd-bar').style.width  = rrRwdPct.toFixed(0) + '%';
+  document.getElementById('rc-rr-riskpct').textContent  = rrRiskPct.toFixed(0) + '%';
+  document.getElementById('rc-rr-rwdpct').textContent   = rrRwdPct.toFixed(0) + '%';
+
+  // ── Status bar ──
+  var statusEl = document.getElementById('rc-status');
+  statusEl.style.display = 'block';
+  var msgs = [], statusClass = 'ok';
+
+  if (lots <= 0) {
+    msgs.push('⛔ Lot size is 0 — your stop loss is too wide for this risk amount. Reduce SL or increase balance.');
+    statusClass = 'danger';
+  } else {
+    // Risk % warning
+    if (riskPc > 3)      { msgs.push('⛔ Risk ' + riskPc + '% exceeds 3% max — dangerous. Cap at 1–2%.'); statusClass = 'danger'; }
+    else if (riskPc > 2) { msgs.push('⚠ Risk ' + riskPc + '% is above the 2% professional limit.'); statusClass = 'warn'; }
+    else                 { msgs.push('✅ Risk ' + riskPc + '% is within the 1–2% safe zone.'); }
+
+    // Leverage warning
+    if (leverage > a.absMaxLev)  { msgs.push('⛔ Leverage ' + leverage.toFixed(1) + 'x exceeds absolute max ' + a.absMaxLev + 'x for ' + _rcAsset + '.'); statusClass = 'danger'; }
+    else if (leverage > a.safeMaxLev) { msgs.push('⚠ Leverage ' + leverage.toFixed(1) + 'x exceeds safe limit ' + a.safeMaxLev + 'x — reduce position.'); if (statusClass !== 'danger') statusClass = 'warn'; }
+    else if (leverage > 0) { msgs.push('✅ Leverage ' + leverage.toFixed(1) + 'x is within safe zone (≤' + a.safeMaxLev + 'x).'); }
+
+    // R:R warning
+    if (tpPts > 0) {
+      if (rr < 1)      { msgs.push('⛔ R:R ' + rr.toFixed(2) + ' is below 1:1 — not a good trade setup.'); if (statusClass !== 'danger') statusClass = 'warn'; }
+      else if (rr < 1.5) { msgs.push('⚠ R:R ' + rr.toFixed(2) + ' is below 1:1.5 minimum — consider wider target.'); if (statusClass === 'ok') statusClass = 'warn'; }
+      else             { msgs.push('✅ R:R 1:' + rr.toFixed(2) + ' — good setup.'); }
+    }
+  }
+
+  statusEl.className = 'rc-status ' + statusClass;
+  statusEl.innerHTML = msgs.join('<br>');
+
+  // ── Summary table ──
+  var sumEl = document.getElementById('rc-summary');
+  sumEl.style.display = lots > 0 ? 'block' : 'none';
+
+  if (lots > 0) {
+    document.getElementById('rc-sum-asset').textContent = _rcAsset;
+    document.getElementById('rs-lots').textContent      = lotsDisplay + ' lots';
+    document.getElementById('rs-rpl').textContent       = rcFmt(riskPerLot, sym, 0) + ' per lot';
+    document.getElementById('rs-risk').textContent      = rcFmt(actualRisk, sym, 0) + ' (' + riskPc + '%)';
+    document.getElementById('rs-tp').textContent        = reward > 0 ? rcFmt(reward, sym, 0) : '—';
+    document.getElementById('rs-rr').textContent        = rr > 0 ? '1 : ' + rr.toFixed(2) : '—';
+    document.getElementById('rs-notional').textContent  = notional > 0 ? rcFmt(notional, sym, 0) : '—';
+    document.getElementById('rs-lev').textContent       = leverage > 0 ? leverage.toFixed(1) + 'x' : '—';
+    document.getElementById('rs-accrisk').textContent   = rcFmt(actualRisk, sym, 0) + ' / ' + rcFmt(bal, sym, 0);
+  }
 }
 
 // ══════════════════════════════════════════════════════════
@@ -3844,7 +4292,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal()
 // ── SHARED HELPER: hide all special panels, restore news feed ────────────────
 function _hideAllSpecialPanels() {
   ['ai-research-panel','signals-panel','hni-insights-panel',
-   'morning-note-panel','catalyst-panel','sector-panel'].forEach(function(id) {
+   'morning-note-panel','catalyst-panel','sector-panel','risktools-panel'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.style.display = 'none';
   });
