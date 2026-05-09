@@ -482,6 +482,110 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
   <div style="overflow:hidden;flex:1;"><div class="p-track" id="price-strip"><span class="live-ts" id="ticker-ts">─</span></div></div>
 </div>
 
+<!-- ═══ MACRO OVERVIEW PANEL ═══ -->
+<div id="macro-overview" style="display:flex;background:#020810;border-bottom:2px solid #0e1e2e;flex-shrink:0;overflow-x:auto;z-index:50;scrollbar-width:none;">
+  <style>
+    #macro-overview::-webkit-scrollbar{display:none;}
+    .mo-card{min-width:148px;flex:1;padding:7px 12px 6px;border-right:1px solid #0a1520;display:flex;flex-direction:column;gap:2px;cursor:default;position:relative;transition:background 0.15s;}
+    .mo-card:hover{background:#060f1a;}
+    .mo-card:last-child{border-right:none;}
+    .mo-name{font-size:8px;letter-spacing:2px;color:#334155;font-weight:bold;display:flex;align-items:center;justify-content:space-between;}
+    .mo-src{font-size:7px;color:#1e3a4a;letter-spacing:0px;}
+    .mo-price-row{display:flex;align-items:baseline;gap:6px;}
+    .mo-price{font-size:17px;font-weight:bold;color:#e8eaf0;letter-spacing:-0.5px;font-variant-numeric:tabular-nums;transition:color 0.3s;}
+    .mo-chg{font-size:10px;font-weight:bold;transition:color 0.3s;}
+    .mo-bias{font-size:7px;font-weight:bold;padding:1px 5px;border-radius:2px;letter-spacing:0.5px;display:inline-block;margin-top:1px;}
+    .mo-align{font-size:8px;color:#374151;line-height:1.3;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .mo-pulse{position:absolute;top:6px;right:8px;width:4px;height:4px;border-radius:50%;background:#22d3ee;animation:mopulse 2s ease-in-out infinite;}
+    @keyframes mopulse{0%,100%{opacity:0.3;transform:scale(1);}50%{opacity:1;transform:scale(1.4);}}
+    .mo-up{color:#00c087;} .mo-dn{color:#f87171;} .mo-neu{color:#6b7280;}
+    .mo-bias-bull{background:#001a11;color:#00c087;border:1px solid #00c08740;}
+    .mo-bias-bear{background:#1a0505;color:#f87171;border:1px solid #f8717140;}
+    .mo-bias-neu {background:#1a1000;color:#f59e0b;border:1px solid #f59e0b40;}
+    .mo-align-y{color:#00c08799;} .mo-align-n{color:#f8717199;} .mo-align-m{color:#f59e0b99;}
+  </style>
+
+  <!-- GOLD -->
+  <div class="mo-card" id="mo-GOLD">
+    <div class="mo-name">GOLD <span class="mo-src">XAUUSD</span></div>
+    <div class="mo-price-row">
+      <span class="mo-price" id="mo-p-GOLD">—</span>
+      <span class="mo-chg"  id="mo-c-GOLD">—</span>
+    </div>
+    <span class="mo-bias" id="mo-b-GOLD">—</span>
+    <div class="mo-align" id="mo-a-GOLD">—</div>
+    <div class="mo-pulse"></div>
+  </div>
+
+  <!-- DXY -->
+  <div class="mo-card" id="mo-DXY">
+    <div class="mo-name">DXY <span class="mo-src">US DOLLAR INDEX</span></div>
+    <div class="mo-price-row">
+      <span class="mo-price" id="mo-p-DXY">—</span>
+      <span class="mo-chg"  id="mo-c-DXY">—</span>
+    </div>
+    <span class="mo-bias" id="mo-b-DXY">—</span>
+    <div class="mo-align" id="mo-a-DXY">—</div>
+    <div class="mo-pulse" style="animation-delay:0.3s;background:#f59e0b;"></div>
+  </div>
+
+  <!-- NASDAQ -->
+  <div class="mo-card" id="mo-NASDAQ">
+    <div class="mo-name">NASDAQ <span class="mo-src">NAS100 CFD</span></div>
+    <div class="mo-price-row">
+      <span class="mo-price" id="mo-p-NASDAQ">—</span>
+      <span class="mo-chg"  id="mo-c-NASDAQ">—</span>
+    </div>
+    <span class="mo-bias" id="mo-b-NASDAQ">—</span>
+    <div class="mo-align" id="mo-a-NASDAQ">—</div>
+    <div class="mo-pulse" style="animation-delay:0.6s;background:#a78bfa;"></div>
+  </div>
+
+  <!-- US10Y -->
+  <div class="mo-card" id="mo-US10Y">
+    <div class="mo-name">US 10Y <span class="mo-src">BOND YIELD</span></div>
+    <div class="mo-price-row">
+      <span class="mo-price" id="mo-p-US10Y">—</span>
+      <span class="mo-chg"  id="mo-c-US10Y">—</span>
+    </div>
+    <span class="mo-bias" id="mo-b-US10Y">—</span>
+    <div class="mo-align" id="mo-a-US10Y">—</div>
+    <div class="mo-pulse" style="animation-delay:0.9s;background:#34d399;"></div>
+  </div>
+
+  <!-- OIL -->
+  <div class="mo-card" id="mo-CRUDE">
+    <div class="mo-name">CRUDE OIL <span class="mo-src">WTI</span></div>
+    <div class="mo-price-row">
+      <span class="mo-price" id="mo-p-CRUDE">—</span>
+      <span class="mo-chg"  id="mo-c-CRUDE">—</span>
+    </div>
+    <span class="mo-bias" id="mo-b-CRUDE">—</span>
+    <div class="mo-align" id="mo-a-CRUDE">—</div>
+    <div class="mo-pulse" style="animation-delay:1.2s;background:#d97706;"></div>
+  </div>
+
+  <!-- BTC -->
+  <div class="mo-card" id="mo-BTC">
+    <div class="mo-name">BITCOIN <span class="mo-src">BTCUSD</span></div>
+    <div class="mo-price-row">
+      <span class="mo-price" id="mo-p-BTC">—</span>
+      <span class="mo-chg"  id="mo-c-BTC">—</span>
+    </div>
+    <span class="mo-bias" id="mo-b-BTC">—</span>
+    <div class="mo-align" id="mo-a-BTC">—</div>
+    <div class="mo-pulse" style="animation-delay:1.5s;background:#fb923c;"></div>
+  </div>
+
+  <!-- LAST UPDATE -->
+  <div style="display:flex;align-items:center;padding:0 10px;flex-shrink:0;border-left:1px solid #0a1520;">
+    <div style="display:flex;flex-direction:column;gap:3px;align-items:center;">
+      <span style="color:#22d3ee;font-size:7px;letter-spacing:1.5px;white-space:nowrap;">LIVE</span>
+      <span id="mo-ts" style="color:#1e3a4a;font-size:7px;white-space:nowrap;writing-mode:vertical-rl;transform:rotate(180deg);">—</span>
+    </div>
+  </div>
+</div>
+
 <!-- MAIN -->
 <div class="main-wrap">
 
@@ -1860,12 +1964,213 @@ async function loadLivePrices() {
     const cmdAll = {...(lp.commodities||{}), ...(lp.crypto||{}), ...(lp.vix||{})};
     _renderDbr('db-cmd', cmdAll, 'CMDTY');
 
+    // ── Macro overview panel ─────────────────────────────
+    updateMacroOverview(lp, null);
+
   } catch(e) { console.warn('live-prices:', e); }
 }
 
 // Keep old names wired to new function for compatibility
 async function loadIndices() { return loadLivePrices(); }
 async function loadMacro()   { return loadLivePrices(); }
+
+// ══════════════════════════════════════════════════════════════════
+// MACRO OVERVIEW PANEL — live price + regime alignment
+// Called by loadLivePrices() and loadRegime() — no extra API calls
+// ══════════════════════════════════════════════════════════════════
+
+var _moLastPrices = {};     // persists across calls so panel never empties
+var _moLastRegime = null;   // set by loadRegime()
+
+// Asset → regime alignment map
+const MO_REGIME_ALIGN = {
+  GOLD: {
+    risk_on:'AGAINST|Risk appetite reduces safe-haven demand',
+    risk_off:'ALIGNED|Flight to safety lifts gold',
+    inflationary:'ALIGNED|Primary inflation hedge',
+    stagflation:'ALIGNED|Outperforms in stagflation',
+    recession_fear:'ALIGNED|Safe-haven buying on recession fears',
+    liquidity_crisis:'CAUTION|Forced selling may hit gold short-term',
+    ai_growth_boom:'NEUTRAL|Tech narrative overshadows gold',
+    commodity_supercycle:'ALIGNED|Commodity bull market includes gold',
+    central_bank_dovish:'ALIGNED|Rate cuts reduce opportunity cost of gold',
+    central_bank_hawkish:'AGAINST|Higher real rates pressure gold',
+  },
+  DXY: {
+    risk_on:'AGAINST|Risk appetite = global diversification away from USD',
+    risk_off:'ALIGNED|Fear = flight to dollar safety',
+    inflationary:'MIXED|Inflation erodes value; demand provides support',
+    stagflation:'MIXED|Complex: inflation negative, fear positive',
+    recession_fear:'ALIGNED|Recession fear drives USD safe-haven bid',
+    liquidity_crisis:'ALIGNED|Extreme dollar squeeze — everyone needs USD',
+    ai_growth_boom:'AGAINST|Global risk on weakens dollar mildly',
+    commodity_supercycle:'AGAINST|Commodity currencies gain vs USD',
+    central_bank_dovish:'AGAINST|Rate cuts weaken the dollar',
+    central_bank_hawkish:'ALIGNED|Rate hikes make USD yield attractive',
+  },
+  NASDAQ: {
+    risk_on:'ALIGNED|Risk on directly lifts growth/tech',
+    risk_off:'AGAINST|Fear rotates out of high-beta growth',
+    inflationary:'MIXED|Inflation fears compress growth multiples',
+    stagflation:'AGAINST|Worst macro regime for growth stocks',
+    recession_fear:'AGAINST|Earnings growth fears slam Nasdaq',
+    liquidity_crisis:'AGAINST|Forced selling hits Nasdaq first',
+    ai_growth_boom:'ALIGNED|AI narrative IS the Nasdaq regime',
+    commodity_supercycle:'MIXED|Value outperforms; tech relative underperforms',
+    central_bank_dovish:'ALIGNED|Lower rates expand Nasdaq multiples',
+    central_bank_hawkish:'AGAINST|Rate hikes compress tech valuations',
+  },
+  US10Y: {
+    risk_on:'RISING|Growth + inflation expectations lift yields',
+    risk_off:'FALLING|Bond rally on fear — yields drop',
+    inflationary:'RISING|Inflation expectations push yields up',
+    stagflation:'RISING|Inflation premium keeps yields elevated',
+    recession_fear:'FALLING|Flight to bonds crushes yields',
+    liquidity_crisis:'VOLATILE|Stress: selling (up) vs fear (down) conflict',
+    ai_growth_boom:'RISING|Growth optimism pushes yields higher',
+    commodity_supercycle:'RISING|Commodity inflation lifts inflation expectations',
+    central_bank_dovish:'FALLING|Rate cuts pull yields lower',
+    central_bank_hawkish:'RISING|Rate hikes push yields higher',
+  },
+  CRUDE: {
+    risk_on:'ALIGNED|Global growth demand supports oil',
+    risk_off:'AGAINST|Demand destruction fears hit oil',
+    inflationary:'ALIGNED|Oil is the primary inflation driver',
+    stagflation:'ALIGNED|Supply shock keeps oil elevated',
+    recession_fear:'AGAINST|Recession = demand collapse in oil',
+    liquidity_crisis:'AGAINST|All assets sell; oil included',
+    ai_growth_boom:'NEUTRAL|Tech boom has limited direct oil impact',
+    commodity_supercycle:'ALIGNED|Commodity cycle directly lifts oil',
+    central_bank_dovish:'ALIGNED|Growth support = oil demand recovery',
+    central_bank_hawkish:'AGAINST|Rate hikes slow growth = less oil demand',
+  },
+  BTC: {
+    risk_on:'ALIGNED|Risk appetite flows into crypto strongly',
+    risk_off:'AGAINST|Crypto sells heavily in fear regimes',
+    inflationary:'ALIGNED|Hard money narrative supports BTC',
+    stagflation:'MIXED|Inflation positive; growth slowdown negative',
+    recession_fear:'AGAINST|Liquidity drain hits BTC hard',
+    liquidity_crisis:'AGAINST|Forced selling crushes crypto first',
+    ai_growth_boom:'ALIGNED|Tech enthusiasm and risk appetite lift BTC',
+    commodity_supercycle:'NEUTRAL|Commodity focus pulls attention from crypto',
+    central_bank_dovish:'ALIGNED|Liquidity expansion is crypto fuel',
+    central_bank_hawkish:'AGAINST|Tightening drains crypto liquidity',
+  },
+};
+
+function _moBias(chg, assetKey) {
+  // For US10Y bonds: rising yield = hawkish / falling = dovish
+  if (assetKey === 'US10Y') {
+    if (chg > 0.5)  return {label:'RISING', cls:'mo-bias-bear', chgCls:'mo-up'};
+    if (chg > 0)    return {label:'RISING', cls:'mo-bias-neu',  chgCls:'mo-up'};
+    if (chg > -0.5) return {label:'FALLING',cls:'mo-bias-neu',  chgCls:'mo-dn'};
+    return               {label:'FALLING',cls:'mo-bias-bull', chgCls:'mo-dn'};
+  }
+  if (chg >  1.5) return {label:'STRONG BUY', cls:'mo-bias-bull', chgCls:'mo-up'};
+  if (chg >  0.3) return {label:'BULLISH',    cls:'mo-bias-bull', chgCls:'mo-up'};
+  if (chg > -0.3) return {label:'NEUTRAL',    cls:'mo-bias-neu',  chgCls:'mo-neu'};
+  if (chg > -1.5) return {label:'BEARISH',    cls:'mo-bias-bear', chgCls:'mo-dn'};
+  return               {label:'STRONG SELL', cls:'mo-bias-bear', chgCls:'mo-dn'};
+}
+
+function _moAlignColor(align) {
+  if (!align) return '';
+  var a = align.toUpperCase();
+  if (a === 'ALIGNED')    return 'mo-align-y';
+  if (a === 'AGAINST')    return 'mo-align-n';
+  if (a === 'RISING')     return 'mo-align-n';
+  if (a === 'FALLING')    return 'mo-align-y';
+  return 'mo-align-m';
+}
+
+function _moFmtPrice(price, assetKey) {
+  if (!price && price !== 0) return '—';
+  var p = Number(price);
+  if (assetKey === 'US10Y')  return p.toFixed(3) + '%';
+  if (assetKey === 'DXY')    return p.toFixed(2);
+  if (assetKey === 'BTC')    return '$' + p.toLocaleString('en-US', {maximumFractionDigits:0});
+  if (p >= 10000)            return p.toLocaleString('en-US', {maximumFractionDigits:0});
+  if (p >= 100)              return '$' + p.toFixed(2);
+  return '$' + p.toFixed(3);
+}
+
+function updateMacroOverview(lp, regime) {
+  // Merge incoming data — never wipe last known good values
+  if (lp) _moLastPrices = lp;
+  if (regime && regime.regime) _moLastRegime = regime;
+
+  var prices = _moLastPrices;
+  var reg    = _moLastRegime;
+
+  // Map: panel key → [category, key in lp]
+  var MAP = {
+    GOLD:   ['commodities','GOLD'],
+    DXY:    ['fx','DXY'],
+    NASDAQ: ['global','NASDAQ'],
+    US10Y:  ['bonds','US_10Y'],
+    CRUDE:  ['commodities','CRUDE'],
+    BTC:    ['crypto','BTC'],
+  };
+
+  Object.keys(MAP).forEach(function(asset) {
+    var ref  = MAP[asset];
+    var item = (prices[ref[0]] || {})[ref[1]] || {};
+    var price = item.price;
+    var chg   = typeof item.change === 'number' ? item.change : 0;
+
+    if (!price) return;   // keep old value until fresh arrives
+
+    var bias   = _moBias(chg, asset);
+    var regKey = reg ? reg.regime : null;
+    var alignRaw = regKey ? (MO_REGIME_ALIGN[asset] || {})[regKey] : null;
+    var alignLabel = '—', alignNote = '—', alignCls = '';
+    if (alignRaw) {
+      var parts = alignRaw.split('|');
+      alignLabel = parts[0];
+      alignNote  = parts[1] || '';
+      alignCls   = _moAlignColor(alignLabel);
+    }
+
+    // Price with flash animation
+    var priceEl = document.getElementById('mo-p-' + asset);
+    var chgEl   = document.getElementById('mo-c-' + asset);
+    var biasEl  = document.getElementById('mo-b-' + asset);
+    var alignEl = document.getElementById('mo-a-' + asset);
+
+    if (!priceEl) return;
+
+    var newPriceTxt = _moFmtPrice(price, asset);
+    var oldPriceTxt = priceEl.textContent;
+
+    if (newPriceTxt !== oldPriceTxt && oldPriceTxt !== '—') {
+      // Flash color on price change
+      priceEl.style.color = chg >= 0 ? '#00c087' : '#f87171';
+      setTimeout(function() { priceEl.style.color = '#e8eaf0'; }, 600);
+    }
+
+    priceEl.textContent = newPriceTxt;
+
+    var chgTxt = (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%';
+    chgEl.textContent = chgTxt;
+    chgEl.className   = 'mo-chg ' + bias.chgCls;
+
+    biasEl.textContent = bias.label;
+    biasEl.className   = 'mo-bias ' + bias.cls;
+
+    if (alignRaw) {
+      alignEl.innerHTML = '<span class="' + alignCls + '" style="font-weight:bold;">' + alignLabel + '</span>' +
+                          ' <span style="color:#1e3a4a;">— </span>' + alignNote;
+    } else if (regKey) {
+      alignEl.innerHTML = '<span style="color:#1e3a4a;">Awaiting regime data...</span>';
+    } else {
+      alignEl.innerHTML = '<span style="color:#1e3a4a;">—</span>';
+    }
+  });
+
+  // Timestamp
+  var tsEl = document.getElementById('mo-ts');
+  if (tsEl && prices.ts) tsEl.textContent = prices.ts;
+}
 
 // ── Load stocks (add ETFs to commodities) ────────────────
 async function loadStocks() {
@@ -2402,6 +2707,8 @@ function startPriceStream() {
         _renderDbr('db-fx',  lp.fx||{}, 'FX');
         _renderDbr('db-yld', lp.bonds||{}, 'BONDS');
         _renderDbr('db-cmd', Object.assign({}, lp.commodities||{}, lp.crypto||{}, lp.vix||{}), 'CMDTY');
+        // ── Push to macro overview panel (SSE real-time) ──
+        updateMacroOverview(lp, null);
       }
     } catch(_) {}
   };
@@ -2716,6 +3023,9 @@ async function loadRegime(force) {
     var msBias   = document.getElementById('ms-bias');
     if (msRegime) { msRegime.textContent = d.label; msRegime.style.color = color; }
     if (msBias)   { msBias.textContent   = 'CONF ' + d.confidence + '%'; msBias.style.color = color; }
+
+    // Push regime into macro overview panel alignment rows
+    updateMacroOverview(null, d);
 
   } catch(e) { console.warn('[regime]', e); }
 }
