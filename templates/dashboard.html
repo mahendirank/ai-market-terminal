@@ -522,13 +522,83 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
       <button class="af-btn" data-asset="FED"   onclick="setAsset(this)">FED</button>
       <button class="af-btn" data-asset="RATES" onclick="setAsset(this)">RATES</button>
     </div>
-    <!-- MASTER SIGNAL PANEL — populated by HNI engine on load -->
-    <div id="master-panel" style="border:1px solid #0e2a36;padding:8px 12px;margin-bottom:8px;border-radius:4px;background:#060d14;color:#fff;font-size:11px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
-      <span style="color:#22d3ee;font-weight:bold;letter-spacing:1px;white-space:nowrap;">🧠 REGIME</span>
-      <span id="ms-regime"     style="font-weight:bold;color:#9ca3af;letter-spacing:0.5px;">—</span>
-      <span id="ms-bias"       style="font-weight:bold;"></span>
-      <span id="ms-confidence" style="color:#4b5563;font-size:10px;"></span>
-      <span id="ms-assets"     style="color:#4b5563;font-size:10px;"></span>
+    <!-- ═══ MARKET REGIME ENGINE PANEL ═══ -->
+    <div id="regime-panel" style="border:1px solid #1a2a3a;border-radius:6px;margin-bottom:8px;overflow:hidden;background:#060d14;">
+
+      <!-- Header row -->
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;background:#070f18;border-bottom:1px solid #0e1e2e;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="color:#22d3ee;font-weight:bold;letter-spacing:1.5px;font-size:10px;">⬡ MARKET REGIME ENGINE</span>
+          <span style="color:#1e3a4a;font-size:9px;">INSTITUTIONAL MACRO CLASSIFIER</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span id="regime-updated" style="color:#334155;font-size:9px;">—</span>
+          <button onclick="loadRegime(true)" style="background:#0e1e2e;border:1px solid #1e3a4a;color:#4b8baf;font-size:9px;padding:2px 7px;border-radius:3px;cursor:pointer;letter-spacing:0.5px;">↻ REFRESH</button>
+        </div>
+      </div>
+
+      <!-- Main regime badge + confidence -->
+      <div style="display:flex;align-items:stretch;gap:0;border-bottom:1px solid #0e1e2e;">
+
+        <!-- Regime name block -->
+        <div id="regime-badge" style="padding:10px 16px;min-width:180px;display:flex;flex-direction:column;justify-content:center;border-right:1px solid #0e1e2e;flex-shrink:0;">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+            <span id="regime-icon"  style="font-size:16px;">◌</span>
+            <span id="regime-label" style="font-size:13px;font-weight:bold;letter-spacing:0.5px;color:#9ca3af;">LOADING...</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="color:#4b5563;font-size:9px;letter-spacing:1px;">CONFIDENCE</span>
+            <span id="regime-conf"  style="font-size:12px;font-weight:bold;color:#22d3ee;">—%</span>
+          </div>
+          <!-- Confidence bar -->
+          <div style="margin-top:5px;height:3px;background:#0e1e2e;border-radius:2px;overflow:hidden;">
+            <div id="regime-conf-bar" style="height:100%;width:0%;background:#22d3ee;border-radius:2px;transition:width 0.6s ease;"></div>
+          </div>
+        </div>
+
+        <!-- Explanation bullets -->
+        <div style="padding:8px 12px;flex:1;display:flex;flex-direction:column;justify-content:center;border-right:1px solid #0e1e2e;min-width:0;">
+          <div style="color:#4b5563;font-size:9px;letter-spacing:1px;margin-bottom:4px;">SIGNAL DRIVERS</div>
+          <div id="regime-signals" style="display:flex;flex-direction:column;gap:2px;">
+            <div style="color:#334155;font-size:10px;">— analyzing market signals...</div>
+          </div>
+        </div>
+
+        <!-- Assets columns -->
+        <div style="padding:8px 12px;min-width:200px;flex-shrink:0;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;height:100%;">
+            <div>
+              <div style="color:#4b5563;font-size:9px;letter-spacing:1px;margin-bottom:4px;">▲ BULLISH</div>
+              <div id="regime-bullish" style="display:flex;flex-direction:column;gap:2px;"></div>
+            </div>
+            <div>
+              <div style="color:#4b5563;font-size:9px;letter-spacing:1px;margin-bottom:4px;">▼ BEARISH</div>
+              <div id="regime-bearish" style="display:flex;flex-direction:column;gap:2px;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Secondary regime + defensive bar -->
+      <div style="display:flex;align-items:center;gap:16px;padding:5px 12px;flex-wrap:wrap;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="color:#4b5563;font-size:9px;letter-spacing:1px;">SECONDARY:</span>
+          <span id="regime-secondary" style="font-size:10px;color:#6b7280;">—</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="color:#4b5563;font-size:9px;letter-spacing:1px;">DEFENSIVE:</span>
+          <span id="regime-defensive" style="font-size:10px;color:#6b7280;">—</span>
+        </div>
+        <div id="regime-fallback-warn" style="display:none;color:#d97706;font-size:9px;letter-spacing:0.5px;">⚠ KEYWORD INFERENCE — live data unavailable</div>
+      </div>
+    </div>
+
+    <!-- MASTER SIGNAL PANEL — kept for HNI engine compat -->
+    <div id="master-panel" style="display:none;">
+      <span id="ms-regime"></span>
+      <span id="ms-bias"></span>
+      <span id="ms-confidence"></span>
+      <span id="ms-assets"></span>
     </div>
 
     <div class="news-feed" id="news-feed">
@@ -2111,6 +2181,97 @@ function startPriceStream() {
   };
 }
 
+// ══════════════════════════════════════════════════════════
+// MARKET REGIME ENGINE — UI RENDERER
+// ══════════════════════════════════════════════════════════
+
+const REGIME_COLORS = {
+  risk_on:              '#00c087', risk_off:         '#f87171',
+  inflationary:         '#f59e0b', stagflation:      '#ef4444',
+  recession_fear:       '#dc2626', liquidity_crisis: '#fca5a5',
+  ai_growth_boom:       '#a78bfa', commodity_supercycle: '#d97706',
+  central_bank_dovish:  '#34d399', central_bank_hawkish: '#fb923c',
+};
+const REGIME_BG = {
+  risk_on:'#001a11', risk_off:'#1a0505', inflationary:'#1a1000',
+  stagflation:'#1a0000', recession_fear:'#1a0000', liquidity_crisis:'#2d0000',
+  ai_growth_boom:'#0f0020', commodity_supercycle:'#1a0e00',
+  central_bank_dovish:'#001510', central_bank_hawkish:'#1a0a00',
+};
+
+async function loadRegime(force) {
+  try {
+    var url = BASE + '/api/regime' + (force ? '?force=true' : '');
+    var r   = await fetch(url);
+    var d   = await r.json();
+    if (!d || !d.regime) return;
+
+    var color = REGIME_COLORS[d.regime] || '#9ca3af';
+    var bg    = REGIME_BG[d.regime]    || '#060d14';
+
+    // Badge
+    var badge = document.getElementById('regime-badge');
+    if (badge) badge.style.background = bg;
+
+    var icon  = document.getElementById('regime-icon');
+    var label = document.getElementById('regime-label');
+    var conf  = document.getElementById('regime-conf');
+    var bar   = document.getElementById('regime-conf-bar');
+    if (icon)  { icon.textContent  = d.icon  || '●'; }
+    if (label) { label.textContent = d.label || d.regime.toUpperCase(); label.style.color = color; }
+    if (conf)  { conf.textContent  = (d.confidence || 0) + '%'; conf.style.color = color; }
+    if (bar)   { bar.style.width   = (d.confidence || 0) + '%'; bar.style.background = color; }
+
+    // Signal bullets
+    var sigEl = document.getElementById('regime-signals');
+    if (sigEl && d.explanation && d.explanation.length) {
+      sigEl.innerHTML = d.explanation.map(function(e) {
+        return '<div style="font-size:10px;color:#94a3b8;display:flex;align-items:center;gap:4px;">' +
+               '<span style="color:' + color + ';font-size:8px;">◆</span>' + e + '</div>';
+      }).join('');
+    }
+
+    // Bullish assets
+    var bullEl = document.getElementById('regime-bullish');
+    if (bullEl && d.bullish_assets) {
+      bullEl.innerHTML = d.bullish_assets.slice(0,4).map(function(a) {
+        return '<div style="font-size:9px;color:#00c087;background:#001a11;padding:1px 5px;border-radius:2px;white-space:nowrap;">' + a + '</div>';
+      }).join('');
+    }
+
+    // Bearish assets
+    var bearEl = document.getElementById('regime-bearish');
+    if (bearEl && d.bearish_assets) {
+      bearEl.innerHTML = d.bearish_assets.slice(0,4).map(function(a) {
+        return '<div style="font-size:9px;color:#f87171;background:#1a0505;padding:1px 5px;border-radius:2px;white-space:nowrap;">' + a + '</div>';
+      }).join('');
+    }
+
+    // Secondary regime
+    var secEl = document.getElementById('regime-secondary');
+    if (secEl) secEl.textContent = d.secondary_label || 'None';
+
+    // Defensive
+    var defEl = document.getElementById('regime-defensive');
+    if (defEl && d.defensive_assets) defEl.textContent = d.defensive_assets.join(', ');
+
+    // Timestamp
+    var updEl = document.getElementById('regime-updated');
+    if (updEl) updEl.textContent = d.generated_at || '';
+
+    // Fallback warning
+    var fw = document.getElementById('regime-fallback-warn');
+    if (fw) fw.style.display = d.fallback ? 'block' : 'none';
+
+    // Keep legacy master-panel in sync (for HNI tab)
+    var msRegime = document.getElementById('ms-regime');
+    var msBias   = document.getElementById('ms-bias');
+    if (msRegime) { msRegime.textContent = d.label; msRegime.style.color = color; }
+    if (msBias)   { msBias.textContent   = 'CONF ' + d.confidence + '%'; msBias.style.color = color; }
+
+  } catch(e) { console.warn('[regime]', e); }
+}
+
 // ── Boot ──────────────────────────────────────────────────
 async function boot() {
   await Promise.all([loadNews(), loadLivePrices()]);
@@ -2119,6 +2280,8 @@ async function boot() {
   loadEarnings();
   loadSocialEarnings();
   loadNSE();
+  // Regime engine — load early, after live prices are warmed up
+  setTimeout(loadRegime,      4000);
   // AI layer — load after news is ready
   setTimeout(loadAINews,      8000);
   setTimeout(loadDecisions,  12000);
@@ -2130,6 +2293,7 @@ async function boot() {
 boot();
 setInterval(loadNews,           15000);   // news every 15s
 setInterval(loadLivePrices,     15000);   // prices every 15s (SSE also runs)
+setInterval(loadRegime,         60000);   // regime every 60s
 setInterval(loadSignal,        120000);
 setInterval(loadEarnings,      600000);
 setInterval(loadSocialEarnings, 90000);

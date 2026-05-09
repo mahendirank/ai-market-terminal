@@ -411,8 +411,20 @@ def _fetch_all() -> dict:
     return result
 
 
+_lp_cache      = {"data": None, "ts": 0.0}
+_lp_cache_lock = threading.Lock()
+_LP_TTL        = 30  # seconds — regime engine and ticker reuse this
+
 def get_live_prices(force: bool = False) -> dict:
-    return _fetch_all()
+    now = time.time()
+    with _lp_cache_lock:
+        if not force and _lp_cache["data"] and (now - _lp_cache["ts"]) < _LP_TTL:
+            return _lp_cache["data"]
+    result = _fetch_all()
+    with _lp_cache_lock:
+        _lp_cache["data"] = result
+        _lp_cache["ts"]   = time.time()
+    return result
 
 
 def get_ticker_items() -> list:

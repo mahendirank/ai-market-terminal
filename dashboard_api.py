@@ -466,6 +466,14 @@ def _build_signal():
         stocks_txt = format_stocks()
         econ       = get_economic_data()
 
+        # Fetch regime in parallel with other signal tasks
+        regime_data = {}
+        try:
+            from regime import detect_market_regime
+            regime_data = detect_market_regime() or {}
+        except Exception:
+            pass
+
         results = {}
         def _run(key, mod, fn, *a):
             try:
@@ -498,6 +506,7 @@ def _build_signal():
 
         return {
             "signal":    signal,
+            "regime":    regime_data,
             "insights":  brain.get("insights", []),
             "smc":       {"bos": smc.get("bos",""), "ob": smc.get("order_block",""), "liquidity": smc.get("liquidity","")},
             "mtf":       mtf,
@@ -525,6 +534,21 @@ def _build_signal():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/api/regime")
+def api_regime(force: bool = False):
+    """Market Regime Engine — classifies current macro environment into 10 institutional regimes."""
+    def _build():
+        from regime import detect_market_regime
+        return detect_market_regime(force=force)
+    return _bg_refresh("regime", 60, _build, empty={
+        "regime": "risk_on", "label": "LOADING...", "icon": "◌",
+        "color": "#4b5563", "bg": "#0d1117", "confidence": 0,
+        "explanation": [], "bullish_assets": [], "bearish_assets": [],
+        "defensive_assets": [], "secondary_regime": None, "secondary_label": None,
+        "all_scores": {}, "signals_used": {}, "generated_at": "—",
+    })
 
 
 @app.get("/telegram/digest")
@@ -1178,8 +1202,22 @@ async def hni_summary_standalone(request: Request):
         macro_block = "\n".join(macro_lines) or "Data loading..."
         news_block  = "\n".join(f"• {h}" for h in top_headlines[:12] if h) or "No high-priority news."
 
+        # Inject regime context into AI prompt
+        regime_block = ""
+        try:
+            from regime import detect_market_regime, format_regime_for_prompt
+            regime_data = detect_market_regime()
+            regime_block = format_regime_for_prompt(regime_data)
+        except Exception:
+            regime_block = "Regime data unavailable."
+
         prompt = f"""You are a senior institutional trader and HNI advisor covering NSE/global markets.
 Analyze the live data below and generate a complete market regime assessment.
+
+IMPORTANT: The regime engine has already classified current conditions. Use this as your PRIMARY CONTEXT — your trade bias, confidence and hni_view must be CONSISTENT with the detected regime below.
+
+=== MARKET REGIME ENGINE OUTPUT ===
+{regime_block}
 
 === LIVE INDICES ===
 {idx_block}
