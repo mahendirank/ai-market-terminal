@@ -167,6 +167,19 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 .insight:before { content:"▸ "; color:var(--accent); }
 .insight:last-child { border:none; }
 
+/* ── AI PERFORMANCE PANEL ── */
+.ap-kpi { background:#0d1623;border:1px solid #1e3a5f;border-radius:8px;padding:12px 14px;text-align:center; }
+.ap-kpi-label { font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:6px; }
+.ap-kpi-val { font-size:22px;font-weight:700;letter-spacing:-0.5px;color:#e8eaf0; }
+.ap-regime-row { display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #0d1a26;font-size:11px; }
+.ap-regime-row:last-child { border:none; }
+.ap-sig-row { display:flex;align-items:center;gap:4px;padding:5px 0;border-bottom:1px solid #0d1a26;font-size:11px; }
+.ap-sig-row:last-child { border:none; }
+.ap-bar { height:4px;border-radius:2px;background:#00c087;margin-top:2px; }
+.ql-high { background:#001a11;border:1px solid #00c087;color:#00c087;font-size:9px;padding:2px 6px;border-radius:3px;font-weight:700;letter-spacing:0.5px; }
+.ql-mod  { background:#120e00;border:1px solid #92400e;color:#fbbf24;font-size:9px;padding:2px 6px;border-radius:3px;font-weight:700;letter-spacing:0.5px; }
+.ql-low  { background:#18000a;border:1px solid #f43f5e;color:#f43f5e;font-size:9px;padding:2px 6px;border-radius:3px;font-weight:700;letter-spacing:0.5px; }
+
 /* ── EARNINGS PANEL ── */
 .earn-panel { flex-shrink:0; border-top:2px solid var(--accent); background:#020408; max-height:240px; overflow:hidden; transition:max-height 0.3s ease; }
 .earn-panel.collapsed { max-height:32px; }
@@ -612,6 +625,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
       <div class="ctab" data-cat="CALENDAR" onclick="showCatalyst(this)" id="calendar-tab" style="color:#34d399;border-left:2px solid #059669;">📅 CALENDAR</div>
       <div class="ctab" data-cat="SECTORS" onclick="showSectorRotation(this)" id="sectors-tab" style="color:#f472b6;border-left:2px solid #db2777;">📡 SECTORS</div>
       <div class="ctab" data-cat="RISKTOOLS" onclick="showRiskTools(this)" id="risktools-tab" style="color:#22d3ee;border-left:2px solid #0891b2;">⚖ RISK TOOLS</div>
+      <div class="ctab" data-cat="AIPERFORMANCE" onclick="showAiPerformance(this)" id="aiperformance-tab" style="color:#a78bfa;border-left:2px solid #7c3aed;">📊 AI PERF</div>
     </div>
     <!-- ASSET QUICK FILTERS -->
     <div class="asset-filters" id="asset-filters">
@@ -1366,6 +1380,141 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 
   </div><!-- end padding wrapper -->
 </div><!-- end risktools-panel -->
+
+<!-- ═══ AI PERFORMANCE PANEL ═══ -->
+<div id="aiperformance-panel" style="display:none;flex:1;overflow-y:auto;background:#060d14;flex-direction:column;">
+  <div style="padding:20px 24px 32px;">
+
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px;">
+      <div>
+        <div style="font-size:15px;font-weight:700;color:#a78bfa;letter-spacing:1px;">📊 AI SIGNAL PERFORMANCE ANALYTICS</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:3px;">Self-learning engine — every signal remembered, verified after 24h, AI confidence adapts from history</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span id="ap-storage-badge" style="font-size:9px;padding:3px 8px;border-radius:4px;background:#0d1a26;border:1px solid #1e3a5f;color:var(--muted);">STORE: —</span>
+        <button onclick="loadAiPerformance(true)" style="background:#1a0a3a;border:1px solid #7c3aed;color:#a78bfa;padding:6px 14px;border-radius:6px;font-size:11px;cursor:pointer;letter-spacing:0.5px;">↻ REFRESH</button>
+      </div>
+    </div>
+
+    <!-- KPI Cards Row -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:20px;">
+      <div class="ap-kpi">
+        <div class="ap-kpi-label">TOTAL SIGNALS</div>
+        <div class="ap-kpi-val" id="ap-total-val">—</div>
+      </div>
+      <div class="ap-kpi">
+        <div class="ap-kpi-label">WIN RATE</div>
+        <div class="ap-kpi-val" id="ap-wr-val" style="color:#00c087;">—</div>
+      </div>
+      <div class="ap-kpi">
+        <div class="ap-kpi-label">WINS / LOSSES</div>
+        <div class="ap-kpi-val" id="ap-wl-val"><span style="color:#00c087;" id="ap-wins-val">—</span> / <span style="color:#f43f5e;" id="ap-losses-val">—</span></div>
+      </div>
+      <div class="ap-kpi">
+        <div class="ap-kpi-label">PROFIT FACTOR</div>
+        <div class="ap-kpi-val" id="ap-pf-val" style="color:#fbbf24;">—</div>
+      </div>
+      <div class="ap-kpi">
+        <div class="ap-kpi-label">AVG WIN MOVE</div>
+        <div class="ap-kpi-val" id="ap-avgwin-val" style="color:#00c087;">—</div>
+      </div>
+      <div class="ap-kpi">
+        <div class="ap-kpi-label">AVG LOSS MOVE</div>
+        <div class="ap-kpi-val" id="ap-avgloss-val" style="color:#f43f5e;">—</div>
+      </div>
+      <div class="ap-kpi">
+        <div class="ap-kpi-label">TOP ASSET</div>
+        <div class="ap-kpi-val" id="ap-top-asset-val" style="color:#22d3ee;">—</div>
+        <div style="font-size:9px;color:var(--muted);" id="ap-top-asset-sub"></div>
+      </div>
+      <div class="ap-kpi">
+        <div class="ap-kpi-label">PENDING VERIFY</div>
+        <div class="ap-kpi-val" id="ap-pending-val" style="color:#94a3b8;">—</div>
+      </div>
+    </div>
+
+    <!-- Best / Worst Regime Banner -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;">
+      <div id="ap-best-regime-card" style="background:#00180f;border:1px solid #00c087;border-radius:8px;padding:12px 16px;display:none;">
+        <div style="font-size:9px;color:#00c087;letter-spacing:1px;margin-bottom:4px;">BEST REGIME (SELF-LEARNED ↑ CONFIDENCE)</div>
+        <div id="ap-best-regime-val" style="color:#e8eaf0;font-weight:700;font-size:13px;">—</div>
+        <div id="ap-best-regime-wr" style="color:#00c087;font-size:11px;margin-top:2px;"></div>
+      </div>
+      <div id="ap-worst-regime-card" style="background:#180008;border:1px solid #f43f5e;border-radius:8px;padding:12px 16px;display:none;">
+        <div style="font-size:9px;color:#f43f5e;letter-spacing:1px;margin-bottom:4px;">WORST REGIME (CAUTION — REDUCE CONVICTION)</div>
+        <div id="ap-worst-regime-val" style="color:#e8eaf0;font-weight:700;font-size:13px;">—</div>
+        <div id="ap-worst-regime-wr" style="color:#f43f5e;font-size:11px;margin-top:2px;"></div>
+      </div>
+    </div>
+
+    <!-- Signal Quality Breakdown -->
+    <div style="background:#0b1623;border:1px solid #1e3a5f;border-radius:8px;padding:14px;margin-bottom:20px;">
+      <div style="font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:12px;">SIGNAL QUALITY LABEL PERFORMANCE</div>
+      <div id="ap-quality-breakdown" style="display:flex;gap:12px;flex-wrap:wrap;">
+        <div style="color:var(--muted);font-size:11px;">Generating quality data...</div>
+      </div>
+    </div>
+
+    <!-- Middle Row: Regime + Signal Breakdown -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+
+      <!-- Regime Breakdown -->
+      <div style="background:#0b1623;border:1px solid #1e3a5f;border-radius:8px;padding:14px;">
+        <div style="font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:10px;">REGIME ACCURACY &amp; SELF-LEARNING BOOST</div>
+        <div id="ap-regime-breakdown">
+          <div style="color:var(--muted);font-size:11px;text-align:center;padding:20px 0;">Generate signals to begin tracking</div>
+        </div>
+      </div>
+
+      <!-- Signal Type + Session -->
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <div style="background:#0b1623;border:1px solid #1e3a5f;border-radius:8px;padding:14px;flex:1;">
+          <div style="font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:10px;">SIGNAL TYPE ACCURACY</div>
+          <div id="ap-signal-breakdown">
+            <div style="color:var(--muted);font-size:11px;text-align:center;padding:10px 0;">No data yet</div>
+          </div>
+        </div>
+        <div style="background:#0b1623;border:1px solid #1e3a5f;border-radius:8px;padding:14px;flex:1;">
+          <div style="font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:10px;">SESSION PERFORMANCE</div>
+          <div id="ap-session-breakdown" style="display:flex;gap:8px;flex-wrap:wrap;">
+            <div style="color:var(--muted);font-size:11px;">No session data yet</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recent Signals Table -->
+    <div style="background:#0b1623;border:1px solid #1e3a5f;border-radius:8px;padding:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <div style="font-size:10px;color:var(--muted);letter-spacing:1px;">RECENT SIGNALS — LAST 30</div>
+        <div style="font-size:9px;color:var(--muted);">✓ = verified after 24h &nbsp;⏳ = pending verification</div>
+      </div>
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:11px;">
+          <thead>
+            <tr style="color:var(--muted);border-bottom:1px solid #1e3a5f;text-align:left;">
+              <th style="padding:5px 8px;white-space:nowrap;">TIME</th>
+              <th style="padding:5px 8px;">QUALITY</th>
+              <th style="padding:5px 8px;">HEADLINE</th>
+              <th style="padding:5px 8px;">REGIME</th>
+              <th style="padding:5px 8px;">SIGNAL</th>
+              <th style="padding:5px 8px;">ASSET</th>
+              <th style="padding:5px 8px;">ENTRY</th>
+              <th style="padding:5px 8px;">24h MOVE</th>
+              <th style="padding:5px 8px;">OUTCOME</th>
+            </tr>
+          </thead>
+          <tbody id="ap-recent-body">
+            <tr><td colspan="9" style="text-align:center;padding:24px;color:var(--muted);">No signals logged yet — generate your first signal to begin institutional memory</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="ap-last-updated" style="text-align:right;color:var(--muted);font-size:9px;margin-top:10px;"></div>
+  </div>
+</div><!-- end aiperformance-panel -->
 
 <!-- EARNINGS PANEL -->
 <div class="earn-panel" id="earn-panel">
@@ -2234,6 +2383,29 @@ async function loadSignal() {
     document.getElementById('sid-snp').innerHTML=snp;
 
     document.getElementById('hdr-time').textContent=d.timestamp||'';
+
+    // Quality label badge (from signal memory self-learning)
+    var qlBadge = document.getElementById('hdr-quality-label');
+    if (!qlBadge) {
+      qlBadge = document.createElement('span');
+      qlBadge.id = 'hdr-quality-label';
+      qlBadge.style.cssText = 'font-size:9px;padding:2px 6px;border-radius:3px;font-weight:700;letter-spacing:0.5px;margin-left:8px;vertical-align:middle;';
+      var bdg = document.getElementById('hdr-sig');
+      if (bdg && bdg.parentNode) bdg.parentNode.insertBefore(qlBadge, bdg.nextSibling);
+    }
+    var ql = d.quality_label || '';
+    var boost = d.confidence_boost || 0;
+    if (ql === 'HIGH PROBABILITY') {
+      qlBadge.textContent = '⭐ HIGH PROB' + (boost > 0 ? ' +'+boost+'%' : '');
+      qlBadge.style.background = '#001a11'; qlBadge.style.border = '1px solid #00c087'; qlBadge.style.color = '#00c087';
+    } else if (ql === 'LOW CONFIDENCE') {
+      qlBadge.textContent = '⚠ LOW CONF';
+      qlBadge.style.background = '#18000a'; qlBadge.style.border = '1px solid #f43f5e'; qlBadge.style.color = '#f43f5e';
+    } else if (ql) {
+      qlBadge.textContent = 'MOD' + (boost > 0 ? ' +'+boost+'%' : '');
+      qlBadge.style.background = '#120e00'; qlBadge.style.border = '1px solid #92400e'; qlBadge.style.color = '#fbbf24';
+    }
+
   } catch(e) {}
 }
 
@@ -2799,11 +2971,198 @@ const RC_ASSETS = {
 
 function showRiskTools(tab) {
   _showSpecialPanel('risktools-panel', tab);
-  // Init on first open
   if (!document.getElementById('rc-asset-info').textContent) {
     rcSelectAsset(document.querySelector('.asset-btn.sel'), 'XAUUSD');
     rcCalc();
   }
+}
+
+// ── AI PERFORMANCE ─────────────────────────────────────────────────────────────
+var _apLoaded = false;
+
+function showAiPerformance(tab) {
+  _showSpecialPanel('aiperformance-panel', tab);
+  if (!_apLoaded) loadAiPerformance(false);
+}
+
+function loadAiPerformance(force) {
+  // Load analytics + storage status in parallel
+  Promise.all([
+    fetch('/api/signal-memory/analytics').then(function(r){ return r.json(); }).catch(function(){ return {}; }),
+    fetch('/api/signal-store/status').then(function(r){ return r.json(); }).catch(function(){ return {}; }),
+  ]).then(function(results) {
+    _apLoaded = true;
+    _renderAiPerf(results[0]);
+    _renderStorageStatus(results[1]);
+  });
+}
+
+function _renderStorageStatus(s) {
+  var el = document.getElementById('ap-storage-badge');
+  if (!el || !s) return;
+  var primary = (s.primary || 'sqlite').toUpperCase();
+  var col = s.redis ? '#00c087' : '#94a3b8';
+  el.textContent = 'STORE: ' + primary + (s.redis ? ' ✓' : ' (offline)');
+  el.style.color = col;
+  el.style.borderColor = col + '44';
+}
+
+function _qualityStyle(q) {
+  if (!q) return {col:'#94a3b8', bg:'#0d1a26', border:'#1e3a5f'};
+  q = q.toUpperCase();
+  if (q.indexOf('HIGH') >= 0)     return {col:'#00c087', bg:'#001a11', border:'#00c087'};
+  if (q.indexOf('LOW') >= 0)      return {col:'#f43f5e', bg:'#18000a', border:'#f43f5e'};
+  return {col:'#fbbf24', bg:'#120e00', border:'#92400e'};
+}
+
+function _renderAiPerf(d) {
+  if (!d) return;
+
+  // KPI cards
+  var total = d.total_signals || 0;
+  var wr    = d.win_rate || 0;
+  var wins  = d.wins || 0;
+  var losses= d.losses || 0;
+  var pf    = (d.profit_factor !== undefined && d.profit_factor !== null) ? d.profit_factor : '—';
+  var avgw  = d.avg_win_move  || 0;
+  var avgl  = d.avg_loss_move || 0;
+  var pending = d.pending || 0;
+
+  _setText('ap-total-val',   total || '—');
+  _setText('ap-wr-val',      wr ? wr + '%' : '—');
+  _setText('ap-wins-val',    wins);
+  _setText('ap-losses-val',  losses);
+  _setText('ap-pf-val',      pf);
+  _setText('ap-avgwin-val',  avgw ? '+' + avgw + '%' : '—');
+  _setText('ap-avgloss-val', avgl ? avgl + '%' : '—');
+  _setText('ap-pending-val', pending);
+  _setText('ap-top-asset-val', d.top_asset || '—');
+  _setText('ap-top-asset-sub', d.top_asset_avg_move ? 'avg +' + d.top_asset_avg_move + '%' : '');
+
+  // Color win rate
+  var wrEl = document.getElementById('ap-wr-val');
+  if (wrEl && wr) wrEl.style.color = wr >= 60 ? '#00c087' : wr >= 45 ? '#fbbf24' : '#f43f5e';
+
+  // Best regime
+  var best = d.best_regime, bestWr = d.best_regime_wr;
+  var bCard = document.getElementById('ap-best-regime-card');
+  if (bCard && best && best !== '—') {
+    bCard.style.display = '';
+    _setText('ap-best-regime-val', best);
+    _setText('ap-best-regime-wr', bestWr + '% win rate — AI confidence auto-boosted ↑');
+  }
+  // Worst regime
+  var worst = d.worst_regime, worstWr = d.worst_regime_wr;
+  var wCard = document.getElementById('ap-worst-regime-card');
+  if (wCard && worst && worst !== '—') {
+    wCard.style.display = '';
+    _setText('ap-worst-regime-val', worst);
+    _setText('ap-worst-regime-wr', worstWr + '% win rate — reduce conviction in this regime');
+  }
+
+  // Quality label breakdown
+  var qb = document.getElementById('ap-quality-breakdown');
+  if (qb && d.quality_breakdown && d.quality_breakdown.length > 0) {
+    qb.innerHTML = d.quality_breakdown.map(function(q) {
+      var st = _qualityStyle(q.label);
+      return '<div style="background:' + st.bg + ';border:1px solid ' + st.border + ';border-radius:8px;padding:10px 16px;min-width:140px;text-align:center;">' +
+        '<div style="font-size:9px;color:' + st.col + ';letter-spacing:1px;font-weight:700;">' + (q.label||'—') + '</div>' +
+        '<div style="font-size:18px;font-weight:700;color:' + st.col + ';margin:4px 0;">' + (q.win_rate||0) + '%</div>' +
+        '<div style="font-size:9px;color:var(--muted);">' + q.total + ' signals · ' + (q.wins||0) + ' wins</div>' +
+        '</div>';
+    }).join('');
+  }
+
+  // Regime breakdown with self-learning boost indicator
+  var rb = document.getElementById('ap-regime-breakdown');
+  if (rb && d.regime_breakdown && d.regime_breakdown.length > 0) {
+    rb.innerHTML = d.regime_breakdown.map(function(r) {
+      var wr2  = r.win_rate || 0;
+      var col  = wr2 >= 65 ? '#00c087' : wr2 >= 45 ? '#fbbf24' : '#f43f5e';
+      var lbl  = r.label || r.regime || '—';
+      var tot  = r.total_verified || r.total || 0;
+      var barW = Math.min(wr2, 100);
+      return '<div class="ap-regime-row">' +
+        '<div style="flex:1;min-width:0;">' +
+          '<div style="color:#a78bfa;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + lbl + '">' + lbl + '</div>' +
+          '<div style="height:3px;background:#0d1a26;border-radius:2px;margin-top:3px;">' +
+            '<div style="height:3px;width:' + barW + '%;background:' + col + ';border-radius:2px;"></div>' +
+          '</div>' +
+        '</div>' +
+        '<span style="color:var(--muted);font-size:10px;padding:0 8px;white-space:nowrap;">' + tot + ' verified</span>' +
+        '<span style="color:' + col + ';font-weight:700;font-size:12px;min-width:36px;text-align:right;">' + wr2 + '%</span>' +
+        '</div>';
+    }).join('');
+  }
+
+  // Signal type breakdown
+  var sb = document.getElementById('ap-signal-breakdown');
+  if (sb && d.signal_breakdown && d.signal_breakdown.length > 0) {
+    sb.innerHTML = d.signal_breakdown.map(function(s) {
+      var col   = s.signal === 'BUY' || s.signal === 'STRONG BUY' ? '#00c087' :
+                  s.signal === 'SELL' || s.signal === 'STRONG SELL' ? '#f43f5e' : '#94a3b8';
+      var wrPct = s.win_rate || 0;
+      return '<div class="ap-sig-row">' +
+        '<span style="color:' + col + ';font-weight:700;min-width:90px;">' + s.signal + '</span>' +
+        '<div style="flex:1;margin:0 8px;">' +
+          '<div class="ap-bar" style="width:' + Math.min(wrPct, 100) + '%;background:' + col + ';"></div>' +
+        '</div>' +
+        '<span style="color:var(--muted);font-size:10px;margin-right:6px;">' + s.total + '</span>' +
+        '<span style="color:' + col + ';font-weight:700;">' + wrPct + '%</span>' +
+        '</div>';
+    }).join('');
+  }
+
+  // Session breakdown
+  var ssb = document.getElementById('ap-session-breakdown');
+  if (ssb && d.session_breakdown && d.session_breakdown.length > 0) {
+    ssb.innerHTML = d.session_breakdown.map(function(s) {
+      var swr = s.total > 0 ? Math.round((s.wins||0)/s.total*100) : 0;
+      var col = swr >= 60 ? '#00c087' : swr >= 45 ? '#fbbf24' : '#f43f5e';
+      return '<div style="background:#0d1623;border:1px solid #1e3a5f;border-radius:6px;padding:10px 14px;min-width:90px;text-align:center;">' +
+        '<div style="font-size:9px;color:var(--muted);letter-spacing:1px;">' + (s.session||'—').toUpperCase() + '</div>' +
+        '<div style="font-size:16px;font-weight:700;color:' + col + ';margin:4px 0;">' + swr + '%</div>' +
+        '<div style="font-size:9px;color:var(--muted);">' + s.total + ' signals</div>' +
+        '</div>';
+    }).join('');
+  }
+
+  // Recent signals table
+  var tbody = document.getElementById('ap-recent-body');
+  if (tbody && d.recent_signals && d.recent_signals.length > 0) {
+    tbody.innerHTML = d.recent_signals.map(function(r) {
+      var oc  = r.outcome === 'WIN' ? '#00c087' : r.outcome === 'LOSS' ? '#f43f5e' :
+                r.outcome === 'NEUTRAL' ? '#94a3b8' : '#fbbf24';
+      var sc  = r.signal === 'BUY' || r.signal === 'STRONG BUY' ? '#00c087' :
+                r.signal === 'SELL' || r.signal === 'STRONG SELL' ? '#f43f5e' : '#94a3b8';
+      var qst = _qualityStyle(r.quality);
+      var qTag = '<span style="font-size:9px;padding:2px 5px;border-radius:3px;background:' + qst.bg + ';border:1px solid ' + qst.border + ';color:' + qst.col + ';white-space:nowrap;">' +
+        (r.quality === 'HIGH PROBABILITY' ? '⭐ HIGH' : r.quality === 'LOW CONFIDENCE' ? '⚠ LOW' : 'MOD') + '</span>';
+      var verify = r.verified ? '✓' : '⏳';
+      var move   = r.pct_move ? (r.pct_move > 0 ? '+' : '') + r.pct_move + '%' : '—';
+      var mvCol  = r.pct_move > 0 ? '#00c087' : r.pct_move < 0 ? '#f43f5e' : '#94a3b8';
+      return '<tr style="border-bottom:1px solid #0d1a26;">' +
+        '<td style="padding:5px 8px;color:var(--muted);white-space:nowrap;font-size:10px;">' + (r.time||'').replace(' IST','') + '</td>' +
+        '<td style="padding:5px 8px;">' + qTag + '</td>' +
+        '<td style="padding:5px 8px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + (r.headline||'') + '">' + (r.headline||'—') + '</td>' +
+        '<td style="padding:5px 8px;color:#a78bfa;font-size:10px;white-space:nowrap;">' + (r.regime||'—') + '</td>' +
+        '<td style="padding:5px 8px;color:' + sc + ';font-weight:700;">' + r.signal + '</td>' +
+        '<td style="padding:5px 8px;color:#22d3ee;">' + (r.asset||'—') + '</td>' +
+        '<td style="padding:5px 8px;font-size:10px;">' + (r.entry_price > 0 ? r.entry_price : '—') + '</td>' +
+        '<td style="padding:5px 8px;color:' + mvCol + ';font-weight:600;">' + move + '</td>' +
+        '<td style="padding:5px 8px;color:' + oc + ';font-weight:700;">' + verify + ' ' + (r.outcome||'PENDING') + '</td>' +
+        '</tr>';
+    }).join('');
+  } else if (tbody) {
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--muted);">No signals logged yet — generate your first signal to begin institutional memory</td></tr>';
+  }
+
+  _setText('ap-last-updated', 'Updated: ' + (d.generated_at || ''));
+}
+
+function _setText(id, val) {
+  var el = document.getElementById(id);
+  if (el) el.textContent = val;
 }
 
 function rcSelectAsset(btn, assetKey) {
@@ -4605,7 +4964,8 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal()
 // ── SHARED HELPER: hide all special panels, restore news feed ────────────────
 function _hideAllSpecialPanels() {
   ['ai-research-panel','signals-panel','hni-insights-panel',
-   'morning-note-panel','catalyst-panel','sector-panel','risktools-panel'].forEach(function(id) {
+   'morning-note-panel','catalyst-panel','sector-panel','risktools-panel',
+   'aiperformance-panel'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.style.display = 'none';
   });

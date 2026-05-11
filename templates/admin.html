@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Panel — AI Market Terminal</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#030912; color:#e8eaf0; font-family:'SF Mono','Fira Code',monospace; min-height:100vh; font-size:12px; }
+
+  /* Top bar */
+  .topbar {
+    background:#05090e; border-bottom:1px solid #0d1f2e;
+    padding:10px 20px; display:flex; align-items:center; justify-content:space-between;
+  }
+  .topbar-left { display:flex; align-items:center; gap:12px; }
+  .logo-mark { color:#00c087; font-size:16px; font-weight:700; }
+  .page-title { color:#e8eaf0; font-size:12px; letter-spacing:1px; }
+  .topbar-right { display:flex; gap:10px; align-items:center; }
+  .btn-sm { padding:5px 12px; border-radius:4px; border:1px solid #1a2e45; background:#0a1520;
+             color:#94a3b8; font-family:inherit; font-size:10px; cursor:pointer; letter-spacing:1px; }
+  .btn-sm:hover { border-color:#00c087; color:#00c087; }
+  .btn-primary { background:#00914f; border-color:#00914f; color:#fff; }
+  .btn-primary:hover { background:#00c087; border-color:#00c087; color:#fff; }
+  .btn-danger { background:#7f1d1d; border-color:#f43f5e; color:#fca5a5; }
+  .btn-danger:hover { background:#991b1b; }
+
+  /* Layout */
+  .main { max-width:1100px; margin:0 auto; padding:24px 20px; }
+
+  /* Stat cards */
+  .stat-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:28px; }
+  .stat-card { background:#0a1520; border:1px solid #1a2e45; border-radius:8px; padding:14px 16px; text-align:center; }
+  .stat-num { font-size:28px; font-weight:700; color:#00c087; }
+  .stat-lbl { font-size:9px; color:#4b6a8a; letter-spacing:1.5px; margin-top:4px; }
+
+  /* Section */
+  .section { background:#0a1520; border:1px solid #1a2e45; border-radius:8px; margin-bottom:20px; }
+  .section-head { padding:12px 16px; border-bottom:1px solid #0d1f2e; display:flex; align-items:center; justify-content:space-between; }
+  .section-title { font-size:10px; color:#94a3b8; letter-spacing:2px; }
+
+  /* Table */
+  .tbl { width:100%; border-collapse:collapse; font-size:11px; }
+  .tbl th { padding:8px 12px; text-align:left; color:#4b6a8a; font-weight:normal; font-size:9px; letter-spacing:1px; border-bottom:1px solid #0d1f2e; }
+  .tbl td { padding:9px 12px; border-bottom:1px solid #060d14; vertical-align:middle; }
+  .tbl tr:last-child td { border:none; }
+  .tbl tr:hover td { background:#0d1825; }
+
+  /* Status badges */
+  .badge { display:inline-block; padding:2px 8px; border-radius:3px; font-size:9px; font-weight:700; letter-spacing:1px; }
+  .badge-active   { background:#001a11; border:1px solid #00c087; color:#00c087; }
+  .badge-inactive { background:#18000a; border:1px solid #f43f5e; color:#f43f5e; }
+  .badge-admin    { background:#1a0a3a; border:1px solid #7c3aed; color:#a78bfa; }
+  .badge-sub      { background:#0d1623; border:1px solid #1e3a5f; color:#60a5fa; }
+  .badge-expired  { background:#1a0a00; border:1px solid #f97316; color:#fb923c; }
+
+  /* Add user form */
+  .form-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:16px; }
+  .form-field { display:flex; flex-direction:column; gap:5px; }
+  .form-field label { font-size:9px; color:#4b6a8a; letter-spacing:1px; }
+  .form-field input, .form-field select {
+    background:#060d14; border:1px solid #1a2e45; border-radius:5px;
+    color:#e8eaf0; font-family:inherit; font-size:12px; padding:8px 10px; outline:none;
+  }
+  .form-field input:focus, .form-field select:focus { border-color:#00c087; }
+  .form-field select option { background:#0a1520; }
+  .form-actions { padding:0 16px 16px; display:flex; gap:10px; }
+
+  /* Alert */
+  .alert { padding:10px 14px; border-radius:6px; font-size:11px; margin-bottom:16px; display:none; }
+  .alert.show { display:block; }
+  .alert-ok  { background:#001a11; border:1px solid #00c087; color:#00c087; }
+  .alert-err { background:#18000a; border:1px solid #f43f5e; color:#fca5a5; }
+
+  /* Inline action buttons */
+  .act-btn { padding:3px 8px; border-radius:3px; border:1px solid; font-family:inherit; font-size:9px; cursor:pointer; }
+
+  /* Change password modal */
+  .modal-overlay {
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7);
+    align-items:center; justify-content:center; z-index:1000;
+  }
+  .modal-overlay.show { display:flex; }
+  .modal { background:#0a1520; border:1px solid #1a2e45; border-radius:10px; padding:24px; min-width:320px; }
+  .modal-title { font-size:11px; letter-spacing:2px; color:#94a3b8; margin-bottom:16px; }
+  .modal-field { margin-bottom:12px; }
+  .modal-field label { display:block; font-size:9px; color:#4b6a8a; letter-spacing:1px; margin-bottom:5px; }
+  .modal-field input { width:100%; background:#060d14; border:1px solid #1a2e45; border-radius:5px; color:#e8eaf0; font-family:inherit; font-size:12px; padding:8px 10px; outline:none; }
+  .modal-actions { display:flex; gap:8px; margin-top:16px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <span class="logo-mark">◈</span>
+    <span class="page-title">ADMIN PANEL — AI MARKET TERMINAL</span>
+  </div>
+  <div class="topbar-right">
+    <span id="admin-user-label" style="color:#4b6a8a;font-size:10px;"></span>
+    <a href="/" style="text-decoration:none;"><button class="btn-sm">← TERMINAL</button></a>
+    <button class="btn-sm" onclick="doLogout()">LOGOUT</button>
+  </div>
+</div>
+
+<div class="main">
+
+  <div class="alert" id="main-alert"></div>
+
+  <!-- Stat cards -->
+  <div class="stat-row">
+    <div class="stat-card">
+      <div class="stat-num" id="stat-total">—</div>
+      <div class="stat-lbl">TOTAL USERS</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num" id="stat-active">—</div>
+      <div class="stat-lbl">ACTIVE</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num" id="stat-subs">—</div>
+      <div class="stat-lbl">SUBSCRIBERS</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num" id="stat-sessions">—</div>
+      <div class="stat-lbl">LIVE SESSIONS</div>
+    </div>
+  </div>
+
+  <!-- Add subscriber -->
+  <div class="section">
+    <div class="section-head">
+      <span class="section-title">ADD NEW SUBSCRIBER</span>
+    </div>
+    <div class="form-grid">
+      <div class="form-field">
+        <label>USERNAME *</label>
+        <input type="text" id="new-username" placeholder="e.g. trader_rahul">
+      </div>
+      <div class="form-field">
+        <label>PASSWORD *</label>
+        <input type="text" id="new-password" placeholder="min 8 characters">
+      </div>
+      <div class="form-field">
+        <label>EMAIL (OPTIONAL)</label>
+        <input type="email" id="new-email" placeholder="trader@gmail.com">
+      </div>
+      <div class="form-field">
+        <label>PLAN DURATION</label>
+        <select id="new-days">
+          <option value="30">Monthly (30 days)</option>
+          <option value="90">Quarterly (90 days)</option>
+          <option value="180">Half-year (180 days)</option>
+          <option value="365">Annual (365 days)</option>
+          <option value="36500">Lifetime</option>
+        </select>
+      </div>
+      <div class="form-field">
+        <label>ROLE</label>
+        <select id="new-role">
+          <option value="subscriber">Subscriber</option>
+          <option value="admin">Admin</option>
+        </select>
+      </div>
+      <div class="form-field">
+        <label>NOTES</label>
+        <input type="text" id="new-notes" placeholder="e.g. Paid via Razorpay ₹500">
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn-sm btn-primary" onclick="addUser()">+ ADD SUBSCRIBER</button>
+      <button class="btn-sm" onclick="generatePassword()">⚡ GENERATE PASSWORD</button>
+    </div>
+  </div>
+
+  <!-- Subscriber list -->
+  <div class="section">
+    <div class="section-head">
+      <span class="section-title">ALL SUBSCRIBERS</span>
+      <button class="btn-sm" onclick="loadUsers()">↻ REFRESH</button>
+    </div>
+    <div style="overflow-x:auto;">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>USERNAME</th>
+            <th>EMAIL</th>
+            <th>ROLE</th>
+            <th>STATUS</th>
+            <th>EXPIRES</th>
+            <th>LAST LOGIN</th>
+            <th>NOTES</th>
+            <th>ACTIONS</th>
+          </tr>
+        </thead>
+        <tbody id="user-table-body">
+          <tr><td colspan="9" style="text-align:center;color:#4b6a8a;padding:20px;">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Change own password -->
+  <div class="section">
+    <div class="section-head">
+      <span class="section-title">CHANGE YOUR ADMIN PASSWORD</span>
+    </div>
+    <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr;">
+      <div class="form-field">
+        <label>CURRENT PASSWORD</label>
+        <input type="password" id="pw-current" placeholder="Current password">
+      </div>
+      <div class="form-field">
+        <label>NEW PASSWORD</label>
+        <input type="password" id="pw-new" placeholder="New password (min 8 chars)">
+      </div>
+      <div class="form-field">
+        <label>CONFIRM NEW</label>
+        <input type="password" id="pw-confirm" placeholder="Repeat new password">
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn-sm btn-primary" onclick="changeMyPassword()">SAVE PASSWORD</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- Change user password modal -->
+<div class="modal-overlay" id="pw-modal">
+  <div class="modal">
+    <div class="modal-title">RESET PASSWORD FOR: <span id="pw-modal-user" style="color:#00c087;"></span></div>
+    <div class="modal-field">
+      <label>NEW PASSWORD</label>
+      <input type="text" id="pw-modal-input" placeholder="Enter new password">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-sm btn-primary" onclick="saveUserPassword()">SAVE</button>
+      <button class="btn-sm" onclick="closePwModal()">CANCEL</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var _pwModalUser = '';
+
+async function api(path, method, body) {
+  var opts = { method: method || 'GET', headers: {'Content-Type':'application/json'} };
+  if (body) opts.body = JSON.stringify(body);
+  var r = await fetch(path, opts);
+  return r.json();
+}
+
+function showAlert(msg, ok) {
+  var el = document.getElementById('main-alert');
+  el.textContent = (ok ? '✓ ' : '⚠ ') + msg;
+  el.className = 'alert show ' + (ok ? 'alert-ok' : 'alert-err');
+  setTimeout(function() { el.className = 'alert'; }, 4000);
+}
+
+async function loadStats() {
+  var d = await api('/admin/api/stats');
+  document.getElementById('stat-total').textContent    = d.total    || 0;
+  document.getElementById('stat-active').textContent   = d.active   || 0;
+  document.getElementById('stat-subs').textContent     = d.subscribers || 0;
+  document.getElementById('stat-sessions').textContent = d.sessions  || 0;
+  var ul = document.getElementById('admin-user-label');
+  if (ul) ul.textContent = 'Logged in as admin';
+}
+
+async function loadUsers() {
+  var users = await api('/admin/api/users');
+  var tbody = document.getElementById('user-table-body');
+  if (!users || !users.length) {
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#4b6a8a;padding:20px;">No users found</td></tr>';
+    return;
+  }
+  tbody.innerHTML = users.map(function(u) {
+    var roleBadge = u.role === 'admin'
+      ? '<span class="badge badge-admin">ADMIN</span>'
+      : '<span class="badge badge-sub">SUB</span>';
+    var statusBadge = u.active
+      ? '<span class="badge badge-active">ACTIVE</span>'
+      : '<span class="badge badge-inactive">DISABLED</span>';
+
+    // Check expiry
+    var expLabel = u.expires_at || '—';
+    var expiredTag = '';
+    try {
+      if (u.role !== 'admin' && u.expires_at && u.expires_at !== '—') {
+        var parts = u.expires_at.split('-');
+        var months = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+        var expDate = new Date(parseInt(parts[2]), months[parts[1]], parseInt(parts[0]));
+        if (expDate < new Date()) expiredTag = ' <span class="badge badge-expired">EXPIRED</span>';
+      }
+    } catch(e) {}
+
+    var toggleLabel = u.active ? 'DISABLE' : 'ENABLE';
+    var toggleClass = u.active ? 'color:#f43f5e;border-color:#7f1d1d;background:#180008;' : 'color:#00c087;border-color:#00c087;background:#001a11;';
+
+    return '<tr>' +
+      '<td style="color:#4b6a8a;">' + u.id + '</td>' +
+      '<td style="font-weight:700;color:#e8eaf0;">' + u.username + '</td>' +
+      '<td style="color:#60a5fa;">' + (u.email || '—') + '</td>' +
+      '<td>' + roleBadge + '</td>' +
+      '<td>' + statusBadge + '</td>' +
+      '<td>' + expLabel + expiredTag + '</td>' +
+      '<td style="color:#4b6a8a;font-size:10px;">' + (u.last_login || 'Never') + '</td>' +
+      '<td style="color:#4b6a8a;font-size:10px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + (u.notes||'') + '">' + (u.notes || '') + '</td>' +
+      '<td style="display:flex;gap:5px;flex-wrap:wrap;">' +
+        '<button class="act-btn" style="' + toggleClass + '" onclick="toggleUser(\'' + u.username + '\',' + (u.active ? 0 : 1) + ')">' + toggleLabel + '</button>' +
+        '<button class="act-btn" style="color:#fbbf24;border-color:#92400e;background:#120e00;" onclick="openPwModal(\'' + u.username + '\')">RESET PW</button>' +
+        (u.username !== 'admin' ? '<button class="act-btn" style="color:#f43f5e;border-color:#7f1d1d;background:#180008;" onclick="deleteUser(\'' + u.username + '\')">DELETE</button>' : '') +
+      '</td>' +
+      '</tr>';
+  }).join('');
+}
+
+async function addUser() {
+  var username = document.getElementById('new-username').value.trim();
+  var password = document.getElementById('new-password').value;
+  var email    = document.getElementById('new-email').value.trim();
+  var days     = parseInt(document.getElementById('new-days').value);
+  var role     = document.getElementById('new-role').value;
+  var notes    = document.getElementById('new-notes').value.trim();
+
+  if (!username || !password) { showAlert('Username and password are required'); return; }
+  if (password.length < 6) { showAlert('Password must be at least 6 characters'); return; }
+
+  var d = await api('/admin/api/users/add', 'POST', {username, password, email, days, role, notes});
+  if (d.ok) {
+    showAlert('Subscriber ' + username + ' added successfully!', true);
+    ['new-username','new-password','new-email','new-notes'].forEach(function(id) {
+      document.getElementById(id).value = '';
+    });
+    loadUsers(); loadStats();
+  } else {
+    showAlert(d.message || 'Failed to add user');
+  }
+}
+
+async function toggleUser(username, active) {
+  var d = await api('/admin/api/users/update', 'POST', {username, active});
+  if (d.ok) {
+    showAlert(username + (active ? ' enabled' : ' disabled'), true);
+    loadUsers(); loadStats();
+  } else {
+    showAlert('Failed to update user');
+  }
+}
+
+async function deleteUser(username) {
+  if (!confirm('Delete user "' + username + '"? This cannot be undone.')) return;
+  var d = await api('/admin/api/users/delete', 'POST', {username});
+  if (d.ok) {
+    showAlert(username + ' deleted', true);
+    loadUsers(); loadStats();
+  } else {
+    showAlert('Failed to delete user');
+  }
+}
+
+function openPwModal(username) {
+  _pwModalUser = username;
+  document.getElementById('pw-modal-user').textContent = username;
+  document.getElementById('pw-modal-input').value = '';
+  document.getElementById('pw-modal').classList.add('show');
+  document.getElementById('pw-modal-input').focus();
+}
+function closePwModal() {
+  document.getElementById('pw-modal').classList.remove('show');
+  _pwModalUser = '';
+}
+async function saveUserPassword() {
+  var pw = document.getElementById('pw-modal-input').value;
+  if (!pw || pw.length < 6) { showAlert('Password must be at least 6 characters'); return; }
+  var d = await api('/admin/api/users/password', 'POST', {username: _pwModalUser, password: pw});
+  if (d.ok) {
+    showAlert('Password updated for ' + _pwModalUser, true);
+    closePwModal();
+  } else {
+    showAlert(d.message || 'Failed to update password');
+  }
+}
+
+async function changeMyPassword() {
+  var current = document.getElementById('pw-current').value;
+  var newpw   = document.getElementById('pw-new').value;
+  var confirm = document.getElementById('pw-confirm').value;
+  if (!current || !newpw) { showAlert('All fields required'); return; }
+  if (newpw !== confirm) { showAlert('New passwords do not match'); return; }
+  if (newpw.length < 8) { showAlert('Password must be at least 8 characters'); return; }
+  var d = await api('/admin/api/change-password', 'POST', {current_password: current, new_password: newpw});
+  if (d.ok) {
+    showAlert('Admin password changed successfully!', true);
+    ['pw-current','pw-new','pw-confirm'].forEach(function(id) { document.getElementById(id).value=''; });
+  } else {
+    showAlert(d.message || 'Failed to change password');
+  }
+}
+
+function generatePassword() {
+  var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789@#!';
+  var pw = '';
+  for (var i = 0; i < 10; i++) pw += chars[Math.floor(Math.random() * chars.length)];
+  document.getElementById('new-password').value = pw;
+  document.getElementById('new-password').type = 'text';
+}
+
+async function doLogout() {
+  await fetch('/logout', {method:'POST'});
+  window.location.href = '/login';
+}
+
+// Click outside modal to close
+document.getElementById('pw-modal').addEventListener('click', function(e) {
+  if (e.target === this) closePwModal();
+});
+
+// Init
+loadStats();
+loadUsers();
+setInterval(loadStats, 30000);
+</script>
+</body>
+</html>

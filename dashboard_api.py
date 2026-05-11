@@ -4,14 +4,17 @@ import json as _json
 sys.path.insert(0, os.path.dirname(__file__))
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Body, Request
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi import FastAPI, Body, Request, Response
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import asyncio
 import threading
 import time as _time
 from datetime import datetime, timezone, timedelta
+
+import auth as _auth
+from auth import COOKIE_NAME
 
 
 _bg_tasks: set = set()   # hold strong refs so asyncio doesn't GC tasks
@@ -43,11 +46,57 @@ async def lifespan(app: FastAPI):
         start_watchdog()
     except Exception:
         pass
+    # Signal memory: init DB + start hourly verification loop
+    try:
+        import signal_memory as _sm
+        _sm.init_db()
+        verify_task = asyncio.create_task(_signal_verify_loop())
+        _bg_tasks.add(verify_task)
+        verify_task.add_done_callback(_bg_tasks.discard)
+    except Exception as _e:
+        print(f"[SIGNAL_MEM] init error: {_e}", flush=True)
     yield
+
+
+async def _signal_verify_loop():
+    """Run 24h signal verification every hour."""
+    await asyncio.sleep(3600)   # wait 1h after boot before first pass
+    while True:
+        try:
+            import signal_memory as _sm
+            await asyncio.to_thread(_sm.run_verification_pass)
+        except Exception as _e:
+            print(f"[SIGNAL_MEM] verify error: {_e}", flush=True)
+        await asyncio.sleep(3600)
 
 
 app = FastAPI(title="AI Market Terminal", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# ── Auth middleware — gates every request except public paths ──────────────────
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import RedirectResponse as _StarletteRedirect
+
+_NO_AUTH_PATHS    = {"/health", "/login", "/logout", "/favicon.ico"}
+_NO_AUTH_PREFIXES = ("/static/", "/api/live-ticker")
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        path = request.url.path
+        # Always allow public paths
+        if path in _NO_AUTH_PATHS or any(path.startswith(p) for p in _NO_AUTH_PREFIXES):
+            return await call_next(request)
+        # Verify session cookie
+        token = request.cookies.get(COOKIE_NAME)
+        user  = _auth.verify_session(token) if token else None
+        if not user:
+            # API calls → 401 JSON, page requests → redirect to login
+            if path.startswith("/api/") or path.startswith("/admin/api/"):
+                return JSONResponse({"error": "unauthorized"}, status_code=401)
+            return _StarletteRedirect(f"/login")
+        return await call_next(request)
+
+app.add_middleware(AuthMiddleware)
 
 # Serve static files (images, icons, etc.) from /static/
 _STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
@@ -504,7 +553,7 @@ def _build_signal():
             sniper = sniper_entry(signal)
         except: sniper = {"entry":"—","htf":"—","sweep":"—","reason":"—"}
 
-        return {
+        result = {
             "signal":    signal,
             "regime":    regime_data,
             "insights":  brain.get("insights", []),
@@ -522,6 +571,22 @@ def _build_signal():
             },
             "timestamp": now_ist(),
         }
+        # Fire-and-forget: log signal to memory DB without blocking the response
+        try:
+            import signal_memory as _sm
+            threading.Thread(target=_sm.log_signal, args=(result,), daemon=True).start()
+            # Attach quality label + confidence boost to the response
+            s     = result.get("signal") or {}
+            sc    = float(s.get("score", 0) or 0)
+            rkey  = result.get("regime", {}).get("regime", "")
+            rconf = int(result.get("regime", {}).get("confidence", 0) or 0)
+            boost = _sm.get_confidence_boost(rkey)
+            qlbl  = _sm.compute_quality_label(rkey, rconf + boost, sc)
+            result["quality_label"]      = qlbl
+            result["confidence_boost"]   = boost
+        except Exception:
+            pass
+        return result
     except Exception as e:
         return {"error": str(e), "timestamp": now_ist()}
 
@@ -530,6 +595,189 @@ def _build_signal():
 
 
 # ── Endpoints ─────────────────────────────────────────────────
+
+# ── Auth helpers ──────────────────────────────────────────────────────────────
+
+# Public paths that never need a login check
+_PUBLIC_PATHS = {"/health", "/login", "/logout", "/api/live-ticker"}
+_PUBLIC_PREFIX = ("/static/",)
+
+
+def _get_session_user(request: Request) -> dict | None:
+    token = request.cookies.get(COOKIE_NAME)
+    return _auth.verify_session(token) if token else None
+
+
+def _require_auth(request: Request) -> dict | None:
+    """Return user dict or None. Caller redirects if None."""
+    return _get_session_user(request)
+
+
+def _require_admin(request: Request) -> dict | None:
+    user = _get_session_user(request)
+    if user and user.get("role") == "admin":
+        return user
+    return None
+
+
+# ── Auth routes ────────────────────────────────────────────────────────────────
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request):
+    if _get_session_user(request):
+        return RedirectResponse("/", status_code=302)
+    path = os.path.join(os.path.dirname(__file__), "templates", "login.html")
+    with open(path) as f:
+        return f.read()
+
+
+@app.post("/login")
+async def login_post(request: Request, response: Response):
+    try:
+        body     = await request.json()
+        username = str(body.get("username", "")).strip().lower()
+        password = str(body.get("password", ""))
+    except Exception:
+        return JSONResponse({"ok": False, "message": "Invalid request"}, status_code=400)
+
+    token = _auth.login(username, password)
+    if not token:
+        return JSONResponse({"ok": False, "message": "Invalid username or password"})
+
+    user = _auth.get_user(username)
+    redirect = "/admin" if user and user.get("role") == "admin" else "/"
+
+    resp = JSONResponse({"ok": True, "redirect": redirect})
+    resp.set_cookie(
+        key=COOKIE_NAME, value=token,
+        max_age=86400 * 30,
+        httponly=True, samesite="lax",
+        secure=False,   # set True in production (Railway has HTTPS)
+    )
+    return resp
+
+
+@app.post("/logout")
+def logout(request: Request, response: Response):
+    token = request.cookies.get(COOKIE_NAME)
+    if token:
+        _auth.delete_session(token)
+    resp = RedirectResponse("/login", status_code=302)
+    resp.delete_cookie(COOKIE_NAME)
+    return resp
+
+
+@app.get("/logout")
+def logout_get(request: Request):
+    token = request.cookies.get(COOKIE_NAME)
+    if token:
+        _auth.delete_session(token)
+    resp = RedirectResponse("/login", status_code=302)
+    resp.delete_cookie(COOKIE_NAME)
+    return resp
+
+
+# ── Admin panel ────────────────────────────────────────────────────────────────
+
+@app.get("/admin", response_class=HTMLResponse)
+def admin_panel(request: Request):
+    user = _require_admin(request)
+    if not user:
+        return RedirectResponse("/login", status_code=302)
+    path = os.path.join(os.path.dirname(__file__), "templates", "admin.html")
+    with open(path) as f:
+        return f.read()
+
+
+@app.get("/admin/api/stats")
+def admin_stats(request: Request):
+    if not _require_admin(request):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    return _auth.get_stats()
+
+
+@app.get("/admin/api/users")
+def admin_list_users(request: Request):
+    if not _require_admin(request):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    return _auth.list_users()
+
+
+@app.post("/admin/api/users/add")
+async def admin_add_user(request: Request):
+    if not _require_admin(request):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    try:
+        b = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "message": "Invalid request"})
+    username = str(b.get("username", "")).strip().lower()
+    password = str(b.get("password", ""))
+    email    = str(b.get("email", "")).strip()
+    days     = int(b.get("days", 30))
+    role     = str(b.get("role", "subscriber"))
+    notes    = str(b.get("notes", ""))
+    if not username or not password:
+        return JSONResponse({"ok": False, "message": "Username and password required"})
+    ok = _auth.create_user(username, password, email, role, days)
+    if ok and notes:
+        _auth.update_user(username, notes=notes)
+    return JSONResponse({"ok": ok, "message": "User already exists" if not ok else ""})
+
+
+@app.post("/admin/api/users/update")
+async def admin_update_user(request: Request):
+    if not _require_admin(request):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    b = await request.json()
+    username = str(b.get("username", "")).strip().lower()
+    if not username:
+        return JSONResponse({"ok": False})
+    kwargs = {k: v for k, v in b.items() if k != "username"}
+    ok = _auth.update_user(username, **kwargs)
+    return JSONResponse({"ok": ok})
+
+
+@app.post("/admin/api/users/delete")
+async def admin_delete_user(request: Request):
+    if not _require_admin(request):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    b = await request.json()
+    username = str(b.get("username", "")).strip().lower()
+    if username == "admin":
+        return JSONResponse({"ok": False, "message": "Cannot delete admin"})
+    ok = _auth.delete_user(username)
+    return JSONResponse({"ok": ok})
+
+
+@app.post("/admin/api/users/password")
+async def admin_reset_password(request: Request):
+    if not _require_admin(request):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    b = await request.json()
+    username = str(b.get("username", "")).strip().lower()
+    password = str(b.get("password", ""))
+    if not username or not password:
+        return JSONResponse({"ok": False, "message": "Missing fields"})
+    ok = _auth.change_password(username, password)
+    return JSONResponse({"ok": ok})
+
+
+@app.post("/admin/api/change-password")
+async def admin_change_my_password(request: Request):
+    user = _require_admin(request)
+    if not user:
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    b        = await request.json()
+    current  = str(b.get("current_password", ""))
+    new_pw   = str(b.get("new_password", ""))
+    if not _auth.login(user["username"], current):
+        return JSONResponse({"ok": False, "message": "Current password incorrect"})
+    if len(new_pw) < 8:
+        return JSONResponse({"ok": False, "message": "Password must be at least 8 characters"})
+    ok = _auth.change_password(user["username"], new_pw)
+    return JSONResponse({"ok": ok})
+
 
 @app.get("/health")
 def health():
@@ -1224,6 +1472,14 @@ async def hni_summary_standalone(request: Request):
         except Exception:
             regime_block = "Regime data unavailable."
 
+        # Inject historical performance memory into AI prompt
+        perf_block = ""
+        try:
+            import signal_memory as _sm
+            perf_block = _sm.format_performance_for_prompt()
+        except Exception:
+            pass
+
         prompt = f"""You are a senior institutional trader and HNI advisor covering NSE/global markets.
 Analyze the live data below and generate a complete market regime assessment.
 
@@ -1232,6 +1488,7 @@ IMPORTANT: The regime engine has already classified current conditions. Use this
 === MARKET REGIME ENGINE OUTPUT ===
 {regime_block}
 
+{perf_block}
 === LIVE INDICES ===
 {idx_block}
 
@@ -1690,8 +1947,62 @@ def api_nse_price(symbol: str, exchange: str = "NSE"):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+@app.get("/api/signal-memory/analytics")
+def api_signal_analytics():
+    """Signal accuracy analytics — win rate, regime breakdown, session breakdown."""
+    def _build():
+        try:
+            import signal_memory as _sm
+            return _sm.get_analytics()
+        except Exception as e:
+            return {"error": str(e)}
+    return _bg_refresh("signal_analytics", 300, _build, empty={
+        "total_signals": 0, "verified": 0, "pending": 0,
+        "wins": 0, "losses": 0, "neutral": 0, "win_rate": 0.0,
+        "avg_win_move": 0, "avg_loss_move": 0, "profit_factor": "—",
+        "best_regime": "—", "best_regime_key": "", "best_regime_wr": 0,
+        "worst_regime": "—", "worst_regime_key": "", "worst_regime_wr": 0,
+        "top_asset": "—", "top_asset_avg_move": 0,
+        "regime_breakdown": [], "signal_breakdown": [], "session_breakdown": [],
+        "asset_breakdown": [], "quality_breakdown": [], "recent_signals": [],
+        "generated_at": now_ist()
+    })
+
+
+@app.get("/api/signal-memory/regime-performance")
+def api_regime_performance():
+    """Per-regime win rates with confidence boost values."""
+    try:
+        import signal_memory as _sm
+        return _sm.get_regime_performance()
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/signal-store/status")
+def api_signal_store_status():
+    """Redis / SQLite storage health check."""
+    try:
+        from signal_store import storage_status
+        return storage_status()
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/signal-memory/history")
+def api_signal_history(limit: int = 30, offset: int = 0):
+    """Paginated raw signal history."""
+    try:
+        import signal_memory as _sm
+        rows = _sm.get_history(limit=min(limit, 100), offset=offset)
+        return {"rows": rows, "limit": limit, "offset": offset}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @app.get("/", response_class=HTMLResponse)
-def dashboard():
+def dashboard(request: Request):
+    # Middleware already checks auth — this is just the page serve
     path = os.path.join(os.path.dirname(__file__), "templates", "dashboard.html")
     with open(path) as f:
         return f.read()
