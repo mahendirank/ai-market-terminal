@@ -390,7 +390,7 @@ def detect_market_regime(force: bool = False) -> dict:
     try:
         result = _compute_regime()
     except Exception as e:
-        print(f"[regime] compute error: {e}", flush=True)
+        print(f"[regime] compute error: {type(e).__name__}: {e}", flush=True)
         result = _fallback_regime()
 
     with _cache_lock:
@@ -405,11 +405,19 @@ def _time_now() -> float:
 
 def _compute_regime() -> dict:
     import concurrent.futures
+    nl = ""
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
         fut_sig  = pool.submit(_get_price_signals)
         fut_news = pool.submit(_get_news_text)
         sig  = fut_sig.result(timeout=8)
-        nl   = fut_news.result(timeout=5)
+        # News is best-effort. If it's slow or broken, score with price signals
+        # alone rather than throwing away valid market data.
+        try:
+            nl = fut_news.result(timeout=5)
+        except concurrent.futures.TimeoutError:
+            print("[regime] news fetch timed out — scoring with price signals only", flush=True)
+        except Exception as e:
+            print(f"[regime] news fetch failed: {type(e).__name__}: {e} — scoring with prices only", flush=True)
 
     scores  = _score_all(sig, nl)
     winner  = max(scores, key=scores.get)

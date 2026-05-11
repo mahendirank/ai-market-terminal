@@ -785,10 +785,23 @@ async def api_summary_proxy(request: Request):
                 content=body,
                 headers={"Content-Type": "application/json"},
             )
-            return JSONResponse(content=resp.json(), status_code=resp.status_code)
+            try:
+                return JSONResponse(content=resp.json(), status_code=resp.status_code)
+            except ValueError:
+                # Upstream returned non-JSON — surface the upstream status + body
+                # so the failure isn't an opaque 500.
+                snippet = resp.text[:500]
+                print(f"[SUMMARY] upstream {resp.status_code} non-JSON: {snippet[:200]}", flush=True)
+                return JSONResponse(
+                    {"error": "upstream returned non-JSON", "upstream_status": resp.status_code, "body": snippet},
+                    status_code=502,
+                )
     except httpx.ConnectError:
         return JSONResponse({"error": "news service unavailable"}, status_code=503)
+    except httpx.TimeoutException:
+        return JSONResponse({"error": "news service timeout"}, status_code=504)
     except Exception as e:
+        print(f"[SUMMARY] proxy error: {type(e).__name__}: {e}", flush=True)
         return JSONResponse({"error": str(e)}, status_code=500)
 
 

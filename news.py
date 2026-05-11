@@ -2,6 +2,8 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import re
+import time
+import threading
 import feedparser
 import requests
 from bs4 import BeautifulSoup
@@ -474,7 +476,34 @@ def _norm(text):
     return re.sub(r"\s+", " ", t).strip()
 
 
+# Module-level cache for get_all_news — 16 callers across the codebase hit this
+# function. Without this, each call does ~28s of RSS fetches (79 feeds × 7s timeout
+# / 20 workers). Cache TTL matches the dashboard's _cached("news", 15) refresh.
+_ALL_NEWS_TTL    = 30  # seconds
+_all_news_cache  = {"data": None, "ts": 0.0}
+_all_news_lock   = threading.Lock()
+
+
 def get_all_news():
+    """Aggregated news from all sources. Cached 30s, single-flight: only one
+    thread fetches at a time; concurrent callers wait for the same result."""
+    now = time.time()
+    cached = _all_news_cache["data"]
+    if cached is not None and (now - _all_news_cache["ts"]) < _ALL_NEWS_TTL:
+        return cached
+    with _all_news_lock:
+        # Re-check under lock — another thread may have just refreshed
+        now    = time.time()
+        cached = _all_news_cache["data"]
+        if cached is not None and (now - _all_news_cache["ts"]) < _ALL_NEWS_TTL:
+            return cached
+        result = _get_all_news_uncached()
+        _all_news_cache["data"] = result
+        _all_news_cache["ts"]   = time.time()
+        return result
+
+
+def _get_all_news_uncached():
     news = []
 
     try:

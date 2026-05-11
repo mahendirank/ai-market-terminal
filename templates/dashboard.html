@@ -1464,23 +1464,26 @@ async function loadSignalHistory() {
   const el = document.getElementById('signal-history-list');
   if (!el) return;
   try {
-    const res  = await fetch('/api/history');
-    const list = await res.json();
-    if (!Array.isArray(list) || list.length === 0) {
+    const res  = await fetch('/api/signal-memory/history?limit=30');
+    const data = await res.json();
+    const list = Array.isArray(data?.rows) ? data.rows : [];
+    if (list.length === 0) {
       el.innerHTML = '<span style="color:#4a5568;">No signals yet — open a news article to generate one.</span>';
       return;
     }
+    const QUALITY_TO_SIZE = { HIGH: 'FULL SIZE', MODERATE: 'MEDIUM SIZE', LOW: 'SMALL SIZE' };
     el.innerHTML = list.map(s => {
-      const bias  = (s.trade_bias || 'wait').toUpperCase();
+      const bias  = (s.signal || 'wait').toUpperCase();
       const col   = bias === 'BUY' ? '#4ade80' : bias === 'SELL' ? '#f87171' : '#9ca3af';
-      const pos   = s.position_size || '';
+      const pos   = QUALITY_TO_SIZE[(s.quality || '').toUpperCase()] || '';
       const posCol= pos === 'FULL SIZE' ? '#4ade80' : pos === 'MEDIUM SIZE' ? '#fbbf24' : '#6b7280';
-      const time  = s.ts ? new Date(s.ts).toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' }) : '';
+      // s.time is "YYYY-MM-DD HH:MM:SS" IST — slice the HH:MM portion
+      const time  = (s.time || '').slice(11, 16);
       return `<div style="border-bottom:1px solid #1c2230;padding:4px 0;">
         <span style="color:#6b7280;font-size:9px;">${time}</span>
         <span style="color:${col};font-weight:bold;margin-left:4px;">${bias}</span>
         ${pos ? `<span style="color:${posCol};font-size:9px;margin-left:4px;">${pos}</span>` : ''}
-        <div style="color:#c9d1d9;font-size:9px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${s.title || ''}</div>
+        <div style="color:#c9d1d9;font-size:9px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${s.headline || ''}</div>
       </div>`;
     }).join('');
   } catch {
