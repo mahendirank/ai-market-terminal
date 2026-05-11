@@ -87,9 +87,16 @@ def _parse_option_chain(symbol="NIFTY"):
             f"https://www.nseindia.com/api/option-chain-indices?symbol={symbol}",
             timeout=12
         )
+        # NSE's Akamai bot defender returns HTTP 200 with empty body ({}) when
+        # it doesn't trust the session. Surface that as a clear error rather
+        # than producing a result that looks like "no put activity exists".
+        if resp.status_code != 200 or len(resp.text) < 50:
+            return {"symbol": symbol, "error": f"NSE blocked or empty response (status {resp.status_code}, {len(resp.text)}b)"}
         data = resp.json()
         oc   = data.get("filtered", {}).get("data", [])
         spot = float(data.get("records", {}).get("underlyingValue", 0))
+        if not oc or spot <= 0:
+            return {"symbol": symbol, "error": "NSE returned no option chain data"}
 
         total_pe_oi = sum(r.get("PE", {}).get("openInterest", 0) for r in oc)
         total_ce_oi = sum(r.get("CE", {}).get("openInterest", 0) for r in oc)

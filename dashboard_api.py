@@ -254,7 +254,9 @@ def _build_news():
         except Exception:
             pass
         return scored
-    except: return []
+    except Exception as e:
+        print(f"[_build_news] {type(e).__name__}: {e}", flush=True)
+        return []
 
 
 # ── Shared Telegram sender (used by loop + test endpoint) ─────
@@ -489,19 +491,25 @@ def _build_stocks():
             "etfs":   get_gold_etfs(),
             "movers": detect_movers(),
         }
-    except: return {}
+    except Exception as e:
+        print(f"[_build_indices] {type(e).__name__}: {e}", flush=True)
+        return {}
 
 def _build_earnings():
     try:
         from earnings import get_earnings
         return get_earnings()
-    except: return []
+    except Exception as e:
+        print(f"[_build_earnings] {type(e).__name__}: {e}", flush=True)
+        return []
 
 def _build_nse():
     try:
         from nse_data import get_nse_snapshot
         return get_nse_snapshot()
-    except: return {}
+    except Exception as e:
+        print(f"[_build_nse] {type(e).__name__}: {e}", flush=True)
+        return {}
 
 def _build_signal():
     try:
@@ -990,7 +998,9 @@ def api_econ():
             "yield_curve":   data.get("YIELD_CURVE", {}),
             "calendar":      econ[:10],
         }
-    except: return {}
+    except Exception as e:
+        print(f"[/api/econ] {type(e).__name__}: {e}", flush=True)
+        return {}
 
 
 @app.get("/api/news")
@@ -1073,7 +1083,9 @@ def api_bulk_deals():
     try:
         from nse_data import get_bulk_deals
         return _cached("bulk", 300, get_bulk_deals)
-    except: return []
+    except Exception as e:
+        print(f"[/api/nse/bulk] {type(e).__name__}: {e}", flush=True)
+        return []
 
 
 @app.get("/api/sentiment")
@@ -1150,7 +1162,9 @@ def api_earnings_live():
     try:
         from earnings_telegram import _cache_get_all
         tg = _cache_get_all()
-    except: return []
+    except Exception as e:
+        print(f"[/api/earnings/live] cache fetch failed: {type(e).__name__}: {e}", flush=True)
+        return []
     try:
         from earnings import NAMES, REGION_MAP, WATCH_LIST, SECTOR_MAP
     except:
@@ -1191,7 +1205,9 @@ def api_earnings_social():
     try:
         from earnings_social import get_earnings_social
         return _cached("earn_social", 120, get_earnings_social)
-    except: return []
+    except Exception as e:
+        print(f"[/api/earnings/social] {type(e).__name__}: {e}", flush=True)
+        return []
 
 
 @app.get("/api/sources")
@@ -1199,7 +1215,9 @@ def api_sources():
     try:
         from sources_config import get_all_sources
         return get_all_sources()
-    except: return []
+    except Exception as e:
+        print(f"[/api/sources] {type(e).__name__}: {e}", flush=True)
+        return []
 
 
 @app.post("/api/sources/approve")
