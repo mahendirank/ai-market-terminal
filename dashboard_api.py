@@ -1076,6 +1076,16 @@ def api_bulk_deals():
     except: return []
 
 
+@app.get("/api/sentiment")
+def api_sentiment():
+    """Combined Fear & Greed: CNN (US stocks) + alternative.me (crypto)."""
+    try:
+        from market_sentiment import get_combined_sentiment
+        return _cached("sentiment", 1800, get_combined_sentiment)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @app.get("/api/nse/pcr")
 def api_pcr():
     try:

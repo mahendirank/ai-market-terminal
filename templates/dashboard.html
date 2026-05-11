@@ -590,6 +590,30 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
     <div class="mo-pulse" style="animation-delay:1.5s;background:#fb923c;"></div>
   </div>
 
+  <!-- F&G US (CNN) -->
+  <div class="mo-card" id="mo-FGUS" title="CNN Fear & Greed Index — US stocks">
+    <div class="mo-name">F&amp;G US <span class="mo-src">CNN</span></div>
+    <div class="mo-price-row">
+      <span class="mo-price" id="mo-p-FGUS">—</span>
+      <span class="mo-chg"  id="mo-c-FGUS">—</span>
+    </div>
+    <span class="mo-bias" id="mo-b-FGUS">—</span>
+    <div class="mo-align" id="mo-a-FGUS">—</div>
+    <div class="mo-pulse" style="animation-delay:1.8s;background:#a78bfa;"></div>
+  </div>
+
+  <!-- F&G CRYPTO (alternative.me) -->
+  <div class="mo-card" id="mo-FGCR" title="Crypto Fear & Greed Index — alternative.me">
+    <div class="mo-name">F&amp;G CRYPTO <span class="mo-src">ALT</span></div>
+    <div class="mo-price-row">
+      <span class="mo-price" id="mo-p-FGCR">—</span>
+      <span class="mo-chg"  id="mo-c-FGCR">—</span>
+    </div>
+    <span class="mo-bias" id="mo-b-FGCR">—</span>
+    <div class="mo-align" id="mo-a-FGCR">—</div>
+    <div class="mo-pulse" style="animation-delay:2.1s;background:#f59e0b;"></div>
+  </div>
+
   <!-- LAST UPDATE -->
   <div style="display:flex;align-items:center;padding:0 10px;flex-shrink:0;border-left:1px solid #0a1520;">
     <div style="display:flex;flex-direction:column;gap:3px;align-items:center;">
@@ -626,6 +650,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
       <div class="ctab" data-cat="SECTORS" onclick="showSectorRotation(this)" id="sectors-tab" style="color:#f472b6;border-left:2px solid #db2777;">📡 SECTORS</div>
       <div class="ctab" data-cat="RISKTOOLS" onclick="showRiskTools(this)" id="risktools-tab" style="color:#22d3ee;border-left:2px solid #0891b2;">⚖ RISK TOOLS</div>
       <div class="ctab" data-cat="AIPERFORMANCE" onclick="showAiPerformance(this)" id="aiperformance-tab" style="color:#a78bfa;border-left:2px solid #7c3aed;">📊 AI PERF</div>
+      <div class="ctab" data-cat="REGIME" onclick="showRegime(this)" id="regime-tab" style="color:#22d3ee;border-left:2px solid #0891b2;">🔮 REGIME</div>
     </div>
     <!-- ASSET QUICK FILTERS -->
     <div class="asset-filters" id="asset-filters">
@@ -641,8 +666,8 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
       <button class="af-btn" data-asset="FED"   onclick="setAsset(this)">FED</button>
       <button class="af-btn" data-asset="RATES" onclick="setAsset(this)">RATES</button>
     </div>
-    <!-- ═══ MARKET REGIME ENGINE PANEL ═══ -->
-    <div id="regime-panel" style="border:1px solid #1a2a3a;border-radius:6px;margin-bottom:8px;overflow:hidden;background:#060d14;">
+    <!-- ═══ MARKET REGIME ENGINE PANEL (hidden by default — shown via 🔮 REGIME tab) ═══ -->
+    <div id="regime-panel" style="display:none;flex:1;overflow-y:auto;background:#060d14;">
 
       <!-- Header row -->
       <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;background:#070f18;border-bottom:1px solid #0e1e2e;">
@@ -1642,6 +1667,44 @@ async function loadSignalHistory() {
 
 loadSignalHistory();
 setInterval(loadSignalHistory, 30_000); // refresh every 30s
+
+// ── Fear & Greed (US stocks via CNN + crypto via alternative.me) ─────────────
+async function loadSentiment() {
+  try {
+    const res = await fetch('/api/sentiment');
+    const d   = await res.json();
+    _renderFG('FGUS', d.us_stocks, /*hasWeek*/true);
+    _renderFG('FGCR', d.crypto,    /*hasWeek*/false);
+  } catch {
+    // soft-fail — tiles keep showing last good value
+  }
+}
+
+function _renderFG(prefix, src, hasWeek) {
+  if (!src || src.error) return;
+  const score = src.score;
+  if (score == null || isNaN(score)) return;
+  // Color by sentiment band
+  const col = score >= 75 ? '#4ade80'   // extreme greed
+            : score >= 55 ? '#86efac'   // greed
+            : score >= 45 ? '#9ca3af'   // neutral
+            : score >= 25 ? '#fbbf24'   // fear
+            :              '#f87171';   // extreme fear
+  const setT = (id, t, c) => { const el = document.getElementById(id); if (el) { el.textContent = t; if (c) el.style.color = c; } };
+  setT(`mo-p-${prefix}`, Math.round(score), col);
+  // Change vs previous (1d for crypto, 1w for US — more meaningful for F&G)
+  const chg = hasWeek ? src.change_1w : src.change;
+  if (chg != null) {
+    const sign  = chg > 0 ? '+' : '';
+    const chCol = chg > 0 ? '#4ade80' : chg < 0 ? '#f87171' : '#9ca3af';
+    setT(`mo-c-${prefix}`, `${sign}${chg.toFixed ? chg.toFixed(1) : chg}${hasWeek ? ' 1w' : ''}`, chCol);
+  }
+  setT(`mo-b-${prefix}`, (src.label || '').toUpperCase(), col);
+  setT(`mo-a-${prefix}`, hasWeek ? 'STOCKS' : 'CRYPTO', '#475569');
+}
+
+loadSentiment();
+setInterval(loadSentiment, 30 * 60_000);   // F&G updates infrequently — poll every 30 min
 
 // ── Earnings toggle ───────────────────────────────────────
 function toggleEarnings() {
@@ -2983,6 +3046,13 @@ var _apLoaded = false;
 function showAiPerformance(tab) {
   _showSpecialPanel('aiperformance-panel', tab);
   if (!_apLoaded) loadAiPerformance(false);
+}
+
+function showRegime(tab) {
+  _showSpecialPanel('regime-panel', tab);
+  // loadRegime() is already polled every 60s in the background, but trigger
+  // an immediate refresh on tab open so the user sees the latest data.
+  if (typeof loadRegime === 'function') loadRegime(false);
 }
 
 function loadAiPerformance(force) {
@@ -4965,7 +5035,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal()
 function _hideAllSpecialPanels() {
   ['ai-research-panel','signals-panel','hni-insights-panel',
    'morning-note-panel','catalyst-panel','sector-panel','risktools-panel',
-   'aiperformance-panel'].forEach(function(id) {
+   'aiperformance-panel','regime-panel'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.style.display = 'none';
   });
