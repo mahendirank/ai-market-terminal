@@ -1,0 +1,9 @@
+<!-- PRIMARY WORDMARK · dark
+     Pure typography · no decoration · Saxo / Bloomberg / Goldman approach -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 220">
+  <rect width="720" height="220" fill="#0A1E3D"/>
+  <g font-family="'Inter', 'Manrope', 'Helvetica Neue', system-ui, sans-serif" text-anchor="middle">
+    <text x="360" y="135" font-size="84" font-weight="900" fill="#D4A574" letter-spacing="14">ZYVORA</text>
+    <text x="360" y="178" font-size="17" font-weight="500" fill="#9BAEC8" letter-spacing="18">GLOBAL ACADEMY</text>
+  </g>
+</svg>

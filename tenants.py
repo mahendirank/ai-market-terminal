@@ -55,14 +55,14 @@ TENANT_PRESETS = {
     # ─────────────────────────────────────────────────────────────────────────
     "default": {
         "id":      "default",
-        "name":    "AI Market Terminal",
+        "name":    "Zyvora Global Academy",
         "tagline": "Institutional intelligence — built for serious traders",
         "branding": {
-            "logo_text":     "AI TERMINAL",
-            "primary_color": "#22d3ee",   # cyan
-            "accent_color":  "#f59e0b",   # amber
-            "primary_rgb":   "34, 211, 238",
-            "accent_rgb":    "245, 158, 11",
+            "logo_text":     "ZYVORA",
+            "primary_color": "#D4A574",   # gold
+            "accent_color":  "#4FC3F7",   # cyan
+            "primary_rgb":   "212, 165, 116",
+            "accent_rgb":    "79, 195, 247",
         },
         "modules": {m: True for m in ALL_MODULES},   # everything ON by default
         "assets": {

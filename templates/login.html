@@ -3,7 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI Market Terminal — Login</title>
+<title>Zyvora Global Academy — Login</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800;900&display=swap" rel="stylesheet">
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
 
@@ -26,28 +31,31 @@
     padding: 20px;
   }
 
-  /* Logo / header */
+  /* Brand / header */
   .logo {
     text-align: center;
-    margin-bottom: 36px;
+    margin-bottom: 44px;
+    font-family: 'Inter', system-ui, sans-serif;
   }
   .logo-icon {
-    font-size: 36px;
     display: block;
-    margin-bottom: 10px;
-    filter: drop-shadow(0 0 12px rgba(0,192,135,0.5));
+    margin: 0 auto 20px;
+    width: 64px;
+    height: 64px;
   }
   .logo-title {
-    font-size: 16px;
-    font-weight: 700;
-    color: #e8eaf0;
-    letter-spacing: 2px;
+    font-size: 28px;
+    font-weight: 900;
+    color: #D4A574;
+    letter-spacing: 10px;
+    margin-left: 10px;
   }
   .logo-sub {
     font-size: 10px;
-    color: #4b6a8a;
-    letter-spacing: 3px;
-    margin-top: 4px;
+    color: #5F7595;
+    letter-spacing: 8px;
+    margin-top: 8px;
+    font-weight: 500;
   }
 
   /* Card */
@@ -158,21 +166,26 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   .spinner { display: inline-block; animation: spin 1s linear infinite; }
 
-  /* Pulse on logo */
-  @keyframes pulse {
-    0%, 100% { filter: drop-shadow(0 0 8px rgba(0,192,135,0.4)); }
-    50% { filter: drop-shadow(0 0 20px rgba(0,192,135,0.8)); }
+  /* Subtle glow on icon */
+  @keyframes glow {
+    0%, 100% { filter: drop-shadow(0 0 6px rgba(212,165,116,0.20)); }
+    50%      { filter: drop-shadow(0 0 16px rgba(212,165,116,0.40)); }
   }
-  .logo-icon { animation: pulse 3s ease-in-out infinite; }
+  .logo-icon { animation: glow 4s ease-in-out infinite; }
 </style>
 </head>
 <body>
 
 <div class="login-wrap">
   <div class="logo">
-    <span class="logo-icon">◈</span>
-    <div class="logo-title">AI MARKET TERMINAL</div>
-    <div class="logo-sub">INSTITUTIONAL INTELLIGENCE · LIVE</div>
+    <svg class="logo-icon" viewBox="0 0 280 280" xmlns="http://www.w3.org/2000/svg">
+      <rect width="280" height="280" rx="34" fill="#0A1E3D"/>
+      <rect x="62" y="68" width="156" height="24" fill="#D4A574"/>
+      <polygon points="62,184 100,98 218,98 180,184" fill="#D4A574"/>
+      <rect x="62" y="190" width="156" height="24" fill="#D4A574"/>
+    </svg>
+    <div class="logo-title">ZYVORA</div>
+    <div class="logo-sub">GLOBAL ACADEMY · INSTITUTIONAL TERMINAL</div>
   </div>
 
   <div class="card">
@@ -202,7 +215,7 @@
   </div>
 
   <div class="footer">
-    AI MARKET TERMINAL · PRIVATE ACCESS ONLY<br>
+    ZYVORA GLOBAL ACADEMY · PRIVATE ACCESS ONLY<br>
     Contact admin to get access
   </div>
 </div>

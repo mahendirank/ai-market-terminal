@@ -3,7 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI Market Terminal</title>
+<title>Zyvora Global Academy — Institutional Terminal</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon.png">
+<link rel="apple-touch-icon" href="/static/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800;900&display=swap" rel="stylesheet">
 <style>
 :root {
   --bg:      #080b0f;
@@ -29,7 +35,11 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 .header { background: #000; border-bottom: 2px solid var(--accent); padding: 0 12px; height: 36px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; z-index: 100; }
 .h-left  { display: flex; align-items: center; gap: 14px; }
 .h-right { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 10px; }
-.logo    { color: var(--accent); font-size: 13px; font-weight: bold; letter-spacing: 3px; }
+.brand { display:inline-flex; align-items:center; gap:9px; text-decoration:none; }
+.brand-icon { width:22px; height:22px; flex-shrink:0; }
+.logo { color: #D4A574; font-family: 'Inter', system-ui, sans-serif; font-size: 14px; font-weight: 900; letter-spacing: 4px; line-height:1; }
+.brand-sub { color: #5F7595; font-family: 'Inter', system-ui, sans-serif; font-size: 8px; font-weight: 500; letter-spacing: 3px; margin-top:3px; display:block; }
+.brand-stack { display:inline-flex; flex-direction:column; }
 .live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulse 1.5s infinite; display: inline-block; }
 @keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.2} }
 .gold-px { color: var(--accent); font-weight: bold; font-size: 12px; }
@@ -435,7 +445,18 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 <!-- HEADER -->
 <div class="header">
   <div class="h-left">
-    <span class="logo" data-tenant-brand>▪ AI TERMINAL</span>
+    <a href="/" class="brand" aria-label="Zyvora Global Academy">
+      <svg class="brand-icon" viewBox="0 0 280 280" xmlns="http://www.w3.org/2000/svg">
+        <rect width="280" height="280" rx="34" fill="#0A1E3D"/>
+        <rect x="62" y="68" width="156" height="24" fill="#D4A574"/>
+        <polygon points="62,184 100,98 218,98 180,184" fill="#D4A574"/>
+        <rect x="62" y="190" width="156" height="24" fill="#D4A574"/>
+      </svg>
+      <span class="brand-stack">
+        <span class="logo" data-tenant-brand>ZYVORA</span>
+        <span class="brand-sub">GLOBAL ACADEMY</span>
+      </span>
+    </a>
     <span><span class="live-dot"></span><span style="color:#4a5568;font-size:9px;margin-left:3px;">LIVE</span></span>
     <span class="gold-px" id="hdr-gold">GOLD $—</span>
     <span id="hdr-sig" class="sig-badge s-wait">—</span>
@@ -2706,7 +2727,7 @@ async function loadNews() {
     renderFeed(fresh.size ? fresh : null);
     renderEarningsNews();
     document.getElementById('hdr-cnt').textContent = `${allNews.length} stories`;
-    if (fresh.size) { document.title=`⚡ ${fresh.size} NEW — AI Terminal`; setTimeout(()=>{document.title='AI Market Terminal'},5000); }
+    if (fresh.size) { document.title=`⚡ ${fresh.size} NEW — Zyvora`; setTimeout(()=>{document.title='Zyvora Global Academy — Institutional Terminal'},5000); }
   } catch(e) { console.error('news',e); if (!allNews.length) setTimeout(loadNews, 3000); }
 }
 

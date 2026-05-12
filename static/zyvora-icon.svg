@@ -1,0 +1,12 @@
+<!-- COMPANION Z MARK · dark
+     For favicon, social profile, app icon, WhatsApp, small spaces
+     Architectural Z (3 geometric slabs with gaps) -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 280">
+  <rect width="280" height="280" rx="34" fill="#0A1E3D"/>
+  <!-- Top slab -->
+  <rect x="62" y="68" width="156" height="24" fill="#D4A574"/>
+  <!-- Middle slab — angled parallelogram -->
+  <polygon points="62,184 100,98 218,98 180,184" fill="#D4A574"/>
+  <!-- Bottom slab -->
+  <rect x="62" y="190" width="156" height="24" fill="#D4A574"/>
+</svg>

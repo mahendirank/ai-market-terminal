@@ -1,0 +1,7 @@
+<!-- FAVICON · simplified Z mark for 16-32px display -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="10" fill="#0A1E3D"/>
+  <rect x="14" y="14" width="36" height="6" fill="#D4A574"/>
+  <polygon points="14,40 22,22 50,22 42,40" fill="#D4A574"/>
+  <rect x="14" y="42" width="36" height="6" fill="#D4A574"/>
+</svg>
