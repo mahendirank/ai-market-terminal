@@ -13,3 +13,5 @@ aiohttp
 aiofiles
 nltk
 websocket-client
+redis>=5.0
+python-dotenv

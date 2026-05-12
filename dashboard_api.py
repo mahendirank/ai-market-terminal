@@ -4,7 +4,7 @@ import json as _json
 sys.path.insert(0, os.path.dirname(__file__))
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Body, Request, Response
+from fastapi import FastAPI, Body, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -55,6 +55,34 @@ async def lifespan(app: FastAPI):
         verify_task.add_done_callback(_bg_tasks.discard)
     except Exception as _e:
         print(f"[SIGNAL_MEM] init error: {_e}", flush=True)
+    # Macro desk: snapshot every 15 minutes for historical memory
+    try:
+        macro_task = asyncio.create_task(_macro_desk_snapshot_loop())
+        _bg_tasks.add(macro_task)
+        macro_task.add_done_callback(_bg_tasks.discard)
+    except Exception as _e:
+        print(f"[MACRO_DESK] init error: {_e}", flush=True)
+    # Explainer: scan tracked assets every 7 min, auto-generate move commentary
+    try:
+        expl_task = asyncio.create_task(_explainer_scan_loop())
+        _bg_tasks.add(expl_task)
+        expl_task.add_done_callback(_bg_tasks.discard)
+    except Exception as _e:
+        print(f"[EXPLAINER] init error: {_e}", flush=True)
+    # Telegram alert engine: run every 3 min, cooldown-throttled
+    try:
+        alerts_task = asyncio.create_task(_alert_engine_loop())
+        _bg_tasks.add(alerts_task)
+        alerts_task.add_done_callback(_bg_tasks.discard)
+    except Exception as _e:
+        print(f"[ALERTS] init error: {_e}", flush=True)
+    # WS price publisher: stream live prices every 2 seconds
+    try:
+        ws_task = asyncio.create_task(_price_publisher_loop())
+        _bg_tasks.add(ws_task)
+        ws_task.add_done_callback(_bg_tasks.discard)
+    except Exception as _e:
+        print(f"[WS_PRICES] init error: {_e}", flush=True)
     yield
 
 
@@ -70,6 +98,82 @@ async def _signal_verify_loop():
         await asyncio.sleep(3600)
 
 
+async def _macro_desk_snapshot_loop():
+    """Persist a macro regime snapshot every 15 min + publish to ws subscribers."""
+    await asyncio.sleep(120)   # wait 2 min after boot for caches to warm
+    while True:
+        try:
+            from macro_desk import get_macro_regime_view, store_snapshot
+            from production import heartbeat
+            view = await asyncio.to_thread(get_macro_regime_view)
+            await asyncio.to_thread(store_snapshot, view)
+            heartbeat("macro_desk_snap")
+            try:
+                from streaming import publish_macro_snapshot
+                await publish_macro_snapshot(view)
+            except Exception: pass
+        except Exception as _e:
+            print(f"[MACRO_DESK] snapshot error: {_e}", flush=True)
+        await asyncio.sleep(900)   # 15 min
+
+
+async def _price_publisher_loop():
+    """Stream live price changes to ws subscribers every 2 seconds."""
+    try:
+        from streaming import PricePublisher
+        publisher = PricePublisher(interval=2.0)
+        await publisher.run()
+    except Exception as _e:
+        print(f"[WS_PRICES] publisher init error: {_e}", flush=True)
+
+
+async def _explainer_scan_loop():
+    """Scan tracked assets every 7 min, generate explanations + publish to ws."""
+    await asyncio.sleep(180)   # wait 3 min after boot
+    while True:
+        try:
+            from explainer import scan_and_explain, get_recent_explanations
+            from production import heartbeat
+            summary = await asyncio.to_thread(scan_and_explain, 3)
+            heartbeat("explainer_scan")
+            if summary.get("generated"):
+                print(f"[EXPLAINER] generated for: {summary['generated']}", flush=True)
+                # Publish each newly-generated explanation
+                try:
+                    from streaming import publish_explainer
+                    recents = await asyncio.to_thread(get_recent_explanations, 5)
+                    for asset_key in summary["generated"]:
+                        match = next((r for r in recents if r.get("asset_key") == asset_key), None)
+                        if match: await publish_explainer(match)
+                except Exception: pass
+        except Exception as _e:
+            print(f"[EXPLAINER] loop error: {_e}", flush=True)
+        await asyncio.sleep(420)   # 7 min
+
+
+async def _alert_engine_loop():
+    """Run all alert triggers every 3 min. Cooldown prevents spam.
+    Publish each new alert to the ws 'alerts' channel."""
+    await asyncio.sleep(240)   # wait 4 min after boot for caches to settle
+    while True:
+        try:
+            from alert_engine import run_all_checks, get_alert_history
+            from production import heartbeat
+            summary = await asyncio.to_thread(run_all_checks, True)
+            heartbeat("alert_engine")
+            if summary.get("sent"):
+                print(f"[ALERTS] sent={summary['sent']} cooldown={summary.get('in_cooldown',0)} candidates={summary.get('candidates',0)}", flush=True)
+                try:
+                    from streaming import publish_alert
+                    recents = await asyncio.to_thread(get_alert_history, summary["sent"])
+                    for ev in recents[:summary["sent"]]:
+                        await publish_alert(ev)
+                except Exception: pass
+        except Exception as _e:
+            print(f"[ALERTS] loop error: {_e}", flush=True)
+        await asyncio.sleep(180)   # 3 min
+
+
 app = FastAPI(title="AI Market Terminal", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
@@ -78,7 +182,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import RedirectResponse as _StarletteRedirect
 
 _NO_AUTH_PATHS    = {"/health", "/login", "/logout", "/favicon.ico"}
-_NO_AUTH_PREFIXES = ("/static/", "/api/live-ticker")
+_NO_AUTH_PREFIXES = ("/static/", "/api/live-ticker", "/ws", "/api/tenant/active", "/api/tenant/list", "/api/health")
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
@@ -97,6 +201,39 @@ class AuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 app.add_middleware(AuthMiddleware)
+
+
+# ── Rate-limit middleware (per-IP sliding window) ─────────────────────────────
+# Limits write/expensive endpoints. Read-only ticks/news polls bypass.
+_RL_WHITELIST_PREFIXES = ("/static/", "/health", "/api/health", "/login", "/logout", "/favicon.ico", "/ws")
+_RL_HEAVY_PREFIXES     = ("/api/analyst/chat", "/api/explainer/generate", "/api/alerts/run-now")
+_RL_DEFAULT = (120, 60)   # 120 req per 60s per IP for general endpoints
+_RL_HEAVY   = (10,  60)   # 10 req per 60s per IP for AI-call endpoints
+
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        path = request.url.path
+        if any(path.startswith(p) for p in _RL_WHITELIST_PREFIXES):
+            return await call_next(request)
+        ip = (request.client.host if request.client else "unknown")
+        cap, win = _RL_HEAVY if any(path.startswith(p) for p in _RL_HEAVY_PREFIXES) else _RL_DEFAULT
+        try:
+            from production import rate_limit_check
+            allowed, remaining, reset_in = rate_limit_check(f"{ip}:{cap}:{win}", cap, win)
+            if not allowed:
+                return JSONResponse(
+                    {"error": "rate_limited", "retry_after_secs": reset_in,
+                     "limit": cap, "window_secs": win},
+                    status_code=429,
+                    headers={"Retry-After": str(reset_in), "X-RateLimit-Limit": str(cap)}
+                )
+        except Exception:
+            pass  # fail open — never block on RL errors
+        return await call_next(request)
+
+
+app.add_middleware(RateLimitMiddleware)
 
 # Serve static files (images, icons, etc.) from /static/
 _STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
@@ -1094,6 +1231,422 @@ def api_sentiment():
     try:
         from market_sentiment import get_combined_sentiment
         return _cached("sentiment", 1800, get_combined_sentiment)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/forex")
+def api_forex():
+    """Live FX majors (EUR/USD, GBP/USD, USD/JPY, AUD/USD, USD/CAD, USD/CHF)
+    with macro-inferred direction signals: BULLISH/BEARISH/NEUTRAL,
+    confidence %, macro driver, volatility state."""
+    try:
+        from forex import get_forex_intel
+        return _cached("forex", 30, get_forex_intel)
+    except Exception as e:
+        print(f"[/api/forex] {type(e).__name__}: {e}", flush=True)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/macro-regime")
+def api_macro_regime():
+    """Institutional macro desk panel: 6 binary regime dimensions
+    (Risk / Dollar / Fed / Yields / Inflation / Commodities), each with
+    confidence + driver. Includes desk-style commentary and last 10 snapshots."""
+    try:
+        from macro_desk import get_macro_regime_view
+        return _cached("macro_regime", 60, get_macro_regime_view)
+    except Exception as e:
+        print(f"[/api/macro-regime] {type(e).__name__}: {e}", flush=True)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/cb-calendar")
+def api_cb_calendar(days: int = 90, limit: int = 12):
+    """Next central-bank meetings for Fed, ECB, BOJ, BOE, RBA, SNB.
+    Returns date/time (IST), expected volatility (RED/YELLOW/GREEN),
+    previous decision, news-inferred expected bias, impacted assets."""
+    try:
+        from cb_calendar import get_cb_calendar
+        return _cached(f"cb_cal_{days}_{limit}", 600,
+                       lambda: get_cb_calendar(days_ahead=days, limit=limit))
+    except Exception as e:
+        print(f"[/api/cb-calendar] {type(e).__name__}: {e}", flush=True)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ── AI Macro Analyst chat ─────────────────────────────────────────────────────
+@app.post("/api/analyst/chat")
+async def api_analyst_chat(request: Request):
+    """Ask the AI macro analyst a question. Grounded on live prices, regime,
+    FX, central bank calendar, and recent news. Maintains per-user chat history."""
+    try:
+        body = await request.json()
+        question = str(body.get("question", "")).strip()
+    except Exception:
+        return JSONResponse({"error": "invalid request body"}, status_code=400)
+    if not question:
+        return JSONResponse({"error": "question is required"}, status_code=400)
+    # Per-user session_id derived from auth session cookie
+    user = _auth.verify_session(request.cookies.get(COOKIE_NAME)) if request.cookies.get(COOKIE_NAME) else None
+    session_id = f"u:{user['username']}" if user else f"anon:{request.client.host if request.client else 'unknown'}"
+    try:
+        from macro_analyst import ask_analyst
+        return await asyncio.to_thread(ask_analyst, session_id, question)
+    except Exception as e:
+        print(f"[/api/analyst/chat] {type(e).__name__}: {e}", flush=True)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/analyst/history")
+def api_analyst_history(request: Request, limit: int = 20):
+    """Return the current user's analyst chat history (last N exchanges)."""
+    user = _auth.verify_session(request.cookies.get(COOKIE_NAME)) if request.cookies.get(COOKIE_NAME) else None
+    session_id = f"u:{user['username']}" if user else f"anon:{request.client.host if request.client else 'unknown'}"
+    try:
+        from macro_analyst import get_chat_history, storage_status
+        return {
+            "session_id":      session_id,
+            "messages":        get_chat_history(session_id, limit=limit),
+            "storage_status":  storage_status(),
+        }
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/analyst/clear")
+def api_analyst_clear(request: Request):
+    """Clear current user's chat history."""
+    user = _auth.verify_session(request.cookies.get(COOKIE_NAME)) if request.cookies.get(COOKIE_NAME) else None
+    session_id = f"u:{user['username']}" if user else f"anon:{request.client.host if request.client else 'unknown'}"
+    try:
+        from macro_analyst import clear_chat_history
+        return {"ok": clear_chat_history(session_id)}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ── "Why Did It Move?" explainer ─────────────────────────────────────────────
+@app.get("/api/explainer/feed")
+def api_explainer_feed(limit: int = 30, asset: str = ""):
+    """Recent institutional move explanations, newest first. Optionally filter by asset."""
+    try:
+        from explainer import get_recent_explanations, get_tracked_assets
+        return {
+            "explanations":    get_recent_explanations(limit=limit, asset=asset or None),
+            "tracked_assets":  get_tracked_assets(),
+        }
+    except Exception as e:
+        print(f"[/api/explainer/feed] {type(e).__name__}: {e}", flush=True)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/explainer/generate")
+async def api_explainer_generate(request: Request):
+    """Generate a fresh explanation for a specific asset on demand.
+    Body: {"asset": "GOLD" | "DXY" | "EURUSD" | ...}"""
+    try:
+        body = await request.json()
+        asset_key = str(body.get("asset", "")).upper()
+    except Exception:
+        return JSONResponse({"error": "invalid body"}, status_code=400)
+    try:
+        from explainer import ASSETS, generate_explanation_for
+        match = next((a for a in ASSETS if a["key"] == asset_key), None)
+        if not match:
+            return JSONResponse({"error": f"unknown asset: {asset_key}"}, status_code=400)
+        res = await asyncio.to_thread(generate_explanation_for, match, True)   # force=True for on-demand
+        if not res:
+            return JSONResponse({"error": "could not generate (no AI response or no move data)"}, status_code=503)
+        return res
+    except Exception as e:
+        print(f"[/api/explainer/generate] {type(e).__name__}: {e}", flush=True)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/explainer/scan")
+async def api_explainer_scan():
+    """Trigger a scan of all assets (admin / debug). Background does this every 7 min anyway."""
+    try:
+        from explainer import scan_and_explain
+        return await asyncio.to_thread(scan_and_explain, 4)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ── Telegram Alert Engine ───────────────────────────────────────────────────
+@app.get("/api/alerts/history")
+def api_alerts_history(limit: int = 30):
+    """Return last N alerts that fired (or were attempted)."""
+    try:
+        from alert_engine import get_alert_history, get_config
+        return {"history": get_alert_history(limit=limit), "config": get_config()}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/alerts/config")
+def api_alerts_config():
+    """Return user-configurable alert thresholds + status."""
+    try:
+        from alert_engine import get_config
+        return get_config()
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/alerts/config")
+async def api_alerts_config_update(request: Request):
+    """Update thresholds (in-process). Body: any subset of CFG keys."""
+    try:
+        body = await request.json()
+        from alert_engine import update_config
+        return update_config(body)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/alerts/run-now")
+async def api_alerts_run_now(emit: bool = True):
+    """Force-run all checks. emit=true sends to Telegram (with cooldown)."""
+    try:
+        from alert_engine import run_all_checks
+        return await asyncio.to_thread(run_all_checks, emit)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ── Charts (TradingView side context) ───────────────────────────────────────
+@app.get("/api/chart-context")
+def api_chart_context(asset: str = "GOLD"):
+    """Per-asset side context for the charts panel: AI commentary, regime
+    overlay, support/resistance, volatility, relevant CB events."""
+    try:
+        from chart_context import get_chart_context
+        return _cached(f"chartctx_{asset.upper()}", 300, lambda: get_chart_context(asset.upper()))
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/chart-assets")
+def api_chart_assets():
+    """List of chart-able assets with TradingView symbols."""
+    try:
+        from chart_context import get_chart_assets
+        return {"assets": get_chart_assets()}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ── PRODUCTION: /api/health — comprehensive system status ───────────────────
+@app.get("/api/health")
+def api_health_full():
+    """Full health probe across Redis, SQLite, Groq, Telegram, live data,
+    news, regime, FX, and all background loops. Use for uptime monitoring."""
+    try:
+        from production import get_health
+        h = get_health()
+        # Set HTTP status: 200 healthy, 200 degraded, 503 unhealthy
+        # (uptime monitors typically alert on non-2xx; degraded keeps them quiet)
+        status_code = 200 if h.get("status") in ("healthy", "degraded") else 503
+        return JSONResponse(content=h, status_code=status_code)
+    except Exception as e:
+        return JSONResponse({"status": "unhealthy", "error": str(e)}, status_code=503)
+
+
+# ── MULTI-USER: per-user settings (watchlist, alert thresholds, telegram) ───
+def _current_user(request: Request) -> dict | None:
+    return _auth.verify_session(request.cookies.get(COOKIE_NAME)) if request.cookies.get(COOKIE_NAME) else None
+
+
+@app.get("/api/me/settings")
+def api_my_settings(request: Request):
+    """Return current user's full settings (defaults overlaid with their overrides)."""
+    user = _current_user(request)
+    if not user:
+        return JSONResponse({"error": "not authenticated"}, status_code=401)
+    try:
+        from user_settings import get_user_settings
+        return {"username": user["username"], "settings": get_user_settings(user["username"])}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/me/settings")
+async def api_update_my_settings(request: Request):
+    """Merge updates into current user's settings. Body: {key: value, ...}"""
+    user = _current_user(request)
+    if not user:
+        return JSONResponse({"error": "not authenticated"}, status_code=401)
+    try:
+        body = await request.json()
+        from user_settings import update_user_settings
+        return {"username": user["username"], "settings": update_user_settings(user["username"], body)}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/me/watchlist/add")
+async def api_watchlist_add(request: Request):
+    user = _current_user(request)
+    if not user: return JSONResponse({"error": "not authenticated"}, status_code=401)
+    try:
+        body = await request.json()
+        from user_settings import add_to_watchlist
+        return {"watchlist": add_to_watchlist(user["username"], str(body.get("asset", "")))}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/me/watchlist/remove")
+async def api_watchlist_remove(request: Request):
+    user = _current_user(request)
+    if not user: return JSONResponse({"error": "not authenticated"}, status_code=401)
+    try:
+        body = await request.json()
+        from user_settings import remove_from_watchlist
+        return {"watchlist": remove_from_watchlist(user["username"], str(body.get("asset", "")))}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ── WebSocket streaming endpoint ──────────────────────────────────────────────
+@app.websocket("/ws")
+async def websocket_endpoint(ws: WebSocket):
+    """Live-stream channel: prices · alerts · macro · explainers.
+
+    Client protocol (JSON):
+      {"action":"subscribe","channels":["prices","alerts","macro","explainers"]}
+      {"action":"unsubscribe","channels":["prices"]}
+      {"action":"ping","client_ts_ms":1715518000000}
+
+    Server messages:
+      {"channel":"prices",     "payload":{"GOLD":{"price":..,"change":..}}, "server_ts_ms":...}
+      {"channel":"alerts",     "payload":{"trigger_type":..,"title":..}, ...}
+      {"channel":"macro",      "payload":{"commentary":..,"dominant_driver":..}, ...}
+      {"channel":"explainers", "payload":{"asset_key":..,"what_moved":..}, ...}
+      {"channel":"system",     "payload":{"type":"pong","client_ts_ms":..}}
+    """
+    from streaming import hub
+    import json as _json
+    await hub.connect(ws)
+    try:
+        # Welcome
+        await ws.send_text(_json.dumps({
+            "channel": "system",
+            "payload": {"type": "welcome", "channels": list(["prices","alerts","macro","explainers"])},
+            "server_ts_ms": int(_time.time() * 1000),
+        }))
+        while True:
+            raw = await ws.receive_text()
+            try:
+                msg = _json.loads(raw)
+            except Exception:
+                continue
+            action = msg.get("action")
+            if action == "subscribe":
+                granted = await hub.subscribe(ws, msg.get("channels", []))
+                await ws.send_text(_json.dumps({
+                    "channel": "system",
+                    "payload": {"type": "subscribed", "channels": granted},
+                    "server_ts_ms": int(_time.time() * 1000),
+                }))
+            elif action == "unsubscribe":
+                await hub.unsubscribe(ws, msg.get("channels", []))
+            elif action == "ping":
+                await ws.send_text(_json.dumps({
+                    "channel": "system",
+                    "payload": {"type": "pong", "client_ts_ms": msg.get("client_ts_ms")},
+                    "server_ts_ms": int(_time.time() * 1000),
+                }))
+    except WebSocketDisconnect:
+        await hub.disconnect(ws)
+    except Exception:
+        await hub.disconnect(ws)
+
+
+@app.get("/api/ws-stats")
+def api_ws_stats():
+    """How many clients are connected per channel."""
+    try:
+        from streaming import get_streaming_stats
+        return get_streaming_stats()
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ── White-label / multi-tenant endpoints ────────────────────────────────────
+TENANT_COOKIE = "terminal_tenant"
+
+
+def _resolve_tenant_id(request: Request) -> str:
+    """Priority: ?tenant=... → cookie → user setting → 'default'."""
+    q = request.query_params.get("tenant")
+    if q: return q
+    c = request.cookies.get(TENANT_COOKIE)
+    if c: return c
+    user = _current_user(request)
+    if user:
+        try:
+            from user_settings import get_user_settings
+            return (get_user_settings(user["username"]).get("tenant_id") or "default")
+        except Exception:
+            pass
+    return "default"
+
+
+@app.get("/api/tenant/active")
+def api_tenant_active(request: Request):
+    """Return the active tenant config for this client + branding payload
+    that the frontend uses to apply theme + module visibility."""
+    try:
+        from tenants import get_tenant
+        tid = _resolve_tenant_id(request)
+        t   = get_tenant(tid)
+        # If tenant came from query, set the cookie so it persists
+        resp = JSONResponse(t)
+        if request.query_params.get("tenant"):
+            resp.set_cookie(TENANT_COOKIE, tid, max_age=30 * 86400, samesite="lax", httponly=False)
+        return resp
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/tenant/list")
+def api_tenant_list():
+    """List of available tenants for the switcher UI."""
+    try:
+        from tenants import list_tenants
+        return {"tenants": list_tenants()}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/tenant/switch")
+async def api_tenant_switch(request: Request):
+    """Set the tenant cookie for this client. Body: {'tenant_id': 'uae_forex'}."""
+    try:
+        body = await request.json()
+        tid = str(body.get("tenant_id", "default"))
+        from tenants import get_tenant
+        t = get_tenant(tid)
+        resp = JSONResponse({"ok": True, "tenant": t["id"], "name": t["name"]})
+        resp.set_cookie(TENANT_COOKIE, tid, max_age=30 * 86400, samesite="lax", httponly=False)
+        return resp
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/tenant/upsert")
+async def api_tenant_upsert(request: Request):
+    """Admin: create/update a custom tenant. Body must include 'id' + config fields."""
+    user = _current_user(request)
+    if not user or user.get("role") != "admin":
+        return JSONResponse({"error": "admin required"}, status_code=403)
+    try:
+        body = await request.json()
+        from tenants import upsert_custom_tenant
+        return upsert_custom_tenant(str(body.get("id", "")), body)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 

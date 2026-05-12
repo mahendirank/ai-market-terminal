@@ -435,7 +435,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 <!-- HEADER -->
 <div class="header">
   <div class="h-left">
-    <span class="logo">▪ AI TERMINAL</span>
+    <span class="logo" data-tenant-brand>▪ AI TERMINAL</span>
     <span><span class="live-dot"></span><span style="color:#4a5568;font-size:9px;margin-left:3px;">LIVE</span></span>
     <span class="gold-px" id="hdr-gold">GOLD $—</span>
     <span id="hdr-sig" class="sig-badge s-wait">—</span>
@@ -614,13 +614,69 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
     <div class="mo-pulse" style="animation-delay:2.1s;background:#f59e0b;"></div>
   </div>
 
-  <!-- LAST UPDATE -->
-  <div style="display:flex;align-items:center;padding:0 10px;flex-shrink:0;border-left:1px solid #0a1520;">
+  <!-- LAST UPDATE + WS LATENCY -->
+  <div style="display:flex;align-items:center;padding:0 10px;flex-shrink:0;border-left:1px solid #0a1520;gap:8px;">
+    <div id="ws-status" title="WebSocket stream status" style="display:flex;flex-direction:column;align-items:center;gap:2px;">
+      <span id="ws-dot" style="width:8px;height:8px;border-radius:50%;background:#475569;display:inline-block;"></span>
+      <span id="ws-latency" style="color:#475569;font-family:'SF Mono',Monaco,monospace;font-size:7px;letter-spacing:1px;white-space:nowrap;">…</span>
+    </div>
     <div style="display:flex;flex-direction:column;gap:3px;align-items:center;">
       <span style="color:#22d3ee;font-size:7px;letter-spacing:1.5px;white-space:nowrap;">LIVE</span>
       <span id="mo-ts" style="color:#1e3a4a;font-size:7px;white-space:nowrap;writing-mode:vertical-rl;transform:rotate(180deg);">—</span>
     </div>
   </div>
+</div>
+
+<!-- ═══ FLASH ANIMATION FOR LIVE PRICE UPDATES ═══ -->
+<style>
+  @keyframes flash-up   { 0%{background:rgba(74,222,128,0.30);} 100%{background:transparent;} }
+  @keyframes flash-down { 0%{background:rgba(248,113,113,0.30);} 100%{background:transparent;} }
+  @keyframes flash-info { 0%{background:rgba(34,211,238,0.25);} 100%{background:transparent;} }
+  .flash-up   { animation: flash-up   0.9s ease-out; }
+  .flash-down { animation: flash-down 0.9s ease-out; }
+  .flash-info { animation: flash-info 1.0s ease-out; }
+  #ws-dot.connected { background:#4ade80; box-shadow:0 0 8px #4ade80; }
+  #ws-dot.degraded  { background:#fbbf24; box-shadow:0 0 8px #fbbf24; }
+  #ws-dot.offline   { background:#f87171; box-shadow:0 0 8px #f87171; }
+</style>
+
+<!-- ═══ FX MAJORS STRIP — macro-inferred direction per pair ═══ -->
+<style>
+  #fx-strip { display:flex; align-items:stretch; background:#03070d; border-bottom:2px solid #0e1e2e; flex-shrink:0; overflow-x:auto; z-index:49; scrollbar-width:none; }
+  #fx-strip::-webkit-scrollbar { display:none; }
+  .fx-label { display:flex; flex-direction:column; justify-content:center; align-items:center; padding:0 18px; border-right:1px solid #0e1e2e; min-width:78px; flex-shrink:0; background:linear-gradient(180deg,#04111a,#02070d); }
+  .fx-label .top { color:#22d3ee; font-family:"SF Mono","Monaco",monospace; font-size:9px; letter-spacing:2.5px; font-weight:700; }
+  .fx-label .sub { color:#334155; font-family:"SF Mono","Monaco",monospace; font-size:8px; letter-spacing:2px; margin-top:3px; }
+  .fx-tile { display:flex; flex-direction:column; padding:8px 14px; border-right:1px solid #0a1520; min-width:175px; flex-shrink:0; position:relative; gap:1px; }
+  .fx-tile:last-child { border-right:none; }
+  .fx-name { color:#94a3b8; font-family:"SF Mono","Monaco",monospace; font-size:10px; letter-spacing:2px; font-weight:600; }
+  .fx-price-row { display:flex; align-items:baseline; gap:6px; margin-top:1px; }
+  .fx-price { color:#ffffff; font-size:18px; font-weight:700; font-family:-apple-system,"Helvetica Neue",sans-serif; letter-spacing:-0.3px; }
+  .fx-chg { font-family:"SF Mono","Monaco",monospace; font-size:10px; font-weight:600; }
+  .fx-chg.up { color:#4ade80; }
+  .fx-chg.dn { color:#f87171; }
+  .fx-chg.flat { color:#64748b; }
+  .fx-signal { display:flex; align-items:center; gap:6px; margin-top:3px; }
+  .fx-direction { font-family:"SF Mono","Monaco",monospace; font-size:9px; letter-spacing:1.5px; font-weight:700; padding:1px 5px; border-radius:2px; }
+  .fx-direction.BULLISH { color:#4ade80; background:rgba(74,222,128,0.10); border:1px solid rgba(74,222,128,0.35); }
+  .fx-direction.BEARISH { color:#f87171; background:rgba(248,113,113,0.10); border:1px solid rgba(248,113,113,0.35); }
+  .fx-direction.NEUTRAL { color:#94a3b8; background:rgba(148,163,184,0.08); border:1px solid rgba(148,163,184,0.30); }
+  .fx-conf { color:#22d3ee; font-family:"SF Mono","Monaco",monospace; font-size:9px; font-weight:600; }
+  .fx-driver { color:#cbd5e1; font-size:10px; line-height:1.3; margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .fx-vol { color:#475569; font-family:"SF Mono","Monaco",monospace; font-size:8px; letter-spacing:1.5px; margin-top:2px; }
+  .fx-vol.LOW { color:#475569; }
+  .fx-vol.NORMAL { color:#5a7a9a; }
+  .fx-vol.ELEVATED { color:#fbbf24; }
+  .fx-vol.EXTREME { color:#f87171; }
+</style>
+<div id="fx-strip" data-module="fx_strip">
+  <div class="fx-label"><div class="top">FX MAJORS</div><div class="sub">MACRO INFER</div></div>
+  <div class="fx-tile" id="fx-EURUSD"><div class="fx-name">EUR/USD</div><div class="fx-price-row"><span class="fx-price">—</span><span class="fx-chg flat">—</span></div><div class="fx-signal"><span class="fx-direction NEUTRAL">—</span><span class="fx-conf">—%</span></div><div class="fx-driver">—</div><div class="fx-vol">VOL —</div></div>
+  <div class="fx-tile" id="fx-GBPUSD"><div class="fx-name">GBP/USD</div><div class="fx-price-row"><span class="fx-price">—</span><span class="fx-chg flat">—</span></div><div class="fx-signal"><span class="fx-direction NEUTRAL">—</span><span class="fx-conf">—%</span></div><div class="fx-driver">—</div><div class="fx-vol">VOL —</div></div>
+  <div class="fx-tile" id="fx-USDJPY"><div class="fx-name">USD/JPY</div><div class="fx-price-row"><span class="fx-price">—</span><span class="fx-chg flat">—</span></div><div class="fx-signal"><span class="fx-direction NEUTRAL">—</span><span class="fx-conf">—%</span></div><div class="fx-driver">—</div><div class="fx-vol">VOL —</div></div>
+  <div class="fx-tile" id="fx-AUDUSD"><div class="fx-name">AUD/USD</div><div class="fx-price-row"><span class="fx-price">—</span><span class="fx-chg flat">—</span></div><div class="fx-signal"><span class="fx-direction NEUTRAL">—</span><span class="fx-conf">—%</span></div><div class="fx-driver">—</div><div class="fx-vol">VOL —</div></div>
+  <div class="fx-tile" id="fx-USDCAD"><div class="fx-name">USD/CAD</div><div class="fx-price-row"><span class="fx-price">—</span><span class="fx-chg flat">—</span></div><div class="fx-signal"><span class="fx-direction NEUTRAL">—</span><span class="fx-conf">—%</span></div><div class="fx-driver">—</div><div class="fx-vol">VOL —</div></div>
+  <div class="fx-tile" id="fx-USDCHF"><div class="fx-name">USD/CHF</div><div class="fx-price-row"><span class="fx-price">—</span><span class="fx-chg flat">—</span></div><div class="fx-signal"><span class="fx-direction NEUTRAL">—</span><span class="fx-conf">—%</span></div><div class="fx-driver">—</div><div class="fx-vol">VOL —</div></div>
 </div>
 
 <!-- MAIN -->
@@ -631,8 +687,8 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
     <div class="cat-tabs" id="cat-tabs">
       <div class="ctab active" data-cat="ALL"         onclick="setCat(this)">ALL             <span class="cnt" id="cnt-ALL">—</span></div>
       <div class="ctab" data-cat="MARKETS"     onclick="setCat(this)">MARKETS         <span class="cnt" id="cnt-MARKETS">—</span></div>
-      <div class="ctab" data-cat="INDIA"       onclick="setCat(this)">INDIA           <span class="cnt" id="cnt-INDIA">—</span></div>
-      <div class="ctab" data-cat="EARNINGS"    onclick="setCat(this)">EARNINGS        <span class="cnt" id="cnt-EARNINGS">—</span></div>
+      <div class="ctab" data-cat="INDIA"       data-module="india_panels" onclick="setCat(this)">INDIA           <span class="cnt" id="cnt-INDIA">—</span></div>
+      <div class="ctab" data-cat="EARNINGS"    data-module="earnings_panel" onclick="setCat(this)">EARNINGS        <span class="cnt" id="cnt-EARNINGS">—</span></div>
       <div class="ctab" data-cat="GEOPOLITICS" onclick="setCat(this)">GEOPOLITICS     <span class="cnt" id="cnt-GEOPOLITICS">—</span></div>
       <div class="ctab" data-cat="HNI"         onclick="setCat(this)">HNI/INST        <span class="cnt" id="cnt-HNI">—</span></div>
       <div class="ctab" data-cat="MACRO"       onclick="setCat(this)">MACRO           <span class="cnt" id="cnt-MACRO">—</span></div>
@@ -642,15 +698,18 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
       <div class="ctab" data-cat="TECH"        onclick="setCat(this)">CHIPS/AI/TECH   <span class="cnt" id="cnt-TECH">—</span></div>
       <div class="ctab" data-cat="CRYPTO"      onclick="setCat(this)">CRYPTO          <span class="cnt" id="cnt-CRYPTO">—</span></div>
       <div class="ctab" data-cat="GLOBAL"      onclick="setCat(this)">ASIA/GLOBAL     <span class="cnt" id="cnt-GLOBAL">—</span></div>
-      <div class="ctab" data-cat="AI_RESEARCH" onclick="showResearch(this)" id="ai-research-tab" style="color:#a78bfa;border-left:2px solid #7c3aed;">⚡ AI RESEARCH</div>
-      <div class="ctab" data-cat="SIGNALS" onclick="showSignals(this)" id="signals-tab" style="color:#f59e0b;border-left:2px solid #d97706;">📊 SIGNALS</div>
-      <div class="ctab" data-cat="HNI_AI" onclick="showHniInsights(this)" id="hni-ai-tab" style="color:#22d3ee;border-left:2px solid #0891b2;">🧠 HNI AI</div>
-      <div class="ctab" data-cat="MORNING" onclick="showMorningNote(this)" id="morning-tab" style="color:#fbbf24;border-left:2px solid #d97706;">🌅 MORNING NOTE</div>
-      <div class="ctab" data-cat="CALENDAR" onclick="showCatalyst(this)" id="calendar-tab" style="color:#34d399;border-left:2px solid #059669;">📅 CALENDAR</div>
-      <div class="ctab" data-cat="SECTORS" onclick="showSectorRotation(this)" id="sectors-tab" style="color:#f472b6;border-left:2px solid #db2777;">📡 SECTORS</div>
-      <div class="ctab" data-cat="RISKTOOLS" onclick="showRiskTools(this)" id="risktools-tab" style="color:#22d3ee;border-left:2px solid #0891b2;">⚖ RISK TOOLS</div>
-      <div class="ctab" data-cat="AIPERFORMANCE" onclick="showAiPerformance(this)" id="aiperformance-tab" style="color:#a78bfa;border-left:2px solid #7c3aed;">📊 AI PERF</div>
-      <div class="ctab" data-cat="REGIME" onclick="showRegime(this)" id="regime-tab" style="color:#22d3ee;border-left:2px solid #0891b2;">🔮 REGIME</div>
+      <div class="ctab" data-cat="AI_RESEARCH" data-module="ai_research" onclick="showResearch(this)" id="ai-research-tab" style="color:#a78bfa;border-left:2px solid #7c3aed;">⚡ AI RESEARCH</div>
+      <div class="ctab" data-cat="SIGNALS" data-module="signals" onclick="showSignals(this)" id="signals-tab" style="color:#f59e0b;border-left:2px solid #d97706;">📊 SIGNALS</div>
+      <div class="ctab" data-cat="HNI_AI" data-module="hni_ai" onclick="showHniInsights(this)" id="hni-ai-tab" style="color:#22d3ee;border-left:2px solid #0891b2;">🧠 HNI AI</div>
+      <div class="ctab" data-cat="MORNING" data-module="morning_note" onclick="showMorningNote(this)" id="morning-tab" style="color:#fbbf24;border-left:2px solid #d97706;">🌅 MORNING NOTE</div>
+      <div class="ctab" data-cat="CALENDAR" data-module="cb_calendar" onclick="showCatalyst(this)" id="calendar-tab" style="color:#34d399;border-left:2px solid #059669;">📅 CALENDAR</div>
+      <div class="ctab" data-cat="SECTORS" data-module="sectors" onclick="showSectorRotation(this)" id="sectors-tab" style="color:#f472b6;border-left:2px solid #db2777;">📡 SECTORS</div>
+      <div class="ctab" data-cat="RISKTOOLS" data-module="risk_tools" onclick="showRiskTools(this)" id="risktools-tab" style="color:#22d3ee;border-left:2px solid #0891b2;">⚖ RISK TOOLS</div>
+      <div class="ctab" data-cat="AIPERFORMANCE" data-module="ai_perf" onclick="showAiPerformance(this)" id="aiperformance-tab" style="color:#a78bfa;border-left:2px solid #7c3aed;">📊 AI PERF</div>
+      <div class="ctab" data-cat="REGIME" data-module="macro_desk" onclick="showRegime(this)" id="regime-tab" style="color:#22d3ee;border-left:2px solid #0891b2;">🔮 REGIME</div>
+      <div class="ctab" data-cat="ANALYST" data-module="macro_analyst" onclick="showAnalyst(this)" id="analyst-tab" style="color:#34d399;border-left:2px solid #059669;">🧠 MACRO ANALYST</div>
+      <div class="ctab" data-cat="WHYMOVE" data-module="explainer" onclick="showWhyMove(this)" id="whymove-tab" style="color:#f59e0b;border-left:2px solid #b45309;">📡 WHY MOVE?</div>
+      <div class="ctab" data-cat="CHARTS" data-module="charts" onclick="showCharts(this)" id="charts-tab" style="color:#22d3ee;border-left:2px solid #0891b2;">📈 CHARTS</div>
     </div>
     <!-- ASSET QUICK FILTERS -->
     <div class="asset-filters" id="asset-filters">
@@ -677,9 +736,115 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
         </div>
         <div style="display:flex;align-items:center;gap:10px;">
           <span id="regime-updated" style="color:#334155;font-size:9px;">—</span>
-          <button onclick="loadRegime(true)" style="background:#0e1e2e;border:1px solid #1e3a4a;color:#4b8baf;font-size:9px;padding:2px 7px;border-radius:3px;cursor:pointer;letter-spacing:0.5px;">↻ REFRESH</button>
+          <button onclick="loadMacroDesk(true); loadRegime(true)" style="background:#0e1e2e;border:1px solid #1e3a4a;color:#4b8baf;font-size:9px;padding:2px 7px;border-radius:3px;cursor:pointer;letter-spacing:0.5px;">↻ REFRESH</button>
         </div>
       </div>
+
+      <!-- ═══ INSTITUTIONAL MACRO DESK PANEL (new — 6 binary dimensions + commentary + history) ═══ -->
+      <style>
+        .md-section { padding:14px 18px; border-bottom:1px solid #0e1e2e; }
+        .md-commentary {
+          background:linear-gradient(180deg, rgba(34,211,238,0.04), rgba(34,211,238,0.01));
+          border:1px solid rgba(34,211,238,0.15);
+          border-radius:6px; padding:14px 18px; margin:0;
+        }
+        .md-commentary .head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px; }
+        .md-commentary .label { color:#22d3ee; font-family:'SF Mono',Monaco,monospace; font-size:10px; letter-spacing:2px; font-weight:700; }
+        .md-commentary .ts { color:#475569; font-family:'SF Mono',Monaco,monospace; font-size:9px; letter-spacing:1.5px; }
+        .md-commentary .body { color:#e8eef5; font-size:13px; line-height:1.55; font-style:italic; }
+        .md-commentary .driver { color:#94a3b8; font-size:11px; margin-top:8px; padding-top:8px; border-top:1px solid rgba(34,211,238,0.1); }
+        .md-commentary .driver strong { color:#f59e0b; }
+        .md-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; padding:14px 18px; }
+        .md-dim {
+          background:rgba(0,0,0,0.35); border:1px solid #1a2a3a; border-radius:6px;
+          padding:10px 12px; position:relative; overflow:hidden;
+        }
+        .md-dim::before { content:""; position:absolute; top:0; left:0; bottom:0; width:3px; background:#1a2a3a; }
+        .md-dim.bull::before, .md-dim.HAWKISH::before, .md-dim.RISING::before, .md-dim.HOT::before, .md-dim.STRONG::before { background:#4ade80; }
+        .md-dim.bear::before, .md-dim.DOVISH::before, .md-dim.FALLING::before, .md-dim.COOLING::before, .md-dim.WEAK::before { background:#f87171; }
+        .md-dim.neutral::before, .md-dim.NEUTRAL::before { background:#64748b; }
+        .md-dim .label { color:#5a7a9a; font-family:'SF Mono',Monaco,monospace; font-size:9px; letter-spacing:2px; font-weight:700; text-transform:uppercase; margin-bottom:4px; }
+        .md-dim .state-row { display:flex; align-items:baseline; gap:8px; margin-bottom:6px; }
+        .md-dim .state { font-size:18px; font-weight:800; letter-spacing:-0.3px; }
+        .md-dim .state.bull, .md-dim .state.HAWKISH, .md-dim .state.RISING, .md-dim .state.HOT, .md-dim .state.STRONG { color:#4ade80; }
+        .md-dim .state.bear, .md-dim .state.DOVISH, .md-dim .state.FALLING, .md-dim .state.COOLING, .md-dim .state.WEAK { color:#f87171; }
+        .md-dim .state.neutral, .md-dim .state.NEUTRAL { color:#94a3b8; }
+        .md-dim .conf { color:#22d3ee; font-family:'SF Mono',Monaco,monospace; font-size:11px; font-weight:700; }
+        .md-dim .bar { height:3px; background:#0e1e2e; border-radius:2px; overflow:hidden; margin-bottom:6px; }
+        .md-dim .bar div { height:100%; background:linear-gradient(90deg, #22d3ee, #f59e0b); transition:width 0.5s ease; }
+        .md-dim .drv { color:#cbd5e1; font-size:11px; line-height:1.4; }
+        .md-history { padding:12px 18px 14px; }
+        .md-history .title { color:#22d3ee; font-family:'SF Mono',Monaco,monospace; font-size:10px; letter-spacing:2px; font-weight:700; margin-bottom:10px; }
+        .md-hist-row { display:grid; grid-template-columns:90px 1fr 60px; gap:10px; padding:5px 0; border-bottom:1px solid #0e1e2e; font-size:11px; align-items:center; }
+        .md-hist-row:last-child { border-bottom:none; }
+        .md-hist-row .ts { color:#64748b; font-family:'SF Mono',Monaco,monospace; font-size:10px; letter-spacing:1px; }
+        .md-hist-row .states { display:flex; gap:5px; flex-wrap:wrap; }
+        .md-hist-row .chip { font-family:'SF Mono',Monaco,monospace; font-size:9px; padding:1px 5px; border-radius:2px; letter-spacing:1px; font-weight:600; }
+        .md-hist-row .chip.bull, .md-hist-row .chip.HAWKISH, .md-hist-row .chip.RISING, .md-hist-row .chip.HOT, .md-hist-row .chip.STRONG { color:#4ade80; background:rgba(74,222,128,0.08); border:1px solid rgba(74,222,128,0.25); }
+        .md-hist-row .chip.bear, .md-hist-row .chip.DOVISH, .md-hist-row .chip.FALLING, .md-hist-row .chip.COOLING, .md-hist-row .chip.WEAK { color:#f87171; background:rgba(248,113,113,0.08); border:1px solid rgba(248,113,113,0.25); }
+        .md-hist-row .chip.NEUTRAL { color:#94a3b8; background:rgba(148,163,184,0.06); border:1px solid rgba(148,163,184,0.2); }
+        .md-hist-row .conf { color:#22d3ee; font-family:'SF Mono',Monaco,monospace; font-size:10px; text-align:right; font-weight:700; }
+      </style>
+
+      <div class="md-section md-commentary-wrap">
+        <div class="md-commentary">
+          <div class="head">
+            <span class="label">▸ DESK COMMENTARY</span>
+            <span class="ts" id="md-ts">—</span>
+          </div>
+          <div class="body" id="md-commentary">Loading institutional macro overview…</div>
+          <div class="driver"><strong>Dominant driver:</strong> <span id="md-driver">—</span> &nbsp;·&nbsp; <strong>Overall conf:</strong> <span id="md-overall-conf">—</span>%</div>
+        </div>
+      </div>
+
+      <div class="md-grid">
+        <div class="md-dim" id="md-risk">
+          <div class="label">RISK</div>
+          <div class="state-row"><span class="state">—</span><span class="conf">—%</span></div>
+          <div class="bar"><div style="width:0%;"></div></div>
+          <div class="drv">—</div>
+        </div>
+        <div class="md-dim" id="md-dollar">
+          <div class="label">DOLLAR</div>
+          <div class="state-row"><span class="state">—</span><span class="conf">—%</span></div>
+          <div class="bar"><div style="width:0%;"></div></div>
+          <div class="drv">—</div>
+        </div>
+        <div class="md-dim" id="md-fed">
+          <div class="label">FED</div>
+          <div class="state-row"><span class="state">—</span><span class="conf">—%</span></div>
+          <div class="bar"><div style="width:0%;"></div></div>
+          <div class="drv">—</div>
+        </div>
+        <div class="md-dim" id="md-yields">
+          <div class="label">BOND YIELDS</div>
+          <div class="state-row"><span class="state">—</span><span class="conf">—%</span></div>
+          <div class="bar"><div style="width:0%;"></div></div>
+          <div class="drv">—</div>
+        </div>
+        <div class="md-dim" id="md-inflation">
+          <div class="label">INFLATION</div>
+          <div class="state-row"><span class="state">—</span><span class="conf">—%</span></div>
+          <div class="bar"><div style="width:0%;"></div></div>
+          <div class="drv">—</div>
+        </div>
+        <div class="md-dim" id="md-commodities">
+          <div class="label">COMMODITIES</div>
+          <div class="state-row"><span class="state">—</span><span class="conf">—%</span></div>
+          <div class="bar"><div style="width:0%;"></div></div>
+          <div class="drv">—</div>
+        </div>
+      </div>
+
+      <div class="md-history">
+        <div class="title">▸ LAST 10 SNAPSHOTS — REGIME MEMORY</div>
+        <div id="md-history-list">
+          <div style="color:#334155; font-size:11px; padding:6px 0;">History accumulates every 15 min. First snapshot stores in ~2 min after server start.</div>
+        </div>
+      </div>
+
+      <!-- Legacy 10-state regime view — kept hidden so background JS keeps working -->
+      <div id="regime-legacy" style="display:none;">
 
       <!-- Main regime badge + confidence -->
       <div style="display:flex;align-items:stretch;gap:0;border-bottom:1px solid #0e1e2e;">
@@ -735,6 +900,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
         </div>
         <div id="regime-fallback-warn" style="display:none;color:#d97706;font-size:9px;letter-spacing:0.5px;">⚠ KEYWORD INFERENCE — live data unavailable</div>
       </div>
+      </div><!-- end regime-legacy -->
     </div>
 
     <!-- MASTER SIGNAL PANEL — kept for HNI engine compat -->
@@ -743,6 +909,283 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
       <span id="ms-bias"></span>
       <span id="ms-confidence"></span>
       <span id="ms-assets"></span>
+    </div>
+
+    <!-- ═══ CHARTS — TradingView + AI sidebar ═══ -->
+    <style>
+      #charts-panel { display:none; flex:1; flex-direction:column; background:#020610; overflow:hidden; }
+      .ch-header { padding:10px 18px; background:#040a12; border-bottom:1px solid #0e1e2e; flex-shrink:0; display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; }
+      .ch-asset-tabs { display:flex; gap:4px; flex-wrap:wrap; }
+      .ch-asset-btn {
+        background:#0a1520; border:1px solid #1c2a3a; color:#94a3b8;
+        padding:6px 12px; cursor:pointer; font-family:'SF Mono',Monaco,monospace;
+        font-size:11px; letter-spacing:1px; border-radius:3px; transition:all 0.15s;
+      }
+      .ch-asset-btn:hover { color:#22d3ee; border-color:#22d3ee; }
+      .ch-asset-btn.active { background:rgba(34,211,238,0.10); border-color:#22d3ee; color:#22d3ee; font-weight:700; }
+      .ch-tf-row { display:flex; gap:3px; }
+      .ch-tf-btn {
+        background:#0a1520; border:1px solid #1c2a3a; color:#94a3b8;
+        padding:4px 10px; cursor:pointer; font-family:'SF Mono',Monaco,monospace;
+        font-size:10px; letter-spacing:1px; border-radius:3px;
+      }
+      .ch-tf-btn.active { background:rgba(245,158,11,0.10); border-color:#f59e0b; color:#f59e0b; font-weight:700; }
+      .ch-body { flex:1; display:grid; grid-template-columns: 1fr 360px; min-height:0; }
+      .ch-chart-wrap { background:#020610; border-right:1px solid #0e1e2e; min-width:0; position:relative; }
+      .ch-chart-loading { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#475569; font-size:12px; pointer-events:none; }
+      .ch-side { overflow-y:auto; padding:14px 16px; background:#040a12; display:flex; flex-direction:column; gap:14px; }
+      .ch-card { background:rgba(0,0,0,0.4); border:1px solid #1a2a3a; border-radius:6px; padding:11px 14px; }
+      .ch-card .lbl { color:#22d3ee; font-family:'SF Mono',Monaco,monospace; font-size:9px; letter-spacing:2px; font-weight:700; margin-bottom:8px; text-transform:uppercase; display:flex; justify-content:space-between; align-items:center; }
+      .ch-card .lbl .meta { color:#475569; font-size:8px; letter-spacing:1px; font-weight:400; }
+      .ch-price-row { display:flex; align-items:baseline; gap:10px; margin-bottom:6px; }
+      .ch-price { color:#fff; font-size:22px; font-weight:800; letter-spacing:-0.5px; }
+      .ch-chg { font-family:'SF Mono',Monaco,monospace; font-size:12px; font-weight:700; }
+      .ch-chg.up { color:#4ade80; } .ch-chg.dn { color:#f87171; } .ch-chg.flat { color:#64748b; }
+      .ch-regime-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+      .ch-regime-item { background:rgba(0,0,0,0.3); border:1px solid #1a2a3a; border-left:3px solid #1a2a3a; border-radius:3px; padding:6px 8px; font-size:10px; }
+      .ch-regime-item.ON, .ch-regime-item.STRONG, .ch-regime-item.HAWKISH, .ch-regime-item.RISING, .ch-regime-item.HOT, .ch-regime-item.BULL { border-left-color:#4ade80; }
+      .ch-regime-item.OFF, .ch-regime-item.WEAK, .ch-regime-item.DOVISH, .ch-regime-item.FALLING, .ch-regime-item.COOLING, .ch-regime-item.BEAR { border-left-color:#f87171; }
+      .ch-regime-item.NEUTRAL { border-left-color:#64748b; }
+      .ch-regime-item .nm { color:#5a7a9a; font-family:'SF Mono',Monaco,monospace; font-size:8px; letter-spacing:1.5px; }
+      .ch-regime-item .st { color:#fff; font-weight:700; font-size:11px; margin-top:2px; }
+      .ch-regime-item .cf { color:#22d3ee; font-family:'SF Mono',Monaco,monospace; font-size:9px; }
+      .ch-sr-row { display:flex; align-items:center; gap:8px; padding:4px 0; font-size:11px; border-bottom:1px solid #0e1e2e; }
+      .ch-sr-row:last-child { border-bottom:none; }
+      .ch-sr-row .tag { font-family:'SF Mono',Monaco,monospace; font-size:9px; padding:1px 5px; border-radius:2px; font-weight:700; }
+      .ch-sr-row .tag.R { color:#f87171; background:rgba(248,113,113,0.10); border:1px solid rgba(248,113,113,0.3); }
+      .ch-sr-row .tag.S { color:#4ade80; background:rgba(74,222,128,0.10); border:1px solid rgba(74,222,128,0.3); }
+      .ch-sr-row .lvl { color:#fff; font-family:'SF Mono',Monaco,monospace; font-weight:600; }
+      .ch-sr-row .dist { color:#64748b; font-size:9px; margin-left:auto; }
+      .ch-vol-state { display:inline-block; padding:2px 7px; border-radius:2px; font-family:'SF Mono',Monaco,monospace; font-size:9px; font-weight:700; letter-spacing:1px; }
+      .ch-vol-state.LOW      { color:#5a7a9a; background:rgba(90,122,154,0.10); border:1px solid rgba(90,122,154,0.3); }
+      .ch-vol-state.NORMAL   { color:#22d3ee; background:rgba(34,211,238,0.10); border:1px solid rgba(34,211,238,0.3); }
+      .ch-vol-state.ELEVATED { color:#fbbf24; background:rgba(251,191,36,0.10); border:1px solid rgba(251,191,36,0.3); }
+      .ch-vol-state.EXTREME  { color:#f87171; background:rgba(248,113,113,0.10); border:1px solid rgba(248,113,113,0.3); }
+      .ch-comm { font-size:11.5px; line-height:1.5; color:#cbd5e1; }
+      .ch-comm .what { color:#fff; font-weight:600; margin-bottom:4px; }
+      .ch-comm .tags { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
+      .ch-comm .tag { background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.3); color:#f59e0b; font-family:'SF Mono',Monaco,monospace; font-size:8px; padding:1px 5px; border-radius:2px; }
+      .ch-cb-row { display:grid; grid-template-columns:24px 1fr 60px; gap:6px; padding:5px 0; border-bottom:1px solid #0e1e2e; align-items:center; font-size:10px; }
+      .ch-cb-row:last-child { border-bottom:none; }
+      .ch-cb-row .flag { font-size:14px; }
+      .ch-cb-row .meta { color:#cbd5e1; }
+      .ch-cb-row .meta .l1 { color:#fff; font-weight:600; font-size:10px; }
+      .ch-cb-row .meta .l2 { color:#5a7a9a; font-family:'SF Mono',Monaco,monospace; font-size:9px; }
+      .ch-cb-row .pill { font-family:'SF Mono',Monaco,monospace; font-size:8px; padding:1px 5px; border-radius:2px; text-align:center; font-weight:700; }
+      .ch-cb-row .pill.RED    { color:#f87171; background:rgba(248,113,113,0.10); border:1px solid rgba(248,113,113,0.3); }
+      .ch-cb-row .pill.YELLOW { color:#fbbf24; background:rgba(251,191,36,0.10); border:1px solid rgba(251,191,36,0.3); }
+      .ch-cb-row .pill.GREEN  { color:#4ade80; background:rgba(74,222,128,0.10); border:1px solid rgba(74,222,128,0.3); }
+    </style>
+    <div id="charts-panel">
+      <div class="ch-header">
+        <div class="ch-asset-tabs" id="ch-asset-tabs"></div>
+        <div class="ch-tf-row" id="ch-tf-row">
+          <button class="ch-tf-btn" data-tf="15">15m</button>
+          <button class="ch-tf-btn" data-tf="60">1H</button>
+          <button class="ch-tf-btn" data-tf="240">4H</button>
+          <button class="ch-tf-btn active" data-tf="D">1D</button>
+          <button class="ch-tf-btn" data-tf="W">1W</button>
+        </div>
+      </div>
+      <div class="ch-body">
+        <div class="ch-chart-wrap">
+          <div class="ch-chart-loading">Select an asset to load chart…</div>
+          <div id="tv_chart_container" style="height:100%; width:100%;"></div>
+        </div>
+        <div class="ch-side" id="ch-sidebar">
+          <div class="ch-card"><div class="lbl">▸ LIVE</div><div style="color:#475569; font-size:11px;">Select an asset above to see live context.</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ WHY MOVE? — Institutional move explainer feed ═══ -->
+    <style>
+      #whymove-panel { display:none; flex:1; flex-direction:column; background:#06090e; overflow:hidden; }
+      .wm-header {
+        padding:14px 20px; border-bottom:1px solid #2a1a05;
+        background:linear-gradient(180deg, #110a02, #06090e);
+        display:flex; align-items:center; justify-content:space-between; flex-shrink:0;
+      }
+      .wm-header .l { display:flex; flex-direction:column; gap:2px; }
+      .wm-header .title { color:#f59e0b; font-size:13px; font-weight:bold; letter-spacing:1.5px; }
+      .wm-header .sub { color:#5a4a25; font-size:9px; letter-spacing:1px; }
+      .wm-header .r { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+      .wm-asset-pill {
+        background:#1a1407; border:1px solid #4a3915; color:#f59e0b;
+        padding:5px 11px; cursor:pointer; font-family:'SF Mono',Monaco,monospace;
+        font-size:10px; letter-spacing:1px; border-radius:3px; transition:all 0.15s;
+      }
+      .wm-asset-pill:hover { background:#2a1f0a; border-color:#b45309; color:#fbbf24; }
+      .wm-feed { flex:1; overflow-y:auto; padding:18px 22px; display:flex; flex-direction:column; gap:14px; }
+      .wm-card {
+        background:rgba(0,0,0,0.45); border:1px solid #1a2a3a; border-left:4px solid #1a2a3a;
+        border-radius:8px; padding:16px 18px; position:relative;
+      }
+      .wm-card.UP   { border-left-color:#4ade80; }
+      .wm-card.DOWN { border-left-color:#f87171; }
+      .wm-card-head {
+        display:flex; align-items:baseline; justify-content:space-between; margin-bottom:12px; flex-wrap:wrap; gap:10px;
+      }
+      .wm-asset-row { display:flex; align-items:baseline; gap:10px; }
+      .wm-asset-row .name {
+        font-size:18px; font-weight:800; color:#fff; letter-spacing:-0.3px;
+      }
+      .wm-asset-row .move-pct {
+        font-family:'SF Mono',Monaco,monospace; font-size:14px; font-weight:700;
+      }
+      .wm-asset-row .move-pct.UP   { color:#4ade80; }
+      .wm-asset-row .move-pct.DOWN { color:#f87171; }
+      .wm-asset-row .price { font-family:'SF Mono',Monaco,monospace; font-size:11px; color:#94a3b8; }
+      .wm-meta { display:flex; gap:10px; align-items:center; }
+      .wm-conf {
+        background:rgba(34,211,238,0.10); border:1px solid rgba(34,211,238,0.35);
+        color:#22d3ee; font-family:'SF Mono',Monaco,monospace; font-size:9px;
+        padding:2px 7px; letter-spacing:1.5px; border-radius:2px; font-weight:700;
+      }
+      .wm-ts {
+        color:#5a7a9a; font-family:'SF Mono',Monaco,monospace; font-size:9px; letter-spacing:1px;
+      }
+      .wm-what-moved {
+        color:#e8eef5; font-size:14px; line-height:1.5; font-weight:600;
+        margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid #1a2a3a;
+      }
+      .wm-section { margin-bottom:11px; }
+      .wm-section .label {
+        color:#f59e0b; font-family:'SF Mono',Monaco,monospace; font-size:9px;
+        letter-spacing:2px; font-weight:700; margin-bottom:4px; text-transform:uppercase;
+      }
+      .wm-section .body {
+        color:#cbd5e1; font-size:12px; line-height:1.5;
+      }
+      .wm-evidence-list { padding:0; margin:0; list-style:none; }
+      .wm-evidence-list li {
+        position:relative; padding:3px 0 3px 18px; font-size:12px; line-height:1.4; color:#cbd5e1;
+      }
+      .wm-evidence-list li::before {
+        content:"▸"; position:absolute; left:0; color:#f59e0b; font-size:11px;
+      }
+      .wm-tags { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+      .wm-tag {
+        background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.3);
+        color:#f59e0b; font-family:'SF Mono',Monaco,monospace; font-size:9px;
+        padding:2px 7px; letter-spacing:0.5px; border-radius:2px;
+      }
+      .wm-empty {
+        text-align:center; padding:50px 20px; color:#4b5563;
+      }
+      .wm-empty .icon { font-size:36px; margin-bottom:14px; }
+      .wm-empty h3 { color:#e8eef5; font-size:15px; font-weight:700; margin-bottom:8px; }
+      .wm-empty p { font-size:12px; line-height:1.6; max-width:520px; margin:0 auto 12px; }
+    </style>
+    <div id="whymove-panel">
+      <div class="wm-header">
+        <div class="l">
+          <div class="title">📡 WHY DID IT MOVE? — INSTITUTIONAL EXPLAINER</div>
+          <div class="sub">AUTO-COMMENTARY · GROUNDED ON LIVE DATA · PERSISTED LAST 100</div>
+        </div>
+        <div class="r" id="wm-explain-buttons">
+          <span style="color:#5a4a25; font-size:9px; letter-spacing:1.5px; margin-right:4px;">EXPLAIN NOW ▸</span>
+        </div>
+      </div>
+      <div class="wm-feed" id="wm-feed">
+        <div class="wm-empty">
+          <div class="icon">📡</div>
+          <h3>Live move explainer</h3>
+          <p>The terminal scans Gold, DXY, EUR/USD, USD/JPY, NASDAQ, Oil and BTC every 7 minutes for strong moves and auto-generates a 6-section institutional desk explanation: <strong style="color:#f59e0b;">what moved, why, evidence, historical parallel, risk to thesis, forward implication.</strong></p>
+          <p>Or click an asset button above to force a fresh explanation right now.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ AI MACRO ANALYST CHAT PANEL ═══ -->
+    <style>
+      #analyst-panel { display:none; flex:1; flex-direction:column; background:#060d14; overflow:hidden; }
+      .an-header { padding:12px 18px; border-bottom:1px solid #0e2a1a; background:linear-gradient(180deg, #07140d, #060d14); display:flex; align-items:center; justify-content:space-between; flex-shrink:0; }
+      .an-header .l { display:flex; flex-direction:column; gap:2px; }
+      .an-header .title { color:#34d399; font-size:13px; font-weight:bold; letter-spacing:1.5px; }
+      .an-header .sub { color:#4b5563; font-size:9px; letter-spacing:1px; }
+      .an-header .r { display:flex; gap:8px; align-items:center; }
+      .an-status { font-family:'SF Mono',Monaco,monospace; font-size:9px; letter-spacing:1.5px; color:#64748b; padding:3px 8px; border:1px solid #1c2a3a; border-radius:3px; }
+      .an-clear-btn { background:#001a0a; border:1px solid #059669; color:#34d399; padding:5px 12px; cursor:pointer; font-family:inherit; font-size:10px; border-radius:3px; letter-spacing:1px; }
+      .an-thread { flex:1; overflow-y:auto; padding:18px 22px; display:flex; flex-direction:column; gap:14px; }
+      .an-msg { display:flex; gap:10px; max-width:88%; }
+      .an-msg.user { align-self:flex-end; flex-direction:row-reverse; }
+      .an-msg .avatar { width:30px; height:30px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; }
+      .an-msg.user .avatar { background:#1c2a3a; color:#e8eef5; }
+      .an-msg.assistant .avatar { background:linear-gradient(135deg, #059669, #22d3ee); color:#fff; }
+      .an-msg .bubble {
+        background:rgba(0,0,0,0.4); border:1px solid #1a2a3a; border-radius:10px;
+        padding:11px 15px; font-size:13px; line-height:1.55; color:#e8eef5;
+        white-space:pre-wrap; word-wrap:break-word;
+      }
+      .an-msg.user .bubble { background:rgba(34,211,238,0.06); border-color:rgba(34,211,238,0.2); }
+      .an-msg.assistant .bubble { background:rgba(52,211,153,0.04); border-color:rgba(52,211,153,0.15); }
+      .an-msg .ts { color:#64748b; font-family:'SF Mono',Monaco,monospace; font-size:9px; letter-spacing:1px; margin-top:4px; }
+      .an-empty {
+        text-align:center; padding:40px 20px; color:#4b5563;
+      }
+      .an-empty .icon { font-size:36px; margin-bottom:14px; }
+      .an-empty h3 { color:#e8eef5; font-size:15px; font-weight:700; margin-bottom:8px; }
+      .an-empty p { font-size:12px; line-height:1.6; max-width:520px; margin:0 auto; }
+      .an-suggestions { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-top:18px; }
+      .an-suggestion {
+        background:rgba(52,211,153,0.06); border:1px solid rgba(52,211,153,0.25);
+        color:#34d399; font-size:11px; padding:6px 12px; border-radius:14px; cursor:pointer;
+        transition: all 0.15s;
+      }
+      .an-suggestion:hover { background:rgba(52,211,153,0.15); border-color:rgba(52,211,153,0.5); }
+      .an-input-row {
+        flex-shrink:0; padding:12px 22px 16px;
+        border-top:1px solid #0e2a1a; background:#070d14;
+        display:flex; gap:8px;
+      }
+      .an-input {
+        flex:1; background:#020610; border:1px solid #1a2a3a; color:#e8eef5;
+        font-family:inherit; font-size:13px; padding:10px 14px; border-radius:6px;
+        outline:none;
+      }
+      .an-input:focus { border-color:rgba(52,211,153,0.5); }
+      .an-send {
+        background:linear-gradient(135deg, #059669, #22d3ee); color:#fff; border:none;
+        padding:0 22px; font-weight:700; cursor:pointer; border-radius:6px;
+        font-size:12px; letter-spacing:1px;
+      }
+      .an-send:disabled { opacity:0.4; cursor:wait; }
+      .an-typing { color:#34d399; font-size:11px; padding:6px 12px; font-style:italic; }
+    </style>
+    <div id="analyst-panel">
+      <div class="an-header">
+        <div class="l">
+          <div class="title">🧠 MACRO ANALYST</div>
+          <div class="sub">INSTITUTIONAL MACRO STRATEGIST · GROUNDED ON LIVE DATA</div>
+        </div>
+        <div class="r">
+          <span class="an-status" id="an-status">—</span>
+          <button class="an-clear-btn" onclick="clearAnalystHistory()">↺ NEW CHAT</button>
+        </div>
+      </div>
+      <div class="an-thread" id="an-thread">
+        <div class="an-empty">
+          <div class="icon">🧠</div>
+          <h3>Ask the Macro Analyst</h3>
+          <p>A senior institutional strategist trained on your live terminal data — DXY, yields, VIX, equities, gold, oil, BTC, the regime engine, FX majors, and the next central-bank meetings. Every answer is grounded in actual current readings.</p>
+          <div class="an-suggestions">
+            <div class="an-suggestion" onclick="askAnalystSuggested('Why is gold moving today?')">Why is gold moving today?</div>
+            <div class="an-suggestion" onclick="askAnalystSuggested('What is the current macro regime telling us?')">Current macro regime?</div>
+            <div class="an-suggestion" onclick="askAnalystSuggested('EUR/USD outlook into the next ECB meeting')">EUR/USD into ECB</div>
+            <div class="an-suggestion" onclick="askAnalystSuggested('Why is USD/JPY so sensitive to US 10Y yields?')">USD/JPY × yields</div>
+            <div class="an-suggestion" onclick="askAnalystSuggested('Correlation between DXY and gold right now')">DXY × Gold correlation</div>
+            <div class="an-suggestion" onclick="askAnalystSuggested('What would change the Fed bias from hawkish to dovish?')">Fed bias triggers</div>
+            <div class="an-suggestion" onclick="askAnalystSuggested('Risk on or risk off — what does the data show?')">Risk regime read</div>
+          </div>
+        </div>
+      </div>
+      <div class="an-input-row">
+        <input id="an-input" class="an-input" type="text"
+               placeholder="Ask the analyst… e.g. Why is the dollar weakening?"
+               onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault();sendAnalystMessage();}">
+        <button class="an-send" id="an-send-btn" onclick="sendAnalystMessage()">SEND ▸</button>
+      </div>
     </div>
 
     <div class="news-feed" id="news-feed">
@@ -1041,8 +1484,69 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
           <div style="color:#34d399;font-size:13px;font-weight:bold;letter-spacing:1.5px;">📅 ECONOMIC CALENDAR</div>
           <div id="cal-source-label" style="color:#4b5563;font-size:9px;letter-spacing:1px;margin-top:2px;">FOREXFACTORY · RBI · NSE F&O · MACRO EVENTS</div>
         </div>
-        <button onclick="loadCatalystCalendar(true)" style="background:#001a0a;border:1px solid #059669;color:#34d399;padding:5px 14px;cursor:pointer;font-family:inherit;font-size:10px;border-radius:3px;letter-spacing:1px;">↺ REFRESH</button>
+        <button onclick="loadCbCalendar(true); loadCatalystCalendar(true)" style="background:#001a0a;border:1px solid #059669;color:#34d399;padding:5px 14px;cursor:pointer;font-family:inherit;font-size:10px;border-radius:3px;letter-spacing:1px;">↺ REFRESH</button>
       </div>
+
+      <!-- ═══ CENTRAL BANK CALENDAR — Fed, ECB, BOJ, BOE, RBA, SNB ═══ -->
+      <style>
+        .cb-section { border:1px solid #0e2a1a; border-radius:6px; padding:14px 16px; background:linear-gradient(180deg, rgba(34,211,238,0.03), rgba(0,0,0,0)); }
+        .cb-title { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+        .cb-title .l { color:#22d3ee; font-family:"SF Mono",Monaco,monospace; font-size:11px; letter-spacing:2.5px; font-weight:700; }
+        .cb-title .r { color:#64748b; font-family:"SF Mono",Monaco,monospace; font-size:9px; letter-spacing:1.5px; }
+        .cb-list { display:flex; flex-direction:column; gap:8px; }
+        .cb-row {
+          display:grid; grid-template-columns: 60px 96px 1fr 130px 145px 110px;
+          gap:14px; align-items:center;
+          background:rgba(0,0,0,0.4); border:1px solid #1a2a3a; border-left:4px solid #1a2a3a;
+          border-radius:5px; padding:10px 14px; font-size:11px;
+          transition: background 0.15s;
+        }
+        .cb-row:hover { background:rgba(34,211,238,0.04); }
+        .cb-row.RED    { border-left-color:#f87171; }
+        .cb-row.YELLOW { border-left-color:#fbbf24; }
+        .cb-row.GREEN  { border-left-color:#4ade80; }
+        .cb-row.today  { background:linear-gradient(90deg, rgba(248,113,113,0.10), transparent); border-color:rgba(248,113,113,0.4); }
+        .cb-row.this-week { background:linear-gradient(90deg, rgba(251,191,36,0.06), transparent); }
+        .cb-cb { display:flex; align-items:center; gap:6px; }
+        .cb-cb .flag { font-size:18px; }
+        .cb-cb .code { font-family:"SF Mono",Monaco,monospace; font-weight:700; color:#fff; font-size:12px; letter-spacing:0.5px; }
+        .cb-date .d { color:#fff; font-weight:600; font-size:12px; }
+        .cb-date .t { color:#5a7a9a; font-family:"SF Mono",Monaco,monospace; font-size:10px; }
+        .cb-date .dte { color:#22d3ee; font-family:"SF Mono",Monaco,monospace; font-size:9px; letter-spacing:1px; margin-top:2px; }
+        .cb-date .dte.urgent { color:#f87171; font-weight:700; }
+        .cb-event { color:#cbd5e1; font-size:11px; line-height:1.4; }
+        .cb-event .lbl { color:#94a3b8; }
+        .cb-vol-pill {
+          font-family:"SF Mono",Monaco,monospace; font-size:9px; font-weight:700;
+          padding:3px 8px; border-radius:3px; letter-spacing:1.5px;
+          display:inline-block;
+        }
+        .cb-vol-pill.RED    { color:#f87171; background:rgba(248,113,113,0.10); border:1px solid rgba(248,113,113,0.35); }
+        .cb-vol-pill.YELLOW { color:#fbbf24; background:rgba(251,191,36,0.10); border:1px solid rgba(251,191,36,0.35); }
+        .cb-vol-pill.GREEN  { color:#4ade80; background:rgba(74,222,128,0.10); border:1px solid rgba(74,222,128,0.35); }
+        .cb-prev { color:#94a3b8; font-family:"SF Mono",Monaco,monospace; font-size:10px; }
+        .cb-prev strong { color:#e8eef5; }
+        .cb-bias {
+          font-family:"SF Mono",Monaco,monospace; font-size:10px; font-weight:700;
+          padding:2px 6px; border-radius:2px; letter-spacing:1px; display:inline-block;
+        }
+        .cb-bias.HAWKISH { color:#4ade80; background:rgba(74,222,128,0.08); border:1px solid rgba(74,222,128,0.3); }
+        .cb-bias.DOVISH  { color:#f87171; background:rgba(248,113,113,0.08); border:1px solid rgba(248,113,113,0.3); }
+        .cb-bias.HOLD    { color:#94a3b8; background:rgba(148,163,184,0.06); border:1px solid rgba(148,163,184,0.25); }
+        .cb-bias-row { display:flex; flex-direction:column; gap:3px; }
+        .cb-bias-conv { color:#22d3ee; font-family:"SF Mono",Monaco,monospace; font-size:9px; }
+        .cb-impact { color:#64748b; font-size:10px; line-height:1.3; }
+      </style>
+      <div class="cb-section">
+        <div class="cb-title">
+          <span class="l">▸ CENTRAL BANK CALENDAR</span>
+          <span class="r" id="cb-meta">FED · ECB · BOJ · BOE · RBA · SNB</span>
+        </div>
+        <div class="cb-list" id="cb-list">
+          <div style="color:#334155; font-size:11px; padding:8px;">Loading next central bank meetings…</div>
+        </div>
+      </div>
+
       <!-- Country filters -->
       <div style="display:flex;gap:5px;flex-wrap:wrap;flex-shrink:0;">
         <span style="color:#4b5563;font-size:9px;letter-spacing:1px;align-self:center;margin-right:2px;">COUNTRY:</span>
@@ -1628,6 +2132,77 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 
 <script>
 const BASE = window.location.origin;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TENANT APPLIER — runs FIRST on page load. Applies branding + module flags.
+// ═══════════════════════════════════════════════════════════════════════════
+(async function applyTenantConfig() {
+  try {
+    // Forward ?tenant= from the URL so the backend sets the cookie on first visit
+    const urlTenant = new URLSearchParams(window.location.search).get('tenant');
+    const url = urlTenant ? `/api/tenant/active?tenant=${encodeURIComponent(urlTenant)}` : '/api/tenant/active';
+    const res = await fetch(url);
+    if (!res.ok) return;
+    const t = await res.json();
+    if (!t || t.error) return;
+    window._TENANT = t;
+
+    // 1) Apply branding via CSS custom properties
+    const b = t.branding || {};
+    if (b.primary_color) document.documentElement.style.setProperty('--accent', b.primary_color);
+    if (b.accent_color)  document.documentElement.style.setProperty('--accent-2', b.accent_color);
+    if (b.primary_rgb)   document.documentElement.style.setProperty('--accent-rgb', b.primary_rgb);
+    if (b.accent_rgb)    document.documentElement.style.setProperty('--accent-2-rgb', b.accent_rgb);
+
+    // 2) Replace <title> + any logo placeholder
+    if (t.name) {
+      document.title = t.name;
+      // Update header brand text wherever data-tenant-brand exists
+      document.querySelectorAll('[data-tenant-brand]').forEach(el => el.textContent = b.logo_text || t.name);
+    }
+
+    // 3) Hide modules disabled for this tenant
+    const modules = t.modules || {};
+    Object.entries(modules).forEach(([modName, enabled]) => {
+      if (enabled) return;
+      document.querySelectorAll(`[data-module="${modName}"]`).forEach(el => {
+        el.style.display = 'none';
+      });
+    });
+
+    // 4) Filter macro bar tiles per tenant.assets.macro_bar
+    const allowedMacro = new Set((t.assets && t.assets.macro_bar) || []);
+    if (allowedMacro.size > 0) {
+      // tile IDs: mo-GOLD, mo-DXY, mo-NASDAQ, mo-US10Y, mo-OIL, mo-BTC, mo-FGUS, mo-FGCR, mo-VIX
+      const idMap = {GOLD:'mo-GOLD',DXY:'mo-DXY',NASDAQ:'mo-NASDAQ',US10Y:'mo-US10Y',OIL:'mo-OIL',BTC:'mo-BTC',FG_US:'mo-FGUS',FG_CRYPTO:'mo-FGCR',VIX:'mo-VIX'};
+      Object.entries(idMap).forEach(([key, id]) => {
+        const el = document.getElementById(id);
+        if (el && !allowedMacro.has(key)) el.style.display = 'none';
+      });
+    }
+
+    // 5) Filter FX strip tiles
+    const allowedFx = new Set((t.assets && t.assets.fx_pairs) || []);
+    if (allowedFx.size > 0) {
+      const fxMap = {'EUR/USD':'fx-EURUSD','GBP/USD':'fx-GBPUSD','USD/JPY':'fx-USDJPY','AUD/USD':'fx-AUDUSD','USD/CAD':'fx-USDCAD','USD/CHF':'fx-USDCHF'};
+      Object.entries(fxMap).forEach(([pair, id]) => {
+        const el = document.getElementById(id);
+        if (el && !allowedFx.has(pair)) el.style.display = 'none';
+      });
+    }
+
+    // 6) Tenant tag in latency badge area for visibility
+    const lat = document.getElementById('ws-latency');
+    if (lat && t.id !== 'default') {
+      lat.title = `Tenant: ${t.name}`;
+    }
+
+    console.log(`[tenant] ${t.name} applied — modules: ${Object.entries(modules).filter(([_,v])=>v).map(([k])=>k).join(',')}`);
+  } catch (e) {
+    console.warn('[tenant] could not apply config:', e);
+  }
+})();
+
 let allNews   = [];
 let activeCat = 'ALL';
 let earnOpen   = true;
@@ -1705,6 +2280,76 @@ function _renderFG(prefix, src, hasWeek) {
 
 loadSentiment();
 setInterval(loadSentiment, 30 * 60_000);   // F&G updates infrequently — poll every 30 min
+
+// ── FX MAJORS — live prices + macro-inferred direction (EUR/USD etc.) ────────
+const FX_PAIRS = [
+  { display: 'EUR/USD', id: 'fx-EURUSD' },
+  { display: 'GBP/USD', id: 'fx-GBPUSD' },
+  { display: 'USD/JPY', id: 'fx-USDJPY' },
+  { display: 'AUD/USD', id: 'fx-AUDUSD' },
+  { display: 'USD/CAD', id: 'fx-USDCAD' },
+  { display: 'USD/CHF', id: 'fx-USDCHF' },
+];
+
+async function loadForex() {
+  try {
+    const res  = await fetch('/api/forex');
+    const json = await res.json();
+    const pairs = json && json.pairs ? json.pairs : {};
+    FX_PAIRS.forEach(({ display, id }) => {
+      const t = document.getElementById(id);
+      if (!t) return;
+      const d = pairs[display] || {};
+      const priceEl = t.querySelector('.fx-price');
+      const chgEl   = t.querySelector('.fx-chg');
+      const dirEl   = t.querySelector('.fx-direction');
+      const confEl  = t.querySelector('.fx-conf');
+      const drvEl   = t.querySelector('.fx-driver');
+      const volEl   = t.querySelector('.fx-vol');
+
+      // Price — JPY pairs have 2 decimals, others 4
+      const px = Number(d.price || 0);
+      if (px > 0) {
+        const decimals = display.includes('JPY') ? 2 : 4;
+        priceEl.textContent = px.toFixed(decimals);
+      } else {
+        priceEl.textContent = '—';
+      }
+
+      // Change %
+      const ch = Number(d.change_pct || 0);
+      chgEl.classList.remove('up', 'dn', 'flat');
+      if (ch > 0.02)  { chgEl.classList.add('up');   chgEl.textContent = '▲ +' + ch.toFixed(2) + '%'; }
+      else if (ch < -0.02) { chgEl.classList.add('dn'); chgEl.textContent = '▼ ' + ch.toFixed(2) + '%'; }
+      else            { chgEl.classList.add('flat'); chgEl.textContent = '— ' + ch.toFixed(2) + '%'; }
+
+      // Direction badge
+      const dir = (d.direction || 'NEUTRAL').toUpperCase();
+      dirEl.classList.remove('BULLISH','BEARISH','NEUTRAL');
+      dirEl.classList.add(dir);
+      dirEl.textContent = dir;
+
+      // Confidence
+      const conf = Number(d.confidence || 0);
+      confEl.textContent = conf + '%';
+
+      // Driver
+      drvEl.textContent = d.driver || '—';
+      drvEl.title = (d.all_drivers || []).join(' · ');
+
+      // Volatility
+      const vol = (d.vol || 'NORMAL').toUpperCase();
+      volEl.classList.remove('LOW','NORMAL','ELEVATED','EXTREME');
+      volEl.classList.add(vol);
+      volEl.textContent = 'VOL ' + vol;
+    });
+  } catch (e) {
+    // soft-fail — tiles keep last value
+  }
+}
+
+loadForex();
+setInterval(loadForex, 30_000);   // refresh every 30s (matches backend cache)
 
 // ── Earnings toggle ───────────────────────────────────────
 function toggleEarnings() {
@@ -3050,10 +3695,762 @@ function showAiPerformance(tab) {
 
 function showRegime(tab) {
   _showSpecialPanel('regime-panel', tab);
-  // loadRegime() is already polled every 60s in the background, but trigger
-  // an immediate refresh on tab open so the user sees the latest data.
-  if (typeof loadRegime === 'function') loadRegime(false);
+  // Refresh both — new institutional macro desk view + legacy 10-state classifier
+  if (typeof loadMacroDesk === 'function') loadMacroDesk(false);
+  if (typeof loadRegime    === 'function') loadRegime(false);
 }
+
+// ── AI MACRO ANALYST ─────────────────────────────────────────────────────────
+function showAnalyst(tab) {
+  _showSpecialPanel('analyst-panel', tab);
+  loadAnalystHistory();
+  // focus input
+  setTimeout(() => { const i = document.getElementById('an-input'); if (i) i.focus(); }, 100);
+}
+
+function askAnalystSuggested(q) {
+  const input = document.getElementById('an-input');
+  if (input) input.value = q;
+  sendAnalystMessage();
+}
+
+async function loadAnalystHistory() {
+  try {
+    const res = await fetch('/api/analyst/history?limit=20');
+    const d   = await res.json();
+    const thread = document.getElementById('an-thread');
+    const status = document.getElementById('an-status');
+
+    if (status && d.storage_status) {
+      const s = d.storage_status;
+      status.textContent = (s.redis_connected ? 'REDIS' : 'SQLITE') + ' · ' + (s.groq_configured ? 'GROQ OK' : 'GROQ MISSING');
+      status.style.color = s.groq_configured ? '#34d399' : '#f87171';
+    }
+
+    const msgs = d.messages || [];
+    if (msgs.length === 0) return;   // keep welcome card
+
+    thread.innerHTML = msgs.map(m => _renderAnalystMessage(m)).join('');
+    thread.scrollTop = thread.scrollHeight;
+  } catch (e) {
+    // soft-fail
+  }
+}
+
+function _renderAnalystMessage(m) {
+  const role = m.role || 'assistant';
+  const avatar = role === 'user' ? 'YOU' : 'MA';
+  const safeContent = String(m.content || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return `<div class="an-msg ${role}">
+    <div class="avatar">${avatar}</div>
+    <div>
+      <div class="bubble">${safeContent}</div>
+      <div class="ts">${m.ts || ''}</div>
+    </div>
+  </div>`;
+}
+
+async function sendAnalystMessage() {
+  const input = document.getElementById('an-input');
+  const sendBtn = document.getElementById('an-send-btn');
+  const thread = document.getElementById('an-thread');
+  if (!input || !sendBtn || !thread) return;
+  const q = input.value.trim();
+  if (!q) return;
+
+  // Remove welcome state if present
+  const empty = thread.querySelector('.an-empty');
+  if (empty) empty.remove();
+
+  // Add user message immediately
+  const userTs = new Date().toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' });
+  thread.insertAdjacentHTML('beforeend', _renderAnalystMessage({ role:'user', content:q, ts:userTs }));
+  thread.insertAdjacentHTML('beforeend',
+    `<div class="an-msg assistant" id="an-typing"><div class="avatar">MA</div><div><div class="an-typing">▸ analysing live data, regime, news…</div></div></div>`);
+  input.value = '';
+  sendBtn.disabled = true;
+  thread.scrollTop = thread.scrollHeight;
+
+  try {
+    const res = await fetch('/api/analyst/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: q }),
+    });
+    const d = await res.json();
+    const typingEl = document.getElementById('an-typing');
+    if (typingEl) typingEl.remove();
+
+    if (d.error) {
+      thread.insertAdjacentHTML('beforeend',
+        `<div class="an-msg assistant"><div class="avatar">MA</div><div><div class="bubble" style="color:#f87171;">⚠ ${d.error}</div></div></div>`);
+    } else {
+      thread.insertAdjacentHTML('beforeend',
+        _renderAnalystMessage({ role:'assistant', content:d.answer, ts:d.ts }));
+    }
+    thread.scrollTop = thread.scrollHeight;
+  } catch (e) {
+    const typingEl = document.getElementById('an-typing');
+    if (typingEl) typingEl.remove();
+    thread.insertAdjacentHTML('beforeend',
+      `<div class="an-msg assistant"><div class="avatar">MA</div><div><div class="bubble" style="color:#f87171;">⚠ Network error — try again</div></div></div>`);
+  } finally {
+    sendBtn.disabled = false;
+    input.focus();
+  }
+}
+
+async function clearAnalystHistory() {
+  if (!confirm('Start a new chat? This clears the current conversation history.')) return;
+  try {
+    await fetch('/api/analyst/clear', { method: 'POST' });
+    const thread = document.getElementById('an-thread');
+    if (thread) {
+      thread.innerHTML = `<div class="an-empty">
+        <div class="icon">🧠</div>
+        <h3>New conversation</h3>
+        <p>Ask the macro analyst anything about current market conditions.</p>
+      </div>`;
+    }
+  } catch (e) {}
+}
+
+// ── "WHY DID IT MOVE?" feed ─────────────────────────────────────────────────
+function showWhyMove(tab) {
+  _showSpecialPanel('whymove-panel', tab);
+  loadWhyMoveFeed();
+}
+
+async function loadWhyMoveFeed() {
+  try {
+    const res = await fetch('/api/explainer/feed?limit=30');
+    const d   = await res.json();
+    const feed = document.getElementById('wm-feed');
+    const btnRow = document.getElementById('wm-explain-buttons');
+    if (!feed) return;
+
+    // Render the "Explain now ▸" asset buttons
+    if (btnRow && d.tracked_assets) {
+      const existing = btnRow.querySelector('.wm-asset-pill');
+      if (!existing) {
+        d.tracked_assets.forEach(a => {
+          const b = document.createElement('button');
+          b.className = 'wm-asset-pill';
+          b.textContent = a.display;
+          b.onclick = () => generateWhyMove(a.key);
+          btnRow.appendChild(b);
+        });
+      }
+    }
+
+    const items = d.explanations || [];
+    if (items.length === 0) return; // keep empty state
+
+    feed.innerHTML = items.map(_renderWhyMoveCard).join('');
+  } catch (e) {
+    // soft-fail
+  }
+}
+
+function _renderWhyMoveCard(e) {
+  const dirCls   = e.direction === 'UP' ? 'UP' : 'DOWN';
+  const chgSign  = e.change_pct > 0 ? '+' : '';
+  const chgValue = (e.change_pct || 0).toFixed(2);
+  const evidenceList = (e.evidence || []).map(b =>
+    `<li>${String(b).replace(/</g,'&lt;').replace(/>/g,'&gt;')}</li>`).join('');
+  const tags = (e.tags || []).map(t =>
+    `<span class="wm-tag">${String(t).replace(/</g,'&lt;').replace(/>/g,'&gt;')}</span>`).join('');
+  const safe = (s) => String(s || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  return `<div class="wm-card ${dirCls}">
+    <div class="wm-card-head">
+      <div class="wm-asset-row">
+        <span class="name">${safe(e.asset_display)}</span>
+        <span class="move-pct ${dirCls}">${chgSign}${chgValue}%</span>
+        <span class="price">@ ${e.price}</span>
+      </div>
+      <div class="wm-meta">
+        <span class="wm-conf">CONF ${e.confidence || 0}%</span>
+        <span class="wm-ts">${safe(e.ts_ist)}</span>
+      </div>
+    </div>
+    <div class="wm-what-moved">${safe(e.what_moved)}</div>
+    <div class="wm-section">
+      <div class="label">▸ Why it moved</div>
+      <div class="body">${safe(e.why_it_moved)}</div>
+    </div>
+    ${evidenceList ? `<div class="wm-section">
+      <div class="label">▸ Supporting evidence</div>
+      <ul class="wm-evidence-list">${evidenceList}</ul>
+    </div>` : ''}
+    ${e.historical ? `<div class="wm-section">
+      <div class="label">▸ Historical similarity</div>
+      <div class="body">${safe(e.historical)}</div>
+    </div>` : ''}
+    ${e.risk_to_thesis ? `<div class="wm-section">
+      <div class="label">▸ Risk to thesis</div>
+      <div class="body">${safe(e.risk_to_thesis)}</div>
+    </div>` : ''}
+    ${e.forward_implic ? `<div class="wm-section">
+      <div class="label">▸ Forward implication</div>
+      <div class="body">${safe(e.forward_implic)}</div>
+    </div>` : ''}
+    ${tags ? `<div class="wm-tags">${tags}</div>` : ''}
+  </div>`;
+}
+
+async function generateWhyMove(assetKey) {
+  const feed = document.getElementById('wm-feed');
+  if (feed) {
+    feed.insertAdjacentHTML('afterbegin',
+      `<div id="wm-pending" class="wm-card" style="border-left-color:#f59e0b;">
+        <div class="wm-what-moved" style="color:#f59e0b;">▸ Analysing live ${assetKey} move...</div>
+      </div>`);
+  }
+  try {
+    const res = await fetch('/api/explainer/generate', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ asset: assetKey })
+    });
+    const d = await res.json();
+    const pending = document.getElementById('wm-pending');
+    if (pending) pending.remove();
+
+    if (d.error) {
+      if (feed) feed.insertAdjacentHTML('afterbegin',
+        `<div class="wm-card" style="border-left-color:#f87171;">
+          <div class="wm-what-moved" style="color:#f87171;">⚠ ${d.error}</div>
+        </div>`);
+      return;
+    }
+    // Prepend the new card
+    if (feed) feed.insertAdjacentHTML('afterbegin', _renderWhyMoveCard(d));
+  } catch (e) {
+    const pending = document.getElementById('wm-pending');
+    if (pending) pending.remove();
+  }
+}
+
+// Refresh feed every 60s when the panel is open
+setInterval(() => {
+  const p = document.getElementById('whymove-panel');
+  if (p && p.style.display !== 'none') loadWhyMoveFeed();
+}, 60000);
+
+// ── CHARTS — TradingView + AI sidebar ────────────────────────────────────────
+const CHART_DEFAULT = 'GOLD';
+const CHART_TF_DEFAULT = 'D';
+let _chCurrentAsset = CHART_DEFAULT;
+let _chCurrentTf    = CHART_TF_DEFAULT;
+let _chTvScriptLoaded = false;
+let _chTvWidget = null;
+
+function showCharts(tab) {
+  _showSpecialPanel('charts-panel', tab);
+  // Build asset tabs once, then load
+  buildChartAssetTabs().then(() => {
+    loadChart(_chCurrentAsset, _chCurrentTf);
+  });
+}
+
+async function buildChartAssetTabs() {
+  const wrap = document.getElementById('ch-asset-tabs');
+  if (!wrap || wrap.dataset.built === '1') return;
+  try {
+    const res = await fetch('/api/chart-assets');
+    const d   = await res.json();
+    const items = d.assets || [];
+    wrap.innerHTML = items.map(a =>
+      `<button class="ch-asset-btn" data-asset="${a.key}" onclick="loadChart('${a.key}')">${a.display.split(' ')[0]}</button>`
+    ).join('');
+    wrap.dataset.built = '1';
+  } catch (e) {}
+  // Wire timeframe buttons
+  document.querySelectorAll('#ch-tf-row .ch-tf-btn').forEach(b => {
+    b.onclick = () => {
+      document.querySelectorAll('#ch-tf-row .ch-tf-btn').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      _chCurrentTf = b.dataset.tf;
+      loadChart(_chCurrentAsset, _chCurrentTf);
+    };
+  });
+}
+
+function _ensureTvScript() {
+  return new Promise((resolve, reject) => {
+    if (_chTvScriptLoaded || window.TradingView) { resolve(); return; }
+    const s = document.createElement('script');
+    s.src = 'https://s3.tradingview.com/tv.js';
+    s.onload = () => { _chTvScriptLoaded = true; resolve(); };
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+async function loadChart(assetKey, tf) {
+  _chCurrentAsset = assetKey;
+  if (tf) _chCurrentTf = tf;
+  // Mark active tab
+  document.querySelectorAll('#ch-asset-tabs .ch-asset-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.asset === assetKey);
+  });
+
+  // Load context + chart in parallel
+  loadChartSidebar(assetKey);
+
+  try {
+    await _ensureTvScript();
+    const res = await fetch(`/api/chart-context?asset=${encodeURIComponent(assetKey)}`);
+    const d   = await res.json();
+    const tvSym = d.tv_symbol || 'OANDA:XAUUSD';
+
+    const container = document.getElementById('tv_chart_container');
+    if (!container) return;
+    container.innerHTML = '';   // clear previous widget
+    container.style.height = '100%';
+    container.style.width  = '100%';
+    document.querySelector('.ch-chart-loading').style.display = 'none';
+
+    _chTvWidget = new TradingView.widget({
+      "container_id":      "tv_chart_container",
+      "symbol":            tvSym,
+      "interval":          _chCurrentTf,
+      "timezone":          "Asia/Kolkata",
+      "theme":             "dark",
+      "style":             "1",
+      "locale":            "en",
+      "toolbar_bg":        "#020610",
+      "enable_publishing": false,
+      "hide_side_toolbar": false,
+      "withdateranges":    true,
+      "allow_symbol_change": false,
+      "studies":           ["RSI@tv-basicstudies", "MAExp@tv-basicstudies"],
+      "autosize":          true,
+    });
+  } catch (e) {
+    console.warn('TradingView load failed:', e);
+    document.querySelector('.ch-chart-loading').textContent = 'Chart could not load. Check internet connectivity.';
+  }
+}
+
+async function loadChartSidebar(assetKey) {
+  try {
+    const res = await fetch(`/api/chart-context?asset=${encodeURIComponent(assetKey)}`);
+    const d   = await res.json();
+    if (!d || d.error) return;
+
+    const sb = document.getElementById('ch-sidebar');
+    if (!sb) return;
+
+    const live = d.live || {};
+    const chgVal = (live.change_pct || 0);
+    const chgCls = chgVal > 0.02 ? 'up' : chgVal < -0.02 ? 'dn' : 'flat';
+    const chgSym = chgVal > 0 ? '▲ +' : chgVal < 0 ? '▼ ' : '— ';
+    const decimals = (assetKey === 'USDJPY') ? 2 : (assetKey === 'GOLD' || assetKey === 'NASDAQ' || assetKey === 'BTC' || assetKey === 'OIL') ? 2 : 4;
+
+    const regime = d.regime || {};
+    const regimeHtml = (regime.primary || []).map(r => {
+      const stateUp = (r.state || 'NEUTRAL').toUpperCase();
+      return `<div class="ch-regime-item ${stateUp}">
+        <div class="nm">${r.name.toUpperCase()}</div>
+        <div class="st">${stateUp}</div>
+        <div class="cf">${r.confidence || 0}% — ${r.driver || '—'}</div>
+      </div>`;
+    }).join('');
+
+    const sr = (d.support || []).slice(0, 3).map(lvl => {
+      const dist = live.price ? ((live.price - lvl) / live.price * 100) : 0;
+      return `<div class="ch-sr-row"><span class="tag S">S</span><span class="lvl">${lvl}</span><span class="dist">${dist >= 0 ? '+' : ''}${dist.toFixed(2)}% from spot</span></div>`;
+    }).join('');
+    const rr = (d.resistance || []).slice(0, 3).map(lvl => {
+      const dist = live.price ? ((lvl - live.price) / live.price * 100) : 0;
+      return `<div class="ch-sr-row"><span class="tag R">R</span><span class="lvl">${lvl}</span><span class="dist">+${dist.toFixed(2)}% above spot</span></div>`;
+    }).join('');
+
+    const vol = d.volatility || {};
+    const ai = d.ai_commentary;
+    const cb = d.cb_events || [];
+
+    sb.innerHTML = `
+      <div class="ch-card">
+        <div class="lbl">▸ LIVE  <span class="meta">${d.generated_at || ''}</span></div>
+        <div class="ch-price-row">
+          <span class="ch-price">${live.price ? Number(live.price).toFixed(decimals) : '—'}</span>
+          <span class="ch-chg ${chgCls}">${chgSym}${Math.abs(chgVal).toFixed(2)}%</span>
+        </div>
+        <div style="color:#5a7a9a; font-size:10px; font-family:'SF Mono',Monaco,monospace; letter-spacing:1px;">${d.display}</div>
+      </div>
+
+      <div class="ch-card">
+        <div class="lbl">▸ MACRO REGIME OVERLAY</div>
+        ${regime.commentary ? `<div style="font-size:11px; color:#cbd5e1; line-height:1.5; font-style:italic; margin-bottom:9px; padding-bottom:8px; border-bottom:1px solid #1a2a3a;">${regime.commentary}</div>` : ''}
+        <div class="ch-regime-grid">${regimeHtml || '<div style="color:#475569;font-size:11px;">No regime data</div>'}</div>
+      </div>
+
+      <div class="ch-card">
+        <div class="lbl">▸ AI COMMENTARY</div>
+        ${ai ? `
+          <div class="ch-comm">
+            <div class="what">${(ai.what_moved || '').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
+            <div>${(ai.why_it_moved || '').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
+            ${ai.tags && ai.tags.length ? `<div class="tags">${ai.tags.map(t => `<span class="tag">${t}</span>`).join('')}</div>` : ''}
+            <div style="color:#475569; font-size:9px; margin-top:6px; font-family:'SF Mono',Monaco,monospace;">conf ${ai.confidence || 0}% · ${ai.ts || ''}</div>
+          </div>` : `
+          <div style="color:#475569; font-size:11px; line-height:1.5;">No recent strong move on this asset. The explainer will populate when ${assetKey} moves above its threshold.</div>`}
+      </div>
+
+      <div class="ch-card">
+        <div class="lbl">▸ SUPPORT / RESISTANCE  <span class="meta">CLUSTERED 60D</span></div>
+        ${rr || '<div style="color:#475569;font-size:11px;">No clear resistance levels above spot</div>'}
+        ${sr || '<div style="color:#475569;font-size:11px;">No clear support levels below spot</div>'}
+      </div>
+
+      <div class="ch-card">
+        <div class="lbl">▸ VOLATILITY  <span class="meta">INTRADAY</span></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+          <span class="ch-vol-state ${vol.state || 'NORMAL'}">${vol.state || 'NORMAL'}</span>
+        </div>
+        <div style="color:#cbd5e1; font-size:11px; line-height:1.4;">${vol.label || '—'}</div>
+      </div>
+
+      <div class="ch-card">
+        <div class="lbl">▸ CB EVENTS — ASSET-RELEVANT</div>
+        ${cb.length ? cb.map(e => `
+          <div class="ch-cb-row">
+            <span class="flag">${e.flag}</span>
+            <div class="meta">
+              <div class="l1">${e.cb} · ${e.label}</div>
+              <div class="l2">${e.date} · ${e.time} · in ${e.days_to}d · ${e.bias}</div>
+            </div>
+            <span class="pill ${e.vol}">${e.vol}</span>
+          </div>`).join('') : '<div style="color:#475569;font-size:11px;">No related CB events in the next 60 days</div>'}
+      </div>
+    `;
+  } catch (e) {
+    // soft-fail
+  }
+}
+
+// Refresh sidebar every 60s while charts panel is open
+setInterval(() => {
+  const p = document.getElementById('charts-panel');
+  if (p && p.style.display !== 'none') loadChartSidebar(_chCurrentAsset);
+}, 60000);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// WEBSOCKET STREAMING CLIENT — Bloomberg-style live updates
+// Channels: prices · alerts · macro · explainers
+// ═══════════════════════════════════════════════════════════════════════════
+
+class TerminalStream {
+  constructor() {
+    this.ws = null;
+    this.reconnectMs = 1000;
+    this.subscribed  = ["prices", "alerts", "macro", "explainers"];
+    this.lastPingSent = null;
+    this.latency = null;
+    this.pingTimer = null;
+    this.lastPriceFlash = {};   // asset -> last value (for direction-aware flash)
+    this.connect();
+  }
+
+  connect() {
+    try {
+      const proto = (location.protocol === "https:") ? "wss:" : "ws:";
+      const url = `${proto}//${location.host}/ws`;
+      this.ws = new WebSocket(url);
+    } catch (e) { this._scheduleReconnect(); return; }
+
+    this.ws.addEventListener("open", () => {
+      this.reconnectMs = 1000;
+      this._setStatus("connected");
+      this._send({ action: "subscribe", channels: this.subscribed });
+      this._startPing();
+    });
+
+    this.ws.addEventListener("message", (ev) => {
+      try {
+        const msg = JSON.parse(ev.data);
+        this._handle(msg);
+      } catch (e) {}
+    });
+
+    this.ws.addEventListener("close", () => {
+      this._setStatus("offline");
+      this._stopPing();
+      this._scheduleReconnect();
+    });
+    this.ws.addEventListener("error", () => {
+      this._setStatus("offline");
+    });
+  }
+
+  _scheduleReconnect() {
+    setTimeout(() => this.connect(), this.reconnectMs);
+    this.reconnectMs = Math.min(this.reconnectMs * 2, 30000);
+  }
+
+  _send(obj) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      try { this.ws.send(JSON.stringify(obj)); } catch (e) {}
+    }
+  }
+
+  _startPing() {
+    this._stopPing();
+    this.pingTimer = setInterval(() => {
+      this.lastPingSent = Date.now();
+      this._send({ action: "ping", client_ts_ms: this.lastPingSent });
+    }, 15000);
+  }
+  _stopPing() {
+    if (this.pingTimer) { clearInterval(this.pingTimer); this.pingTimer = null; }
+  }
+
+  _setStatus(state, latencyMs) {
+    const dot = document.getElementById("ws-dot");
+    const lat = document.getElementById("ws-latency");
+    if (!dot || !lat) return;
+    dot.classList.remove("connected", "degraded", "offline");
+    if (state === "offline") {
+      dot.classList.add("offline");
+      lat.textContent = "OFF";
+      lat.style.color = "#f87171";
+    } else {
+      const ms = (latencyMs != null) ? latencyMs : "…";
+      const isDegraded = (latencyMs != null && latencyMs > 500);
+      dot.classList.add(isDegraded ? "degraded" : "connected");
+      lat.textContent = (latencyMs != null) ? `${ms}ms` : "…";
+      lat.style.color = isDegraded ? "#fbbf24" : "#4ade80";
+    }
+  }
+
+  _handle(msg) {
+    const ch = msg.channel, payload = msg.payload || {};
+    // Latency measurement when server timestamps land
+    if (msg.server_ts_ms) {
+      const lag = Date.now() - msg.server_ts_ms;
+      if (lag >= 0 && lag < 30000) {
+        this.latency = lag;
+        this._setStatus("connected", lag);
+      }
+    }
+    if (ch === "system") {
+      if (payload.type === "pong" && payload.client_ts_ms) {
+        const lag = Date.now() - payload.client_ts_ms;
+        this.latency = lag;
+        this._setStatus("connected", lag);
+      }
+      return;
+    }
+    const handler = TS_HANDLERS[ch];
+    if (handler) try { handler(payload, this); } catch (e) {}
+  }
+}
+
+// ── Per-channel handlers ────────────────────────────────────────────────────
+const TS_HANDLERS = {
+  // payload = { GOLD: {price, change}, DXY: {...}, FX_EURUSD: {price, change, direction, confidence, driver}, ... }
+  prices: (payload, stream) => {
+    Object.entries(payload).forEach(([key, data]) => {
+      if (key.startsWith("FX_")) {
+        const pair = key.slice(3);  // EURUSD → "EURUSD"
+        const tile = document.getElementById(`fx-${pair}`);
+        if (tile) {
+          const priceEl = tile.querySelector(".fx-price");
+          const oldVal = parseFloat(priceEl?.textContent || "0");
+          const newVal = data.price;
+          const decimals = pair.includes("JPY") ? 2 : 4;
+          if (priceEl) priceEl.textContent = Number(newVal).toFixed(decimals);
+          // Flash colour by direction
+          if (oldVal && newVal && Math.abs(newVal - oldVal) > 0) {
+            const cls = newVal > oldVal ? "flash-up" : "flash-down";
+            tile.classList.remove("flash-up","flash-down","flash-info");
+            void tile.offsetWidth;  // force reflow to re-trigger animation
+            tile.classList.add(cls);
+          }
+        }
+      } else {
+        // Macro bar tile (mo-p-GOLD, mo-p-DXY, etc.)
+        const tile = document.getElementById(`mo-${key}`);
+        const priceEl = document.getElementById(`mo-p-${key}`);
+        if (priceEl && tile) {
+          const oldVal = parseFloat(priceEl.textContent.replace(/,/g, '')) || 0;
+          const newVal = data.price;
+          if (newVal && oldVal && Math.abs(newVal - oldVal) > 0) {
+            const cls = newVal > oldVal ? "flash-up" : "flash-down";
+            tile.classList.remove("flash-up","flash-down","flash-info");
+            void tile.offsetWidth;
+            tile.classList.add(cls);
+          }
+        }
+      }
+    });
+  },
+
+  // payload = { trigger_type, title, ts }
+  alerts: (payload) => {
+    // Visual ping: flash the WHY MOVE? tab if not already active
+    const tab = document.getElementById("whymove-tab");
+    if (tab && !tab.classList.contains("active")) {
+      tab.classList.add("flash-info");
+      setTimeout(() => tab.classList.remove("flash-info"), 1000);
+    }
+    // If Why Move panel is open, refresh feed (cheap re-fetch)
+    const p = document.getElementById("whymove-panel");
+    if (p && p.style.display !== "none" && typeof loadWhyMoveFeed === "function") {
+      loadWhyMoveFeed();
+    }
+  },
+
+  // payload = { commentary, dominant_driver, overall_confidence, ts }
+  macro: (payload) => {
+    const c  = document.getElementById("md-commentary");
+    const dr = document.getElementById("md-driver");
+    const oc = document.getElementById("md-overall-conf");
+    const ts = document.getElementById("md-ts");
+    if (c && payload.commentary) {
+      c.textContent = payload.commentary;
+      c.classList.remove("flash-info"); void c.offsetWidth; c.classList.add("flash-info");
+    }
+    if (dr && payload.dominant_driver) dr.textContent = payload.dominant_driver;
+    if (oc && payload.overall_confidence != null) oc.textContent = payload.overall_confidence;
+    if (ts && payload.ts) ts.textContent = payload.ts;
+    // Also flash the REGIME tab
+    const tab = document.getElementById("regime-tab");
+    if (tab && !tab.classList.contains("active")) {
+      tab.classList.add("flash-info");
+      setTimeout(() => tab.classList.remove("flash-info"), 1000);
+    }
+  },
+
+  // payload = { asset_key, asset_display, change_pct, direction, confidence, what_moved, tags, ts }
+  explainers: (payload) => {
+    // Refresh Why Move feed if open
+    const p = document.getElementById("whymove-panel");
+    if (p && p.style.display !== "none" && typeof loadWhyMoveFeed === "function") {
+      loadWhyMoveFeed();
+    }
+    // Flash the WHY MOVE? tab
+    const tab = document.getElementById("whymove-tab");
+    if (tab && !tab.classList.contains("active")) {
+      tab.classList.add("flash-info");
+      setTimeout(() => tab.classList.remove("flash-info"), 1500);
+    }
+  },
+};
+
+// Boot once DOM is ready
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => { window.terminalStream = new TerminalStream(); });
+} else {
+  window.terminalStream = new TerminalStream();
+}
+
+// ── INSTITUTIONAL MACRO DESK PANEL ────────────────────────────────────────────
+// Renders 6 binary dimensions + desk commentary + last 10 history snapshots.
+async function loadMacroDesk(force) {
+  try {
+    const res = await fetch('/api/macro-regime' + (force ? '?force=true' : ''));
+    const d   = await res.json();
+    if (!d || d.error) return;
+
+    // Top commentary block
+    document.getElementById('md-commentary').textContent  = d.commentary || '—';
+    document.getElementById('md-driver').textContent      = d.dominant_driver || '—';
+    document.getElementById('md-overall-conf').textContent = d.overall_confidence || 0;
+    document.getElementById('md-ts').textContent          = d.generated_at || '—';
+
+    // Per-dimension cards
+    const STATE_COLOR_CLASS = {
+      'ON':'bull', 'OFF':'bear',
+      'STRONG':'STRONG', 'WEAK':'WEAK',
+      'HAWKISH':'HAWKISH', 'DOVISH':'DOVISH',
+      'RISING':'RISING', 'FALLING':'FALLING',
+      'HOT':'HOT', 'COOLING':'COOLING',
+      'BULL':'bull', 'BEAR':'bear',
+      'NEUTRAL':'neutral'
+    };
+
+    const DIMS = [
+      ['risk',        'md-risk',        'RISK'],
+      ['dollar',      'md-dollar',      'DOLLAR'],
+      ['fed',         'md-fed',         'FED'],
+      ['yields',      'md-yields',      'BOND YIELDS'],
+      ['inflation',   'md-inflation',   'INFLATION'],
+      ['commodities', 'md-commodities', 'COMMODITIES'],
+    ];
+
+    DIMS.forEach(([key, elId, _label]) => {
+      const dim = d.dimensions?.[key];
+      if (!dim) return;
+      const el = document.getElementById(elId);
+      if (!el) return;
+      const state = (dim.state || 'NEUTRAL').toUpperCase();
+      const cls   = STATE_COLOR_CLASS[state] || 'neutral';
+      // Reset & apply colour class
+      el.classList.remove('bull','bear','neutral','HAWKISH','DOVISH','RISING','FALLING','HOT','COOLING','STRONG','WEAK','NEUTRAL');
+      el.classList.add(cls === 'bull' || cls === 'bear' || cls === 'neutral' ? cls : cls);
+
+      const stateEl = el.querySelector('.state');
+      stateEl.textContent = state === 'ON' ? 'RISK ON' :
+                           state === 'OFF' ? 'RISK OFF' :
+                           state === 'BULL' ? 'BULLISH' :
+                           state === 'BEAR' ? 'BEARISH' :
+                           state;
+      stateEl.classList.remove('bull','bear','neutral','HAWKISH','DOVISH','RISING','FALLING','HOT','COOLING','STRONG','WEAK','NEUTRAL');
+      stateEl.classList.add(cls);
+
+      el.querySelector('.conf').textContent = (dim.confidence || 0) + '%';
+      el.querySelector('.bar div').style.width = (dim.confidence || 0) + '%';
+      const drvEl = el.querySelector('.drv');
+      drvEl.textContent = dim.driver || '—';
+      if (dim.all_drivers && dim.all_drivers.length > 1) {
+        drvEl.title = dim.all_drivers.join(' · ');
+      }
+    });
+
+    // History timeline
+    const hist = d.history || [];
+    const histEl = document.getElementById('md-history-list');
+    if (hist.length === 0) {
+      histEl.innerHTML = '<div style="color:#334155; font-size:11px; padding:6px 0;">History accumulates every 15 min. First snapshot stores in ~2 min after server start.</div>';
+    } else {
+      histEl.innerHTML = hist.map(row => {
+        const ts = (row.ts_ist || '').split(' ').slice(-2).join(' '); // "HH:MM IST"
+        const chips = [
+          ['risk', row.risk_state],
+          ['dollar', row.dollar_state],
+          ['fed', row.fed_state],
+          ['yields', row.yields_state],
+          ['inflation', row.inflation_state],
+          ['commodities', row.commodities_state],
+        ].map(([_k, s]) => {
+          const upper = (s || 'NEUTRAL').toUpperCase();
+          const cls = STATE_COLOR_CLASS[upper] || 'NEUTRAL';
+          const display = upper === 'ON' ? 'RISK_ON' :
+                          upper === 'OFF' ? 'RISK_OFF' :
+                          upper;
+          return `<span class="chip ${cls}">${display}</span>`;
+        }).join('');
+        return `<div class="md-hist-row">
+          <span class="ts">${ts}</span>
+          <span class="states">${chips}</span>
+          <span class="conf">${row.overall_conf || 0}%</span>
+        </div>`;
+      }).join('');
+    }
+  } catch (e) {
+    // soft-fail — keep last values
+  }
+}
+
+// Poll every 60s while regime panel is open (matches backend cache TTL)
+setInterval(() => {
+  const panel = document.getElementById('regime-panel');
+  if (panel && panel.style.display !== 'none') loadMacroDesk(false);
+}, 60000);
 
 function loadAiPerformance(force) {
   // Load analytics + storage status in parallel
@@ -5035,7 +6432,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal()
 function _hideAllSpecialPanels() {
   ['ai-research-panel','signals-panel','hni-insights-panel',
    'morning-note-panel','catalyst-panel','sector-panel','risktools-panel',
-   'aiperformance-panel','regime-panel'].forEach(function(id) {
+   'aiperformance-panel','regime-panel','analyst-panel','whymove-panel','charts-panel'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.style.display = 'none';
   });
@@ -5150,8 +6547,69 @@ function hideCatalyst() {
 
 function showCatalyst(tab) {
   _showSpecialPanel('catalyst-panel', tab);
-  loadCatalystCalendar(false);
+  loadCbCalendar(false);             // central bank calendar (top section)
+  loadCatalystCalendar(false);       // economic events (below)
 }
+
+// ── CENTRAL BANK CALENDAR — Fed / ECB / BOJ / BOE / RBA / SNB ─────────────────
+async function loadCbCalendar(force) {
+  try {
+    const res = await fetch('/api/cb-calendar?days=120&limit=12');
+    const d   = await res.json();
+    const list = document.getElementById('cb-list');
+    const meta = document.getElementById('cb-meta');
+    if (!list) return;
+
+    const events = (d && d.events) || [];
+    if (events.length === 0) {
+      list.innerHTML = '<div style="color:#334155; font-size:11px; padding:8px;">No central bank meetings in the next 120 days.</div>';
+      return;
+    }
+
+    meta.textContent = `${events.length} meetings · next 120 days · ${d.generated_at || ''}`;
+
+    list.innerHTML = events.map(e => {
+      const rowCls = [e.volatility, e.is_today ? 'today' : '', e.is_this_week && !e.is_today ? 'this-week' : '']
+                    .filter(Boolean).join(' ');
+      const dteText = e.days_to_event === 0 ? 'TODAY' :
+                      e.days_to_event === 1 ? 'TOMORROW' :
+                      e.days_to_event <= 7  ? `IN ${e.days_to_event} DAYS` :
+                                              `IN ${e.days_to_event} DAYS`;
+      const dteCls = e.days_to_event <= 3 ? 'urgent' : '';
+      const biasClass = e.expected_bias === 'HAWKISH' ? 'HAWKISH' :
+                        e.expected_bias === 'DOVISH'  ? 'DOVISH' : 'HOLD';
+      const biasDisplay = e.expected_bias.toUpperCase();
+      const impacted = (e.impacted_assets || []).join(' · ');
+      return `<div class="cb-row ${rowCls}">
+        <div class="cb-cb">
+          <span class="flag">${e.flag || ''}</span>
+          <span class="code">${e.cb}</span>
+        </div>
+        <div class="cb-date">
+          <div class="d">${e.date_display}</div>
+          <div class="t">${e.time_ist}</div>
+          <div class="dte ${dteCls}">${dteText}</div>
+        </div>
+        <div class="cb-event">${e.label}</div>
+        <div><span class="cb-vol-pill ${e.volatility}">VOL ${e.volatility}</span></div>
+        <div class="cb-bias-row">
+          <span class="cb-bias ${biasClass}">${biasDisplay}</span>
+          <span class="cb-bias-conv">Prev: <strong style="color:#e8eef5;">${e.prev_rate}</strong> · ${e.prev_action}</span>
+        </div>
+        <div class="cb-impact" title="${impacted}">${(e.impacted_assets || []).slice(0,3).join(' · ')}</div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    const list = document.getElementById('cb-list');
+    if (list) list.innerHTML = '<div style="color:#f87171; font-size:11px; padding:8px;">Could not load central bank calendar.</div>';
+  }
+}
+
+// Refresh every 10 min while calendar panel is open (matches backend cache)
+setInterval(() => {
+  const p = document.getElementById('catalyst-panel');
+  if (p && p.style.display !== 'none') loadCbCalendar(false);
+}, 10 * 60 * 1000);
 
 function setCalFilter(type, btn) {
   // Update active state on buttons
