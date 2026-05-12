@@ -1,0 +1,29 @@
+# Caddy reverse proxy with automatic HTTPS via Let's Encrypt.
+# Edit the domain on first deploy if you use something other than zyvoratech.co.
+#
+# WebSockets ARE handled automatically by reverse_proxy.
+
+zyvoratech.co, www.zyvoratech.co {
+    encode gzip zstd
+
+    # Forward client IP info so rate-limit middleware sees the real visitor
+    reverse_proxy market-terminal:8001 {
+        header_up X-Real-IP        {remote_host}
+        header_up X-Forwarded-For  {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    # Security headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options    "nosniff"
+        X-Frame-Options           "SAMEORIGIN"
+        Referrer-Policy           "strict-origin-when-cross-origin"
+    }
+
+    # Healthy logs without flooding
+    log {
+        output stdout
+        format console
+    }
+}

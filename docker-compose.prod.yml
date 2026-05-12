@@ -1,0 +1,86 @@
+# Production compose for Hostinger VPS / any Linux host.
+# - market-terminal: FastAPI app (built from Dockerfile in this repo)
+# - redis: cache + cooldowns + chat memory
+# - caddy: reverse proxy with auto-HTTPS (Let's Encrypt) for zyvoratech.co
+#
+# Usage on server:
+#   git clone https://github.com/mahendirank/ai-market-terminal.git zyvora
+#   cd zyvora
+#   cp .env.production.example .env
+#   nano .env       # fill in real API keys
+#   docker compose -f docker-compose.prod.yml up -d --build
+
+services:
+  market-terminal:
+    build: .
+    container_name: market-terminal
+    restart: unless-stopped
+    expose: ["8001"]
+    volumes:
+      - terminal_db:/app/db
+    env_file: .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    networks: [terminal]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  redis:
+    image: redis:7-alpine
+    container_name: terminal-redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --save 60 1
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [terminal]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [market-terminal]
+    networks: [terminal]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+volumes:
+  terminal_db:
+  redis_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  terminal:
+    driver: bridge
