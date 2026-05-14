@@ -731,6 +731,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
       <div class="ctab" data-cat="ANALYST" data-module="macro_analyst" onclick="showAnalyst(this)" id="analyst-tab" style="color:#34d399;border-left:2px solid #059669;">🧠 MACRO ANALYST</div>
       <div class="ctab" data-cat="WHYMOVE" data-module="explainer" onclick="showWhyMove(this)" id="whymove-tab" style="color:#f59e0b;border-left:2px solid #b45309;">📡 WHY MOVE?</div>
       <div class="ctab" data-cat="CHARTS" data-module="charts" onclick="showCharts(this)" id="charts-tab" style="color:#22d3ee;border-left:2px solid #0891b2;">📈 CHARTS</div>
+      <div class="ctab" data-cat="INDICATORS" data-module="indicators" onclick="showIndicators(this)" id="indicators-tab" style="color:#f5a623;border-left:2px solid #b45309;">📊 INDICATORS</div>
     </div>
     <!-- ASSET QUICK FILTERS -->
     <div class="asset-filters" id="asset-filters">
@@ -1018,6 +1019,413 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
         </div>
       </div>
     </div>
+
+    <!-- ═══ INDICATORS — 12-indicator engine + multi-TF consensus + AI blended score ═══ -->
+    <style>
+      #indicators-panel { display:none; flex:1; flex-direction:column; background:#06090e; overflow:hidden; font-family:'SF Mono',Monaco,'Courier New',monospace; }
+
+      /* ── Header: single-row, 28px ──────────────────────────────────────── */
+      .ind-header { padding:0 10px; background:#080b10; border-bottom:1px solid #1c2230; display:flex; align-items:center; gap:8px; height:28px; flex-shrink:0; }
+      .ind-title  { color:#d4a64e; font-size:10px; font-weight:700; letter-spacing:1.5px; padding-right:8px; border-right:1px solid #1c2230; }
+      .ind-search-wrap { position:relative; flex:1; max-width:280px; }
+      .ind-search { width:100%; background:#0a0e14; border:1px solid #1c2230; color:#d4a64e; padding:3px 8px; font:inherit; font-size:10px; letter-spacing:0.5px; border-radius:2px; outline:none; text-transform:uppercase; height:20px; box-sizing:border-box; }
+      .ind-search::placeholder { color:#3a4658; text-transform:none; }
+      .ind-search:focus { border-color:#d4a64e; }
+      .ind-suggest { position:absolute; top:100%; left:0; right:0; background:#0a0e14; border:1px solid #1c2230; border-top:none; max-height:260px; overflow-y:auto; z-index:50; display:none; }
+      .ind-suggest.open { display:block; }
+      .ind-sg-item { padding:3px 8px; font-size:10px; color:#a8b0bd; cursor:pointer; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #0f1520; }
+      .ind-sg-item:hover, .ind-sg-item.active { background:#15110a; color:#d4a64e; }
+      .ind-sg-item .cls { font-size:8px; color:#4a5568; padding:0 4px; border:1px solid #1c2230; border-radius:2px; letter-spacing:1px; }
+      .ind-tfrow { display:flex; }
+      .ind-tf-btn { background:#0a0e14; border:1px solid #1c2230; border-right:none; color:#5a6478; padding:0 8px; height:20px; cursor:pointer; font:inherit; font-size:9px; letter-spacing:1px; font-weight:600; }
+      .ind-tf-btn:last-child { border-right:1px solid #1c2230; }
+      .ind-tf-btn:hover { color:#d4a64e; }
+      .ind-tf-btn.active { background:#15110a; color:#d4a64e; border-color:#3a2a10; }
+      .ind-tf-btn.cons { color:#5a7a9a; }
+      .ind-tf-btn.cons.active { background:#0a1820; color:#5fa8c4; border-color:#1a3a4a; }
+      .ind-refresh { background:#0a0e14; border:1px solid #1c2230; color:#5a6478; font:inherit; font-size:11px; padding:0 7px; height:20px; cursor:pointer; }
+      .ind-refresh:hover { color:#d4a64e; }
+      .ind-updated { color:#3a4658; font-size:9px; letter-spacing:0.5px; margin-left:auto; }
+
+      /* ── Body ─────────────────────────────────────────────────────────── */
+      .ind-body { flex:1; overflow-y:auto; padding:0; display:flex; flex-direction:column; }
+      .ind-empty { color:#3a4658; text-align:center; padding:60px 0; font-size:10px; letter-spacing:1px; }
+
+      /* ── Status strip: 24px row, ticker · class · price · chg · sentiment ── */
+      .ind-strip { display:flex; align-items:center; gap:0; height:24px; padding:0 10px; background:#080b10; border-bottom:1px solid #1c2230; font-size:10px; color:#a8b0bd; flex-shrink:0; }
+      .ind-strip .cell { padding:0 10px; border-right:1px solid #131a26; height:100%; display:flex; align-items:center; gap:6px; }
+      .ind-strip .cell:last-child { border-right:none; }
+      .ind-strip .k { color:#4a5568; font-size:8px; letter-spacing:1.5px; font-weight:600; }
+      .ind-strip .v { color:#d8dee8; font-weight:600; }
+      .ind-strip .v.tk { color:#d4a64e; letter-spacing:1px; }
+      .ind-strip .chip { font-size:8px; color:#5a6478; padding:0 5px; border:1px solid #1c2230; border-radius:1px; letter-spacing:1px; font-weight:700; height:14px; display:inline-flex; align-items:center; }
+      .ind-strip .chg.up { color:#5fb98a; } .ind-strip .chg.dn { color:#cf7575; }
+
+      /* ── Composite row: 32px, one line ────────────────────────────────── */
+      .ind-comp { display:flex; align-items:center; height:32px; padding:0 10px; background:#0a0e14; border-bottom:1px solid #1c2230; gap:14px; font-size:10px; }
+      .ind-comp .lbl { color:#4a5568; font-size:8px; letter-spacing:1.5px; font-weight:600; }
+      .ind-comp .score { font-size:14px; font-weight:700; letter-spacing:0.5px; }
+      .ind-comp .tag { font-size:9px; font-weight:700; letter-spacing:1.5px; padding:1px 6px; border:1px solid; border-radius:1px; }
+      .ind-comp .bar-wrap { flex:1; display:flex; align-items:center; gap:6px; max-width:380px; }
+      .ind-comp .bar { flex:1; height:8px; display:flex; background:#0e1520; border:1px solid #1c2230; border-radius:1px; overflow:hidden; }
+      .ind-comp .bar .bull { background:#5fb98a; }
+      .ind-comp .bar .bear { background:#cf7575; }
+      .ind-comp .pct { color:#7a8494; font-size:9px; min-width:34px; text-align:right; }
+      .ind-comp .pct.bull { color:#5fb98a; } .ind-comp .pct.bear { color:#cf7575; }
+      .ind-comp .conf { color:#d4a64e; font-weight:700; }
+      .ind-comp .counts { color:#5a6478; font-size:9px; }
+      .ind-comp .counts .b { color:#5fb98a; } .ind-comp .counts .s { color:#cf7575; }
+
+      /* ── Signal classes (used by tags + cells) ────────────────────────── */
+      .sg-STRONG-BUY  { color:#5fb98a; border-color:#2a4a3a; background:rgba(95,185,138,0.06); }
+      .sg-BUY         { color:#5fb98a; border-color:#2a4a3a; }
+      .sg-NEUTRAL     { color:#5a6478; border-color:#1c2230; }
+      .sg-SELL        { color:#cf7575; border-color:#4a2a2a; }
+      .sg-STRONG-SELL { color:#cf7575; border-color:#4a2a2a; background:rgba(207,117,117,0.06); }
+      .c-bull { color:#5fb98a; } .c-bear { color:#cf7575; } .c-neu { color:#5a6478; }
+
+      /* ── Indicator table: dense rows, 22px each ───────────────────────── */
+      .ind-tbl { width:100%; border-collapse:collapse; font-size:10px; }
+      .ind-tbl thead th { background:#080b10; color:#4a5568; font-weight:600; letter-spacing:1.5px; font-size:8px; padding:4px 8px; text-align:left; border-bottom:1px solid #1c2230; position:sticky; top:0; }
+      .ind-tbl thead th.r { text-align:right; }
+      .ind-tbl thead th.c { text-align:center; }
+      .ind-tbl tbody td { padding:0 8px; height:22px; border-bottom:1px solid #0e1520; color:#a8b0bd; }
+      .ind-tbl tbody tr:hover td { background:#0a0e14; }
+      .ind-tbl tbody td.cat { color:#4a5568; font-size:8px; letter-spacing:1.5px; font-weight:600; width:42px; }
+      .ind-tbl tbody td.nm  { color:#d8dee8; font-weight:600; width:90px; }
+      .ind-tbl tbody td.v   { color:#d8dee8; text-align:right; width:80px; font-variant-numeric:tabular-nums; }
+      .ind-tbl tbody td.bd  { text-align:center; width:36px; padding:0; }
+      .ind-tbl tbody td.bd .badge { display:inline-block; width:18px; height:14px; line-height:14px; font-size:9px; font-weight:700; border-radius:1px; }
+      .badge.B { background:rgba(95,185,138,0.18); color:#5fb98a; }
+      .badge.S { background:rgba(207,117,117,0.18); color:#cf7575; }
+      .badge.N { background:rgba(90,100,120,0.15); color:#5a6478; }
+      .ind-tbl tbody td.str { width:60px; padding:0 8px; }
+      .ind-tbl tbody td.str .sbar { position:relative; height:4px; background:#0e1520; border-radius:1px; overflow:hidden; }
+      .ind-tbl tbody td.str .sfill { position:absolute; top:0; height:100%; }
+      .ind-tbl tbody td.str .sfill.up { background:#5fb98a; left:50%; }
+      .ind-tbl tbody td.str .sfill.dn { background:#cf7575; right:50%; }
+      .ind-tbl tbody td.str .saxis { position:absolute; left:50%; top:-1px; height:6px; width:1px; background:#1c2230; }
+      .ind-tbl tbody td.ex  { color:#7a8494; font-size:10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:0; }
+
+      /* ── Consensus TF strip + heatmap ─────────────────────────────────── */
+      .ind-tfstrip { display:flex; height:22px; border-bottom:1px solid #1c2230; background:#0a0e14; font-size:9px; }
+      .ind-tfstrip .tfcell { flex:1; display:flex; align-items:center; justify-content:center; gap:6px; border-right:1px solid #131a26; color:#7a8494; letter-spacing:1px; }
+      .ind-tfstrip .tfcell:last-child { border-right:none; }
+      .ind-tfstrip .tfcell .tk { color:#4a5568; font-size:8px; font-weight:700; letter-spacing:1.5px; }
+      .ind-tfstrip .tfcell .v  { font-weight:700; font-variant-numeric:tabular-nums; }
+
+      .ind-heat { width:100%; border-collapse:collapse; font-size:10px; }
+      .ind-heat thead th { background:#080b10; color:#4a5568; font-size:8px; letter-spacing:1.5px; font-weight:600; padding:4px 8px; border-bottom:1px solid #1c2230; text-align:center; position:sticky; top:0; }
+      .ind-heat thead th.lbl { text-align:left; }
+      .ind-heat tbody td { padding:0 8px; height:22px; border-bottom:1px solid #0e1520; text-align:center; font-weight:700; font-size:10px; }
+      .ind-heat tbody tr:hover td { background:#0a0e14; }
+      .ind-heat tbody td.lbl { text-align:left; color:#d8dee8; font-weight:500; }
+      .ind-heat tbody td.cat { text-align:left; color:#4a5568; font-size:8px; letter-spacing:1.5px; width:42px; }
+      .ind-heat tbody td.B { color:#5fb98a; background:rgba(95,185,138,0.06); }
+      .ind-heat tbody td.S { color:#cf7575; background:rgba(207,117,117,0.06); }
+      .ind-heat tbody td.N { color:#3a4658; }
+      .ind-heat tbody td.NA { color:#1c2230; }
+
+      .ind-sect { padding:6px 10px; background:#080b10; border-bottom:1px solid #1c2230; color:#4a5568; font-size:8px; letter-spacing:1.5px; font-weight:600; display:flex; justify-content:space-between; align-items:center; }
+      .ind-sect .meta { color:#3a4658; font-weight:400; }
+    </style>
+
+    <div id="indicators-panel">
+      <!-- Header -->
+      <div class="ind-header">
+        <span class="ind-title">▸ INDICATORS</span>
+        <div class="ind-search-wrap">
+          <input id="ind-search" class="ind-search" placeholder="symbol — aapl, reliance, gold, btc, eurusd…" autocomplete="off" />
+          <div id="ind-suggest" class="ind-suggest"></div>
+        </div>
+        <div class="ind-tfrow" id="ind-tfrow">
+          <button class="ind-tf-btn" data-tf="1h">1H</button>
+          <button class="ind-tf-btn" data-tf="4h">4H</button>
+          <button class="ind-tf-btn active" data-tf="1d">1D</button>
+          <button class="ind-tf-btn" data-tf="1w">1W</button>
+          <button class="ind-tf-btn cons" data-tf="ALL">MTF</button>
+        </div>
+        <button class="ind-refresh" onclick="indLoad(true)" title="Refresh">↻</button>
+        <span class="ind-updated" id="ind-updated"></span>
+      </div>
+
+      <!-- Body -->
+      <div class="ind-body" id="ind-body">
+        <div class="ind-empty">Type a symbol — AAPL · RELIANCE · GOLD · BTC · EURUSD · NIFTY</div>
+      </div>
+    </div>
+
+    <script>
+      // ── INDICATORS panel state ────────────────────────────────────────────
+      let _indSymbol = '';
+      let _indTf = '1d';
+      let _indSuggestActive = -1;
+      let _indSuggestResults = [];
+
+      function showIndicators(tab) {
+        _showSpecialPanel('indicators-panel', tab);
+        // Wire TF buttons once
+        const row = document.getElementById('ind-tfrow');
+        if (row && !row.dataset.wired) {
+          row.querySelectorAll('.ind-tf-btn').forEach(b => {
+            b.onclick = () => {
+              row.querySelectorAll('.ind-tf-btn').forEach(x => x.classList.remove('active'));
+              b.classList.add('active');
+              _indTf = b.dataset.tf;
+              if (_indSymbol) indLoad();
+            };
+          });
+          row.dataset.wired = '1';
+        }
+        // Wire search box once
+        const inp = document.getElementById('ind-search');
+        if (inp && !inp.dataset.wired) {
+          inp.addEventListener('input', indOnTypeahead);
+          inp.addEventListener('keydown', indOnKey);
+          inp.addEventListener('blur', () => setTimeout(() => indCloseSuggest(), 150));
+          inp.dataset.wired = '1';
+        }
+        if (!_indSymbol) {
+          // Auto-load a sensible default so the panel isn't empty
+          _indSymbol = 'AAPL';
+          inp.value = 'AAPL';
+          indLoad();
+        }
+      }
+
+      async function indOnTypeahead(e) {
+        const q = e.target.value.trim();
+        if (!q) { indCloseSuggest(); return; }
+        try {
+          const r = await fetch('/api/indicators/resolve?q=' + encodeURIComponent(q));
+          const d = await r.json();
+          _indSuggestResults = d.results || [];
+          indRenderSuggest();
+        } catch (err) { indCloseSuggest(); }
+      }
+
+      function indRenderSuggest() {
+        const wrap = document.getElementById('ind-suggest');
+        if (!_indSuggestResults.length) { indCloseSuggest(); return; }
+        wrap.innerHTML = _indSuggestResults.map((r, i) =>
+          `<div class="ind-sg-item${i===_indSuggestActive?' active':''}" onmousedown="indPickSuggest(${i})">`
+          + `<span>${r.display}</span><span class="cls">${(r.asset_class||'').toUpperCase()}</span></div>`
+        ).join('');
+        wrap.classList.add('open');
+      }
+
+      function indPickSuggest(i) {
+        const pick = _indSuggestResults[i];
+        if (!pick) return;
+        document.getElementById('ind-search').value = pick.ticker;
+        _indSymbol = pick.ticker;
+        indCloseSuggest();
+        indLoad();
+      }
+
+      function indCloseSuggest() {
+        document.getElementById('ind-suggest').classList.remove('open');
+        _indSuggestActive = -1;
+      }
+
+      function indOnKey(e) {
+        if (e.key === 'ArrowDown') {
+          _indSuggestActive = Math.min(_indSuggestActive + 1, _indSuggestResults.length - 1);
+          indRenderSuggest(); e.preventDefault();
+        } else if (e.key === 'ArrowUp') {
+          _indSuggestActive = Math.max(_indSuggestActive - 1, 0);
+          indRenderSuggest(); e.preventDefault();
+        } else if (e.key === 'Enter') {
+          if (_indSuggestActive >= 0) {
+            indPickSuggest(_indSuggestActive);
+          } else {
+            _indSymbol = e.target.value.trim().toUpperCase();
+            indCloseSuggest();
+            indLoad();
+          }
+          e.preventDefault();
+        } else if (e.key === 'Escape') {
+          indCloseSuggest();
+        }
+      }
+
+      async function indLoad(force) {
+        if (!_indSymbol) return;
+        const body = document.getElementById('ind-body');
+        body.innerHTML = '<div class="ind-empty">Loading indicators…</div>';
+        try {
+          const url = _indTf === 'ALL'
+            ? '/api/indicators/' + encodeURIComponent(_indSymbol) + '/consensus'
+            : '/api/indicators/' + encodeURIComponent(_indSymbol) + '?tf=' + _indTf;
+          const r = await fetch(url, { cache: force ? 'reload' : 'default' });
+          const d = await r.json();
+          if (d.error) { body.innerHTML = '<div class="ind-empty">⚠ ' + d.error + '</div>'; return; }
+          if (_indTf === 'ALL') indRenderConsensus(d); else indRenderSingle(d);
+        } catch (err) {
+          body.innerHTML = '<div class="ind-empty">⚠ Request failed: ' + err.message + '</div>';
+        }
+      }
+
+      function _indSigClass(label) {
+        return ({
+          'STRONG BUY':'sg-STRONG-BUY','BUY':'sg-BUY','NEUTRAL':'sg-NEUTRAL',
+          'SELL':'sg-SELL','STRONG SELL':'sg-STRONG-SELL',
+        })[label] || 'sg-NEUTRAL';
+      }
+      function _indBadge(sig) { return sig === 'BUY' ? 'B' : sig === 'SELL' ? 'S' : 'N'; }
+      function _indFmtPrice(p) {
+        if (p == null) return '—';
+        if (Math.abs(p) >= 1000) return p.toFixed(2);
+        if (Math.abs(p) >= 1)    return p.toFixed(2);
+        return p.toFixed(4);
+      }
+      function _indStrengthBar(s) {
+        // s in [-1, 1] → centered bar around 50%
+        if (s == null || s === 0) return `<div class="sbar"><div class="saxis"></div></div>`;
+        const w = Math.min(Math.abs(s) * 50, 50);
+        const cls = s > 0 ? 'up' : 'dn';
+        return `<div class="sbar"><div class="saxis"></div><div class="sfill ${cls}" style="width:${w}%"></div></div>`;
+      }
+      // 12-indicator order + category tags (matches indicators.py)
+      const _IND_ORDER = [
+        ['TRD','EMA20'],['TRD','EMA50'],['TRD','EMA200'],['TRD','ADX'],['TRD','ICHIMOKU'],
+        ['MOM','RSI'],['MOM','MACD'],['MOM','STOCH'],
+        ['VOL','BBANDS'],['VOL','ATR'],
+        ['VLM','OBV'],['VLM','MFI'],
+      ];
+
+      function _indUpdated(ts) {
+        if (!ts) return '';
+        const d = new Date(ts * 1000);
+        const hh = String(d.getHours()).padStart(2,'0');
+        const mm = String(d.getMinutes()).padStart(2,'0');
+        const ss = String(d.getSeconds()).padStart(2,'0');
+        return `${hh}:${mm}:${ss}`;
+      }
+
+      function _indStrip(d, opts) {
+        // Common status strip used by both single-TF and MTF views
+        const o = opts || {};
+        const r = d.resolved || {};
+        const chg = d.change_pct;
+        const chgCls = (chg || 0) >= 0 ? 'up' : 'dn';
+        const chgStr = chg != null ? `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%` : '';
+        return `<div class="ind-strip">
+          <div class="cell"><span class="v tk">${r.ticker || d.ticker}</span><span class="chip">${(r.asset_class||'').toUpperCase().replace('_',' ')}</span></div>
+          <div class="cell"><span class="k">${r.exchange||''}</span><span class="v" style="color:#a8b0bd">${r.display||''}</span></div>
+          <div class="cell"><span class="k">LAST</span><span class="v">${_indFmtPrice(d.last_price)}</span>${chgStr?`<span class="chg ${chgCls}">${chgStr}</span>`:''}</div>
+          ${o.mode ? `<div class="cell"><span class="k">MODE</span><span class="v">${o.mode}</span></div>` : ''}
+          ${o.bars ? `<div class="cell"><span class="k">BARS</span><span class="v">${o.bars}</span></div>` : ''}
+        </div>`;
+      }
+
+      function _indCompositeRow(c, opts) {
+        const o = opts || {};
+        const tag = _indSigClass(c.label);
+        const sc = c.score;
+        const scCls = sc >= 15 ? 'c-bull' : sc <= -15 ? 'c-bear' : 'c-neu';
+        const bull = c.bullish_strength || 0;
+        const bear = c.bearish_strength || 0;
+        const conf = ((c.confidence || 0) * 100).toFixed(0);
+        return `<div class="ind-comp">
+          <span class="lbl">${o.label || 'COMPOSITE'}</span>
+          <span class="score ${scCls}">${sc >= 0 ? '+' : ''}${sc}</span>
+          <span class="tag ${tag}">${c.label}</span>
+          <div class="bar-wrap">
+            <span class="pct bull">${bull.toFixed(0)}%</span>
+            <div class="bar">
+              ${bull > 0 ? `<div class="bull" style="width:${bull}%"></div>` : ''}
+              ${bear > 0 ? `<div class="bear" style="width:${bear}%"></div>` : ''}
+            </div>
+            <span class="pct bear">${bear.toFixed(0)}%</span>
+          </div>
+          <span class="lbl">CONF</span><span class="conf">${conf}%</span>
+          <span class="counts"><span class="b">${c.bullish_count||0}B</span> · ${c.neutral_count||0}N · <span class="s">${c.bearish_count||0}S</span></span>
+        </div>`;
+      }
+
+      function indRenderSingle(d) {
+        const ind = d.indicators || {};
+        const rows = _IND_ORDER.map(([cat, k]) => {
+          const x = ind[k]; if (!x) return '';
+          const badge = _indBadge(x.signal);
+          const v = x.value != null ? (typeof x.value === 'number' ? x.value.toLocaleString('en-US',{maximumFractionDigits:4}) : x.value) : '—';
+          return `<tr title="${(x.explanation||'').replace(/"/g,'&quot;')}">
+            <td class="cat">${cat}</td>
+            <td class="nm">${x.name}</td>
+            <td class="v">${v}</td>
+            <td class="str">${_indStrengthBar(x.strength)}</td>
+            <td class="bd"><span class="badge ${badge}">${badge}</span></td>
+            <td class="ex">${x.explanation||''}</td>
+          </tr>`;
+        }).join('');
+
+        document.getElementById('ind-body').innerHTML =
+          _indStrip(d, { mode: d.timeframe_label, bars: d.bars }) +
+          _indCompositeRow(d.composite || {}, { label: 'COMPOSITE · ' + d.timeframe_label }) +
+          `<div class="ind-sect">▸ INDICATORS <span class="meta">${_IND_ORDER.length} active · hover row for detail</span></div>
+           <table class="ind-tbl">
+             <thead><tr><th>CAT</th><th>INDICATOR</th><th class="r">VALUE</th><th class="c">STRENGTH</th><th class="c">SIG</th><th>EXPLANATION</th></tr></thead>
+             <tbody>${rows}</tbody>
+           </table>`;
+        document.getElementById('ind-updated').textContent = _indUpdated(d.ts);
+      }
+
+      function indRenderConsensus(d) {
+        const c = d.consensus || {};
+        const ai = d.ai_blended || {};
+        const sent = d.sentiment || {};
+        const tfs = ['1h','4h','1d','1w'];
+
+        const tfStrip = tfs.map(tf => {
+          const t = (d.timeframes || {})[tf];
+          if (!t) return `<div class="tfcell"><span class="tk">${tf.toUpperCase()}</span><span class="v c-neu">—</span></div>`;
+          const sc = t.composite.score;
+          const cls = sc >= 15 ? 'c-bull' : sc <= -15 ? 'c-bear' : 'c-neu';
+          return `<div class="tfcell"><span class="tk">${tf.toUpperCase()}</span><span class="v ${cls}">${sc >= 0 ? '+' : ''}${sc}</span><span class="lbl" style="color:#4a5568;font-size:8px">${t.composite.label.replace('STRONG ','')}</span></div>`;
+        }).join('');
+
+        const heatRows = _IND_ORDER.map(([cat, k]) => {
+          const cells = tfs.map(tf => {
+            const t = (d.timeframes || {})[tf];
+            if (!t || !t.indicators[k]) return `<td class="NA">—</td>`;
+            const x = t.indicators[k];
+            const badge = _indBadge(x.signal);
+            return `<td class="${badge}" title="${(x.explanation||'').replace(/"/g,'&quot;')}">${badge === 'N' ? '·' : badge}</td>`;
+          }).join('');
+          let label = k;
+          for (const tf of tfs) { const t = (d.timeframes || {})[tf]; if (t && t.indicators[k]) { label = t.indicators[k].name; break; } }
+          return `<tr><td class="cat">${cat}</td><td class="lbl">${label}</td>${cells}</tr>`;
+        }).join('');
+
+        const sentLabel = sent.label || 'NEUTRAL';
+        const sentCls = ({'BULLISH':'c-bull','BEARISH':'c-bear'})[sentLabel] || 'c-neu';
+
+        document.getElementById('ind-body').innerHTML =
+          _indStrip(d, { mode: 'MTF · 1H·4H·1D·1W' }) +
+          // AI BLENDED composite (technicals + sentiment overlay)
+          _indCompositeRow(ai, { label: 'AI BLENDED · 85T+15S' }) +
+          // Pure technical consensus row for comparison
+          _indCompositeRow(c,  { label: 'TECH CONSENSUS' }) +
+          // Sentiment row (single dense line)
+          `<div class="ind-comp">
+             <span class="lbl">SENTIMENT</span>
+             <span class="tag ${({'BULLISH':'sg-BUY','BEARISH':'sg-SELL'})[sentLabel] || 'sg-NEUTRAL'}">${sentLabel}</span>
+             <span class="lbl">SCORE</span><span class="v ${sentCls}" style="font-weight:700;font-size:10px">${(sent.score||0).toFixed(2)}</span>
+             <span class="lbl">CONF</span><span class="conf">${((sent.confidence||0)*100).toFixed(0)}%</span>
+             <span style="color:#4a5568;font-size:9px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${sent.rationale||''}</span>
+             <span class="chip">${(sent.provider||'stub').toUpperCase()}</span>
+           </div>
+           <div class="ind-sect">▸ TIMEFRAME SCORES</div>
+           <div class="ind-tfstrip">${tfStrip}</div>
+           <div class="ind-sect">▸ HEATMAP <span class="meta">B/S/· per indicator × timeframe — hover for explanation</span></div>
+           <table class="ind-heat">
+             <thead><tr><th class="lbl">CAT</th><th class="lbl">INDICATOR</th>${tfs.map(t => `<th>${t.toUpperCase()}</th>`).join('')}</tr></thead>
+             <tbody>${heatRows}</tbody>
+           </table>`;
+        document.getElementById('ind-updated').textContent = _indUpdated(d.ts);
+      }
+    </script>
 
     <!-- ═══ WHY MOVE? — Institutional move explainer feed ═══ -->
     <style>
@@ -6453,7 +6861,8 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal()
 function _hideAllSpecialPanels() {
   ['ai-research-panel','signals-panel','hni-insights-panel',
    'morning-note-panel','catalyst-panel','sector-panel','risktools-panel',
-   'aiperformance-panel','regime-panel','analyst-panel','whymove-panel','charts-panel'].forEach(function(id) {
+   'aiperformance-panel','regime-panel','analyst-panel','whymove-panel','charts-panel',
+   'indicators-panel'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.style.display = 'none';
   });

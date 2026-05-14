@@ -2581,6 +2581,88 @@ def api_signal_history(limit: int = 30, offset: int = 0):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+# ─── INDICATORS PANEL ────────────────────────────────────────────────────────
+# Modular routes backed by indicators.py + symbol_resolver.py.
+# Single-timeframe, multi-TF consensus, autocomplete, and sentiment placeholder.
+
+@app.get("/api/indicators/meta")
+def api_indicators_meta():
+    """Static metadata used by the UI (timeframes + indicator list)."""
+    try:
+        import indicators as _ind
+        return {
+            "timeframes": _ind.list_timeframes(),
+            "indicators": _ind.list_indicators(),
+            "tf_weights": _ind.TF_WEIGHTS,
+            "indicator_weights": _ind.INDICATOR_WEIGHTS,
+        }
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/indicators/resolve")
+def api_indicators_resolve(q: str = ""):
+    """Autocomplete: returns ranked candidate symbols for the search box."""
+    try:
+        import symbol_resolver as _sr
+        results = _sr.search(q, limit=12)
+        return {"query": q, "results": results}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/indicators/{symbol}")
+def api_indicators_single(symbol: str, tf: str = "1d"):
+    """Compute all 12 indicators + composite for one timeframe."""
+    try:
+        import indicators as _ind
+        import symbol_resolver as _sr
+        rec = _sr.resolve(symbol)
+        if not rec:
+            return JSONResponse({"error": f"Cannot resolve symbol '{symbol}'"}, status_code=404)
+        result = _ind.compute_indicators(rec["ticker"], tf)
+        if result is None:
+            return JSONResponse({"error": f"No OHLC data for {rec['ticker']} ({tf})"}, status_code=404)
+        result["resolved"] = rec
+        return result
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/indicators/{symbol}/consensus")
+def api_indicators_consensus(symbol: str):
+    """All 4 timeframes + composite + sentiment overlay (multi-TF view)."""
+    try:
+        import indicators as _ind
+        import symbol_resolver as _sr
+        rec = _sr.resolve(symbol)
+        if not rec:
+            return JSONResponse({"error": f"Cannot resolve symbol '{symbol}'"}, status_code=404)
+        result = _ind.compute_consensus(rec["ticker"], rec["asset_class"])
+        if result.get("error"):
+            return JSONResponse(result, status_code=404)
+        result["resolved"] = rec
+        return result
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/indicators/{symbol}/sentiment")
+def api_indicators_sentiment(symbol: str):
+    """News/AI sentiment for a symbol (currently neutral stub, swap provider later)."""
+    try:
+        import symbol_resolver as _sr
+        from sentiment_provider import get_sentiment
+        rec = _sr.resolve(symbol)
+        if not rec:
+            return JSONResponse({"error": f"Cannot resolve symbol '{symbol}'"}, status_code=404)
+        s = dict(get_sentiment(rec["ticker"], rec["asset_class"]))
+        s["resolved"] = rec
+        return s
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
     # Middleware already checks auth — this is just the page serve
