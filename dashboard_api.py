@@ -2165,122 +2165,65 @@ async def hni_summary_standalone(request: Request):
             pass
 
         # Inject desk persona context: recent calls + upcoming events
+        # ── 3-layer prompt composition (Phase 3 — HNI canary migration) ──────
+        # L1 SYSTEM PERSONA  ← ai_persona.SYSTEM_PERSONA via prompt_builder
+        # L2 STATE BLOCK     ← market_intel.format_state_compact(snap)
+        # L3 TASK BLOCK      ← ai_schemas.SCHEMA_HNI + per-call constraints
+        # The composer owns layer assembly so no layer ever repeats another's
+        # content. Tab-specific instructions stay parameters, not persona lines.
+
+        from prompt_builder import build_messages, estimate_messages
         from ai_persona import (
-            build_messages, build_recent_calls_block, build_upcoming_events_block,
-            contains_banned,
+            build_recent_calls_block, build_upcoming_events_block, contains_banned,
         )
         recent_calls_block = build_recent_calls_block(limit=5)
         upcoming_block     = build_upcoming_events_block(days=7)
 
-        # ── Build prompt: symbol-focused if `symbol` provided, else multi-asset
-        if resolved:
-            focus_ticker  = resolved["ticker"]
-            focus_display = resolved["display"]
-            focus_class   = resolved["asset_class"].upper().replace("_", " ")
-            focus_header = (
-                f"FOCUSED ANALYSIS — single instrument: {focus_display} "
-                f"({focus_ticker} · {focus_class})"
-            )
-            instruments_schema = (
-                f'    {{"name": "{focus_ticker}", "signal": "BUY | SELL | WAIT", "rationale": "<≤25 words, cite a specific level on this instrument>"}},\n'
-                '    {{"name": "<top correlated driver, e.g. DXY/US10Y/VIX>", "signal": "BUY | SELL | WAIT", "rationale": "<why this drives the focus instrument>"}},\n'
-                '    {{"name": "<second driver>", "signal": "BUY | SELL | WAIT", "rationale": "<≤20 words>"}}'
-            )
-            setup_constraint = (
-                f'CRITICAL: scalp_setup.instrument AND swing_setup.instrument MUST equal '
-                f'"{focus_ticker}" (or its trader-readable name). All entry/stop/target '
-                f'levels MUST be valid for {focus_display}. Do NOT generate setups on '
-                f'unrelated instruments.'
-            )
-        else:
-            focus_header = "MULTI-ASSET DESK READ — cross-market view"
-            instruments_schema = (
-                '    {{"name": "NIFTY50",   "signal": "BUY | SELL | WAIT", "rationale": "<≤20 words, cite a level>"}},\n'
-                '    {{"name": "BANKNIFTY", "signal": "BUY | SELL | WAIT", "rationale": "<≤20 words, cite a level>"}},\n'
-                '    {{"name": "USDINR",    "signal": "BUY | SELL | WAIT", "rationale": "<≤20 words, cite a level>"}},\n'
-                '    {{"name": "GOLD",      "signal": "BUY | SELL | WAIT", "rationale": "<≤20 words, cite a level>"}},\n'
-                '    {{"name": "CRUDEOIL",  "signal": "BUY | SELL | WAIT", "rationale": "<≤20 words, cite a level>"}}'
-            )
-            setup_constraint = (
-                "Pick the cleanest scalp and swing across your covered instruments — "
-                "they may be on different tickers."
-            )
-
-        # ── Structured market intel — replaces scattered regime + macro + news blocks ──
-        # Single STRUCTURED INTEL block: clustered news, per-asset sentiment,
-        # composite F&G, correlation anomalies, upcoming events, regime read.
-        # Falls back gracefully to the old blocks if market_intel fails.
+        # Pull intel snapshot — same source as before, just rendered via L2
+        # compact formatter inside prompt_builder.
         try:
-            from market_intel import get_intel_snapshot, format_intel_for_prompt
-            intel_snap  = get_intel_snapshot(symbol=(resolved or {}).get("display"))
-            intel_block = format_intel_for_prompt(intel_snap, include_clusters=10)
+            from market_intel import get_intel_snapshot
+            intel_snap = get_intel_snapshot(symbol=(resolved or {}).get("display"))
         except Exception as _e:
-            print(f"[HNI] market_intel unavailable ({_e}) — falling back to raw blocks", flush=True)
-            intel_block = ""
+            print(f"[HNI] market_intel unavailable ({_e}) — proceeding without state block", flush=True)
+            intel_snap = None
 
-        # Fallback assembly when intel pipeline fails — keep legacy raw blocks
-        if not intel_block:
-            intel_block = (
-                f"=== MARKET REGIME ENGINE OUTPUT ===\n{regime_block}\n\n"
-                f"=== LIVE INDICES ===\n{idx_block}\n\n"
-                f"=== MACRO DATA ===\n{macro_block}\n\n"
-                f"=== HIGH-PRIORITY NEWS FEED ===\n{news_block}"
+        # Build per-call constraints. Composer adds the FOCUS + scalp/swing
+        # instrument constraint automatically when focus_ticker is given;
+        # we only add multi-asset coverage hint when no symbol is supplied.
+        constraints: list[str] = []
+        if not resolved:
+            constraints.append(
+                "MULTI-ASSET DESK READ — cover NIFTY50, BANKNIFTY, USDINR, "
+                "GOLD, CRUDEOIL in the instruments[] array. Pick the cleanest "
+                "scalp and swing across covered instruments."
             )
+        constraints.append(
+            "If signals conflict (e.g. regime bullish but sentiment tilt bearish), "
+            "state CONVICTION=LOW and call out the conflict in hni_view."
+        )
 
-        prompt = f"""Generate the live HNI desk read for the next 15-min window.
+        # Compose extra context from sources that aren't part of the snapshot:
+        # signal_memory performance + last 5 desk calls + 7-day events.
+        extra_blocks = [b for b in (perf_block, recent_calls_block, upcoming_block) if b]
+        extra_context = "\n\n".join(extra_blocks) if extra_blocks else None
 
-{focus_header}
-
-{setup_constraint}
-
-The structured intel below is your PRIMARY CONTEXT — trade_bias, conviction
-and hni_view MUST be consistent with it. If signals conflict (e.g. regime
-bullish but sentiment tilt bearish), state CONVICTION=LOW and call out the
-conflict in hni_view. Cite specific cluster topics by name where relevant.
-
-{intel_block}
-
-{perf_block}
-{recent_calls_block}
-
-Return ONLY this JSON object (no preamble, no markdown):
-
-{{
-  "macro_regime": "BULL_MOMENTUM | BEAR_PRESSURE | RISK_OFF | RISK_ON | SIDEWAYS | BREAKOUT | DISTRIBUTION | ACCUMULATION",
-  "trade_bias": "BUY | SELL | WAIT",
-  "confidence": <integer 0-100>,
-  "conviction_tier": "HIGH | MEDIUM | LOW",
-  "hni_view": "<2-3 sentence opinionated desk read on {(resolved['display'] if resolved else 'the broad tape')}. Cite specific levels. No hedge words. No disclaimers.>",
-  "historical_analog": "<specific prior episode, or 'none — no clean analog' only if genuinely novel>",
-  "warnings": [
-    "<specific actionable risk>",
-    "<event risk if applicable>"
-  ],
-  "instruments": [
-{instruments_schema}
-  ],
-  "scalp_setup": {{
-    "bias": "BUY | SELL | WAIT",
-    "instrument": "<{(resolved['ticker'] if resolved else 'pick best instrument')}>",
-    "entry_zone": "<exact price range>",
-    "stop_loss": "<exact price>",
-    "tp1": "<exact price>",
-    "tp2": "<exact price>",
-    "trigger_condition": "<what confirms entry, with volume/level specifics>"
-  }},
-  "swing_setup": {{
-    "bias": "BUY | SELL | WAIT",
-    "instrument": "<{(resolved['ticker'] if resolved else 'pick best instrument')}>",
-    "entry_zone": "<exact range>",
-    "stop_loss": "<exact price>",
-    "tp": "<target + timeframe, e.g. '24800 over 5-7 sessions'>",
-    "catalyst": "<specific event/data that drives the move>"
-  }}
-}}"""
-
-        messages = build_messages(prompt, include_few_shots=True)
+        messages = build_messages(
+            task="hni",
+            snap=intel_snap,
+            symbol=raw_symbol or None,
+            focus_display=(resolved or {}).get("display"),
+            focus_ticker=(resolved or {}).get("ticker"),
+            constraints=constraints,
+            extra_context=extra_context,
+            include_few_shots=False,   # turn on if persona-drift detected post-rollout
+        )
+        est = estimate_messages(messages)
         prompt_chars = sum(len(m.get("content", "")) for m in messages)
-        print(f"[HNI] router REQ slug={cache_slug} task=hni msgs={len(messages)} prompt_chars={prompt_chars} temp=0.15", flush=True)
+        print(f"[HNI] router REQ slug={cache_slug} task=hni msgs={len(messages)} "
+              f"prompt_chars={prompt_chars} prompt_tokens~{est['total_tokens']} "
+              f"(sys~{est['messages'][0]['tokens']}, user~{est['messages'][1]['tokens']}) "
+              f"temp=0.15", flush=True)
 
         # Route via ai_router — automatic fallback chain (70b → 8b → ollama).
         from ai_router import chat as _ai_chat
