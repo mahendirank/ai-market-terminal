@@ -24,7 +24,21 @@ Designed to be cheap: no network calls unless ``validate=True``.
 from __future__ import annotations
 
 import re
+from difflib import get_close_matches
 from typing import Optional
+
+
+def _normalize_key(s: str) -> str:
+    """Uppercase, strip, remove internal whitespace + common separators.
+
+    Preserves yf-special chars (``= - ^ .``) so raw tickers survive.
+    'NIFTY 50' → 'NIFTY50',  'CRUDE_OIL' → 'CRUDEOIL',  'BTC-USD' → 'BTC-USD'.
+    """
+    if not s:
+        return ""
+    s = s.strip().upper()
+    # Strip only whitespace and "soft" separators; keep yf tokens intact
+    return re.sub(r"[\s_/\\]+", "", s)
 
 
 # Asset classes (used for UI grouping and downstream sentiment routing)
@@ -71,10 +85,14 @@ ALIAS_MAP: dict[str, tuple[str, str, str, str]] = {
     "S&P":       ("^GSPC",   "S&P 500",        INDEX, "US"),
     "S&P500":    ("^GSPC",   "S&P 500",        INDEX, "US"),
     "SP500":     ("^GSPC",   "S&P 500",        INDEX, "US"),
+    "SPX500":    ("^GSPC",   "S&P 500",        INDEX, "US"),
+    "US500":     ("^GSPC",   "S&P 500",        INDEX, "US"),
     "NASDAQ":    ("^IXIC",   "NASDAQ Composite", INDEX, "US"),
     "NDX":       ("^NDX",    "NASDAQ 100",     INDEX, "US"),
+    "US100":     ("^NDX",    "NASDAQ 100",     INDEX, "US"),
     "DOW":       ("^DJI",    "Dow Jones",      INDEX, "US"),
     "DJIA":      ("^DJI",    "Dow Jones",      INDEX, "US"),
+    "US30":      ("^DJI",    "Dow Jones (US30)", INDEX, "US"),
     "RUSSELL":   ("^RUT",    "Russell 2000",   INDEX, "US"),
     "VIX":       ("^VIX",    "Volatility Index", INDEX, "US"),
 
@@ -82,7 +100,9 @@ ALIAS_MAP: dict[str, tuple[str, str, str, str]] = {
     "NIFTY":     ("^NSEI",   "Nifty 50",       INDEX, "NSE"),
     "NIFTY50":   ("^NSEI",   "Nifty 50",       INDEX, "NSE"),
     "BANKNIFTY": ("^NSEBANK", "Bank Nifty",    INDEX, "NSE"),
+    "NIFTYBANK": ("^NSEBANK", "Bank Nifty",    INDEX, "NSE"),
     "SENSEX":    ("^BSESN",  "BSE Sensex",     INDEX, "BSE"),
+    "BSE":       ("^BSESN",  "BSE Sensex",     INDEX, "BSE"),
     "NIFTYIT":   ("^CNXIT",  "Nifty IT",       INDEX, "NSE"),
 
     # ── Global indices ──
@@ -103,6 +123,54 @@ ALIAS_MAP: dict[str, tuple[str, str, str, str]] = {
     "ADA":       ("ADA-USD", "Cardano",        CRYPTO, "CRYPTO"),
     "DOGE":      ("DOGE-USD","Dogecoin",       CRYPTO, "CRYPTO"),
     "MATIC":     ("MATIC-USD","Polygon",       CRYPTO, "CRYPTO"),
+}
+
+
+# ─── Synonym redirects (multi-word / colloquial → canonical ALIAS_MAP key) ───
+# These are applied AFTER whitespace normalization. Example chain:
+#   "Crude Oil" → strip+upper → "CRUDEOIL" → SYNONYMS → "OIL" → ALIAS_MAP entry
+SYNONYMS: dict[str, str] = {
+    # Commodities
+    "CRUDEOIL":      "OIL",
+    "WTICRUDE":      "WTI",
+    "BRENTCRUDE":    "BRENT",
+    "NATURALGAS":    "NATGAS",
+    "GOLDFUTURES":   "GOLD",
+    "SILVERFUTURES": "SILVER",
+    "COMEXGOLD":     "GOLD",
+    "SPOTGOLD":      "GOLD",
+    # FX / Dollar
+    "USDOLLAR":      "DXY",
+    "DOLLARINDEX":   "DXY",
+    "DOLLARIDX":     "DXY",
+    # US indices (human variants)
+    "DOWJONES":      "DOW",
+    "DOWJONESINDUSTRIALAVERAGE": "DOW",
+    "NASDAQ100":     "NDX",
+    "NASDAQCOMPOSITE": "NASDAQ",
+    "SP500INDEX":    "SPX",
+    "RUSSELL2000":   "RUSSELL",
+    "VOLATILITYINDEX": "VIX",
+    # Indian indices (colloquial)
+    "NIFTYFIFTY":    "NIFTY",
+    "NIFTYBANKINDEX":"BANKNIFTY",
+    "BSESENSEX":     "SENSEX",
+    "NIFTYITINDEX":  "NIFTYIT",
+    # Crypto
+    "BITCOINUSD":    "BTC",
+    "ETHEREUMUSD":   "ETH",
+    "SOLANA":        "SOL",
+    "POLYGONMATIC":  "MATIC",
+    "BINANCECOIN":   "BNB",
+    "CARDANO":       "ADA",
+    "DOGECOIN":      "DOGE",
+    # Global indices
+    "FTSE100":       "FTSE",
+    "NIKKEI225":     "NIKKEI",
+    "HANGSENG":      "HSI",
+    "SHANGHAICOMPOSITE": "SHANGHAI",
+    # FX pair variants
+    "EUR/USD":       "EURUSD",  # rare; usually hits raw lookup, harmless backup
 }
 
 
@@ -165,59 +233,75 @@ def _looks_like_yf_ticker(s: str) -> bool:
     return bool(_YF_PATTERN.match(s))
 
 
+def _from_alias(key: str) -> dict:
+    yf_t, display, klass, exch = ALIAS_MAP[key]
+    return {"ticker": yf_t, "display": display,
+            "asset_class": klass, "exchange": exch, "source": "alias"}
+
+
 def resolve(query: str) -> Optional[dict]:
     """Resolve a free-form query to a canonical symbol record.
 
-    Returns ``{ticker, display, asset_class, exchange, source}`` or ``None``.
+    Lookup order (each step is cheap, no network):
+      1. Raw upper (preserves yf chars) → ALIAS_MAP
+      2. Looks like a yf ticker already (``BTC-USD``, ``RELIANCE.NS``)
+      3. Normalized (whitespace + separators stripped) → ALIAS_MAP
+      4. Normalized → SYNONYMS → ALIAS_MAP
+      5. Normalized in US_STOCKS / INDIAN_STOCKS shortlists
+      6. Pure ticker-ish ``[A-Z0-9]+`` → US-guess (autocomplete will fallback)
 
-    ``source`` indicates how the match was made (alias, raw_yf, us_guess,
-    nse_suffix, bse_suffix) so the caller can decide whether to trust it
-    without further validation.
+    Returns ``None`` if nothing matches — callers should fall back to
+    :func:`suggest` to give the user something to click.
     """
     if not query:
         return None
-    q = query.strip().upper()
-    if not q:
+    raw = query.strip()
+    if not raw:
         return None
 
-    # 1) Direct alias
-    if q in ALIAS_MAP:
-        yf_t, display, klass, exch = ALIAS_MAP[q]
-        return {
-            "ticker": yf_t, "display": display,
-            "asset_class": klass, "exchange": exch, "source": "alias",
-        }
+    upper = raw.upper()
 
-    # 2) Looks like a yf ticker already (e.g. "RELIANCE.NS", "BTC-USD")
-    if _looks_like_yf_ticker(q):
-        klass = _infer_class_from_ticker(q)
-        return {
-            "ticker": q, "display": q,
-            "asset_class": klass, "exchange": _exchange_from_ticker(q),
-            "source": "raw_yf",
-        }
+    # 1) Direct alias with original punctuation preserved
+    if upper in ALIAS_MAP:
+        return _from_alias(upper)
 
-    # 3) Known US stock shortlist
-    if q in US_STOCKS:
-        return {
-            "ticker": q, "display": f"{q} — {US_STOCKS[q]}",
-            "asset_class": US_STOCK, "exchange": "US", "source": "us_known",
-        }
+    # 2) Looks like a yf ticker (e.g. RELIANCE.NS, BTC-USD, ^GSPC)
+    if _looks_like_yf_ticker(upper):
+        klass = _infer_class_from_ticker(upper)
+        return {"ticker": upper, "display": upper,
+                "asset_class": klass, "exchange": _exchange_from_ticker(upper),
+                "source": "raw_yf"}
 
-    # 4) Known Indian stock shortlist → default to NSE
-    if q in INDIAN_STOCKS:
-        return {
-            "ticker": f"{q}.NS", "display": f"{q} — {INDIAN_STOCKS[q]}",
-            "asset_class": NSE, "exchange": "NSE", "source": "nse_known",
-        }
+    # 3) Whitespace/separator-stripped lookup
+    norm = _normalize_key(raw)
+    if not norm:
+        return None
+    if norm in ALIAS_MAP:
+        return _from_alias(norm)
 
-    # 5) Plain uppercase alphanumerics → ambiguous. Best guess: US first.
-    # Caller can retry with .NS / .BO via :func:`resolve_with_fallbacks`.
-    if re.fullmatch(r"[A-Z0-9]{1,12}", q):
-        return {
-            "ticker": q, "display": q,
-            "asset_class": US_STOCK, "exchange": "US", "source": "us_guess",
-        }
+    # 4) Synonym redirect → canonical alias
+    if norm in SYNONYMS:
+        canon = SYNONYMS[norm]
+        if canon in ALIAS_MAP:
+            r = _from_alias(canon)
+            r["source"] = "synonym"
+            return r
+
+    # 5) Stock shortlists
+    if norm in US_STOCKS:
+        return {"ticker": norm, "display": f"{norm} — {US_STOCKS[norm]}",
+                "asset_class": US_STOCK, "exchange": "US", "source": "us_known"}
+    if norm in INDIAN_STOCKS:
+        return {"ticker": f"{norm}.NS",
+                "display": f"{norm} — {INDIAN_STOCKS[norm]}",
+                "asset_class": NSE, "exchange": "NSE", "source": "nse_known"}
+
+    # 6) Plain alnum → ambiguous US-guess. Caller may try .NS/.BO via
+    # :func:`resolve_with_fallbacks`. For multi-word inputs that don't match
+    # anything above, return None so the API can show suggestions.
+    if re.fullmatch(r"[A-Z0-9]{1,12}", norm):
+        return {"ticker": norm, "display": norm,
+                "asset_class": US_STOCK, "exchange": "US", "source": "us_guess"}
 
     return None
 
@@ -265,56 +349,100 @@ def _exchange_from_ticker(t: str) -> str:
     }.get(m, "US")
 
 
-def search(query: str, limit: int = 10) -> list[dict]:
-    """Autocomplete-style search across all known aliases.
+def _all_searchable() -> list[tuple[str, str, str, str, str]]:
+    """One unified pool of (lookup_key, ticker, display, asset_class, exchange).
 
-    Substring + prefix match, prefix wins. Returns a ranked list of resolution
-    candidates the UI can show in a dropdown.
+    Indexes both the canonical key AND the human display text so users can
+    type either "DXY" or "dollar index". Also includes SYNONYMS so colloquial
+    inputs like "crude oil" hit even when the substring isn't in the alias.
+    """
+    pool: list[tuple[str, str, str, str, str]] = []
+    seen: set[tuple[str, str]] = set()  # (lookup_key, ticker) — dedupe pool
+
+    def _add(key: str, yf_t: str, display: str, klass: str, exch: str):
+        norm = _normalize_key(key)
+        if not norm:
+            return
+        k = (norm, yf_t)
+        if k in seen:
+            return
+        seen.add(k)
+        pool.append((norm, yf_t, display, klass, exch))
+
+    for alias, (yf_t, display, klass, exch) in ALIAS_MAP.items():
+        _add(alias,   yf_t, display, klass, exch)
+        _add(display, yf_t, display, klass, exch)
+    for syn_key, canon in SYNONYMS.items():
+        if canon in ALIAS_MAP:
+            yf_t, display, klass, exch = ALIAS_MAP[canon]
+            _add(syn_key, yf_t, display, klass, exch)
+    for sym, name in US_STOCKS.items():
+        _add(sym,  sym, f"{sym} — {name}", US_STOCK, "US")
+        _add(name, sym, f"{sym} — {name}", US_STOCK, "US")
+    for sym, name in INDIAN_STOCKS.items():
+        _add(sym,  f"{sym}.NS", f"{sym} — {name}", NSE, "NSE")
+        _add(name, f"{sym}.NS", f"{sym} — {name}", NSE, "NSE")
+    return pool
+
+
+def search(query: str, limit: int = 10) -> list[dict]:
+    """Autocomplete-style search with normalization + fuzzy fallback.
+
+    Ranking:
+      0 — exact normalized match
+      1 — prefix match
+      2 — substring match
+      3 — fuzzy match (difflib, cutoff 0.6) when nothing else hit
     """
     if not query:
         return []
-    q = query.strip().upper()
-    if not q:
+    norm = _normalize_key(query)
+    if not norm:
         return []
 
-    results: list[tuple[int, dict]] = []
+    pool = _all_searchable()
+    scored: list[tuple[int, str, str, str, str]] = []
 
-    def _push(score: int, ticker: str, display: str, klass: str, exch: str):
-        results.append((score, {
-            "ticker": ticker, "display": display,
-            "asset_class": klass, "exchange": exch,
-        }))
+    for key, ticker, display, klass, exch in pool:
+        if key == norm:
+            scored.append((0, ticker, display, klass, exch))
+        elif key.startswith(norm):
+            scored.append((1, ticker, display, klass, exch))
+        elif norm in key:
+            scored.append((2, ticker, display, klass, exch))
 
-    # Alias map
-    for alias, (yf_t, display, klass, exch) in ALIAS_MAP.items():
-        if alias == q:                  _push(0, yf_t, display, klass, exch)
-        elif alias.startswith(q):       _push(1, yf_t, display, klass, exch)
-        elif q in alias:                _push(2, yf_t, display, klass, exch)
-        elif q in display.upper():      _push(3, yf_t, display, klass, exch)
+    # Also consider SYNONYMS — surface the canonical entry when user typed a
+    # known synonym keyword
+    if norm in SYNONYMS and SYNONYMS[norm] in ALIAS_MAP:
+        yf_t, display, klass, exch = ALIAS_MAP[SYNONYMS[norm]]
+        scored.append((0, yf_t, display, klass, exch))
 
-    # US shortlist
-    for sym, name in US_STOCKS.items():
-        if sym == q:                    _push(0, sym, f"{sym} — {name}", US_STOCK, "US")
-        elif sym.startswith(q):         _push(1, sym, f"{sym} — {name}", US_STOCK, "US")
-        elif q in name.upper():         _push(3, sym, f"{sym} — {name}", US_STOCK, "US")
+    # Fuzzy fallback when nothing direct matched
+    if not scored:
+        keys = list({k for k, *_ in pool})
+        matches = get_close_matches(norm, keys, n=limit, cutoff=0.6)
+        for m in matches:
+            for key, ticker, display, klass, exch in pool:
+                if key == m:
+                    scored.append((3, ticker, display, klass, exch))
+                    break
 
-    # Indian shortlist
-    for sym, name in INDIAN_STOCKS.items():
-        if sym == q:                    _push(0, f"{sym}.NS", f"{sym} — {name}", NSE, "NSE")
-        elif sym.startswith(q):         _push(1, f"{sym}.NS", f"{sym} — {name}", NSE, "NSE")
-        elif q in name.upper():         _push(3, f"{sym}.NS", f"{sym} — {name}", NSE, "NSE")
-
-    # Sort by score, dedupe by ticker
     seen: set[str] = set()
     ordered: list[dict] = []
-    for _, item in sorted(results, key=lambda x: x[0]):
-        if item["ticker"] in seen:
+    for _, ticker, display, klass, exch in sorted(scored, key=lambda x: x[0]):
+        if ticker in seen:
             continue
-        seen.add(item["ticker"])
-        ordered.append(item)
+        seen.add(ticker)
+        ordered.append({"ticker": ticker, "display": display,
+                        "asset_class": klass, "exchange": exch})
         if len(ordered) >= limit:
             break
     return ordered
+
+
+def suggest(query: str, limit: int = 6) -> list[dict]:
+    """Shorter alias around :func:`search` for the 'did you mean?' UX path."""
+    return search(query, limit=limit)
 
 
 def list_asset_classes() -> list[str]:

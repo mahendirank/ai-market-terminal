@@ -1150,6 +1150,22 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 
       .ind-sect { padding:7px 12px; background:#080b10; border-bottom:1px solid #1c2230; color:#8a94a4; font-size:9px; letter-spacing:1.5px; font-weight:700; display:flex; justify-content:space-between; align-items:center; }
       .ind-sect .meta { color:#5a6478; font-weight:500; letter-spacing:1px; }
+
+      /* ── Error + "did you mean" suggestions ───────────────────────────── */
+      .ind-err { padding:18px 16px; max-width:560px; }
+      .ind-err-head { display:flex; align-items:center; gap:10px; padding-bottom:10px; border-bottom:1px solid #1c2230; }
+      .ind-err-icon { color:#de8484; font-size:14px; }
+      .ind-err-msg  { color:#f0f4f8; font-size:11px; font-weight:700; letter-spacing:0.5px; }
+      .ind-err-q    { color:#e8b85a; font-size:10.5px; font-family:'SF Mono',Monaco,monospace; margin-left:auto; }
+      .ind-err-sub  { color:#7a8494; font-size:9px; letter-spacing:1.5px; font-weight:700; padding:10px 0 6px; }
+      .ind-sg-list  { display:flex; flex-direction:column; gap:1px; border:1px solid #1c2230; }
+      .ind-sg-pick  { display:flex; align-items:center; gap:10px; padding:6px 10px; background:#0a0e14; border-bottom:1px solid #131a26; cursor:pointer; font-size:10.5px; }
+      .ind-sg-pick:last-child { border-bottom:none; }
+      .ind-sg-pick:hover { background:#15110a; }
+      .ind-sg-pick:hover .t { color:#e8b85a; }
+      .ind-sg-pick .t { color:#f0f4f8; font-weight:700; min-width:96px; }
+      .ind-sg-pick .n { color:#c0c8d4; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .ind-sg-pick .cls { color:#7a8494; font-size:8.5px; letter-spacing:1px; font-weight:700; padding:1px 6px; border:1px solid #1c2230; border-radius:1px; }
     </style>
 
     <div id="indicators-panel">
@@ -1281,11 +1297,37 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
             : '/api/indicators/' + encodeURIComponent(_indSymbol) + '?tf=' + _indTf;
           const r = await fetch(url, { cache: force ? 'reload' : 'default' });
           const d = await r.json();
-          if (d.error) { body.innerHTML = '<div class="ind-empty">⚠ ' + d.error + '</div>'; return; }
+          if (d.error) { indRenderError(d); return; }
           if (_indTf === 'ALL') indRenderConsensus(d); else indRenderSingle(d);
         } catch (err) {
-          body.innerHTML = '<div class="ind-empty">⚠ Request failed: ' + err.message + '</div>';
+          indRenderError({ error: 'Request failed: ' + err.message, suggestions: [] });
         }
+      }
+
+      function indRenderError(d) {
+        const sugg = (d.suggestions || []).map(s =>
+          `<div class="ind-sg-pick" onclick="indPickTicker('${s.ticker}','${(s.display||'').replace(/'/g, "\\'")}')">`
+          + `<span class="t">${s.ticker}</span>`
+          + `<span class="n">${s.display || ''}</span>`
+          + `<span class="cls">${(s.asset_class||'').toUpperCase().replace('_',' ')}</span>`
+          + `</div>`
+        ).join('');
+        const body = document.getElementById('ind-body');
+        body.innerHTML = `
+          <div class="ind-err">
+            <div class="ind-err-head">
+              <span class="ind-err-icon">⚠</span>
+              <span class="ind-err-msg">${d.error || 'Symbol not found'}</span>
+              ${d.query ? `<span class="ind-err-q">"${d.query}"</span>` : ''}
+            </div>
+            ${sugg ? `<div class="ind-err-sub">DID YOU MEAN —</div><div class="ind-sg-list">${sugg}</div>` : `<div class="ind-err-sub">Try: AAPL · RELIANCE · GOLD · BTC · EURUSD · NIFTY 50 · US30 · CRUDE OIL</div>`}
+          </div>`;
+      }
+
+      function indPickTicker(ticker, display) {
+        document.getElementById('ind-search').value = ticker;
+        _indSymbol = ticker;
+        indLoad();
       }
 
       function _indSigClass(label) {

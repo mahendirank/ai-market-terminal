@@ -2619,10 +2619,20 @@ def api_indicators_single(symbol: str, tf: str = "1d"):
         import symbol_resolver as _sr
         rec = _sr.resolve(symbol)
         if not rec:
-            return JSONResponse({"error": f"Cannot resolve symbol '{symbol}'"}, status_code=404)
+            suggestions = _sr.suggest(symbol, limit=6)
+            return JSONResponse({
+                "error": f"Cannot resolve '{symbol}'",
+                "query": symbol,
+                "suggestions": suggestions,
+            }, status_code=404)
         result = _ind.compute_indicators(rec["ticker"], tf)
         if result is None:
-            return JSONResponse({"error": f"No OHLC data for {rec['ticker']} ({tf})"}, status_code=404)
+            return JSONResponse({
+                "error": f"No OHLC data for {rec['ticker']} ({tf})",
+                "query": symbol,
+                "resolved": rec,
+                "suggestions": _sr.suggest(symbol, limit=6),
+            }, status_code=404)
         result["resolved"] = rec
         return result
     except Exception as e:
@@ -2637,9 +2647,17 @@ def api_indicators_consensus(symbol: str):
         import symbol_resolver as _sr
         rec = _sr.resolve(symbol)
         if not rec:
-            return JSONResponse({"error": f"Cannot resolve symbol '{symbol}'"}, status_code=404)
+            suggestions = _sr.suggest(symbol, limit=6)
+            return JSONResponse({
+                "error": f"Cannot resolve '{symbol}'",
+                "query": symbol,
+                "suggestions": suggestions,
+            }, status_code=404)
         result = _ind.compute_consensus(rec["ticker"], rec["asset_class"])
         if result.get("error"):
+            result["query"] = symbol
+            result["resolved"] = rec
+            result["suggestions"] = _sr.suggest(symbol, limit=6)
             return JSONResponse(result, status_code=404)
         result["resolved"] = rec
         return result
