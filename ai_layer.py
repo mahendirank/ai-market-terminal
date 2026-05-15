@@ -90,45 +90,49 @@ Return ONLY a valid JSON array, nothing else. Example:
 [{{"i":1,"summary":"Fed holds rates, dollar weakens","sentiment":"BULL","impact":9,"assets":["GOLD","DXY"],"why":"Rate hold weakens dollar, boosts gold and risk assets"}}]"""
 
 
-# ── Groq API call ─────────────────────────────────────────────
-def _call_groq(news_items):
-    if not GROQ_API_KEY:
-        return []
+# ── Routed AI call (Groq primary, automatic fallback chain) ───────────
+# Replaces the legacy direct-Groq path. The router handles:
+#   - model selection per task (news_enrich → llama-3.1-8b currently)
+#   - fallback to ollama:llama3.2 if Groq fails or rate-limits
+#   - latency + token + cost logging to ai_calls.db
+#   - retry-friendly structured response envelope
+def _call_router(news_items):
     try:
-        resp = requests.post(
-            GROQ_URL,
-            headers={
-                "Authorization": f"Bearer {GROQ_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": GROQ_MODEL,
-                "messages": [
-                    {"role": "system", "content": _SYSTEM},
-                    {"role": "user",   "content": _make_prompt(news_items)}
-                ],
-                "max_tokens": 600,
-                "temperature": 0.1,
-                "response_format": {"type": "json_object"}
-            },
-            timeout=15
-        )
-        if resp.status_code == 200:
-            raw = resp.json()["choices"][0]["message"]["content"]
-            # Extract JSON array from response
-            m = re.search(r'\[.*\]', raw, re.DOTALL)
-            if m:
-                return json.loads(m.group(0))
-            # Try if it's wrapped in an object
-            obj = json.loads(raw)
-            for v in obj.values():
-                if isinstance(v, list):
-                    return v
-        elif resp.status_code == 429:
-            time.sleep(2)   # rate limit — back off
+        from ai_router import chat
+    except Exception as e:
+        log_msg = f"[ai_layer] ai_router import failed ({e}) — keyword fallback only"
+        print(log_msg, flush=True)
+        return []
+    messages = [
+        {"role": "system", "content": _SYSTEM},
+        {"role": "user",   "content": _make_prompt(news_items)},
+    ]
+    result = chat(
+        task="news_enrich",
+        messages=messages,
+        temperature=0.1,
+        max_tokens=600,
+        timeout=15,
+        extra={"response_format": {"type": "json_object"}},
+    )
+    if not result.ok or not result.content:
+        return []
+    raw = result.content
+    try:
+        m = re.search(r"\[.*\]", raw, re.DOTALL)
+        if m:
+            return json.loads(m.group(0))
+        obj = json.loads(raw)
+        for v in obj.values():
+            if isinstance(v, list):
+                return v
     except Exception:
         pass
     return []
+
+
+# Legacy alias — preserved for any code that still imports _call_groq directly
+_call_groq = _call_router
 
 
 # ── Ollama fallback (local only) ──────────────────────────────

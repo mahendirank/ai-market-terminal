@@ -2269,48 +2269,42 @@ Return ONLY this JSON object (no preamble, no markdown):
 }}"""
 
         messages = build_messages(prompt, include_few_shots=True)
-        groq_model = "llama-3.3-70b-versatile"
         prompt_chars = sum(len(m.get("content", "")) for m in messages)
-        groq_start_ms = int(_time.time() * 1000)
-        print(f"[HNI] groq REQ slug={cache_slug} model={groq_model} "
-              f"msgs={len(messages)} prompt_chars={prompt_chars} temp=0.15", flush=True)
+        print(f"[HNI] router REQ slug={cache_slug} task=hni msgs={len(messages)} prompt_chars={prompt_chars} temp=0.15", flush=True)
 
-        resp = _rq.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
-            json={
-                "model": groq_model,
-                "messages": messages,
-                "max_tokens": 1200,
-                "temperature": 0.15,
-            },
+        # Route via ai_router — automatic fallback chain (70b → 8b → ollama).
+        from ai_router import chat as _ai_chat
+        rr = _ai_chat(
+            task="hni",
+            messages=messages,
+            temperature=0.15,
+            max_tokens=1200,
             timeout=30,
         )
-        groq_elapsed_ms = int(_time.time() * 1000) - groq_start_ms
 
-        if resp.status_code != 200:
-            print(f"[HNI] groq ERR slug={cache_slug} status={resp.status_code} "
-                  f"elapsed_ms={groq_elapsed_ms} body={resp.text[:200]!r}", flush=True)
-            return JSONResponse({"error": "groq_error", "detail": resp.text[:200]}, status_code=503)
+        if not rr.ok:
+            print(f"[HNI] router FAIL slug={cache_slug} requested={rr.requested_model} "
+                  f"err={rr.error!r}", flush=True)
+            return JSONResponse({"error": "ai_router_failed", "detail": rr.error}, status_code=503)
 
-        groq_json = resp.json()
-        raw = groq_json["choices"][0]["message"]["content"].strip()
-        try:
-            usage = groq_json.get("usage", {})
-            print(f"[HNI] groq OK slug={cache_slug} elapsed_ms={groq_elapsed_ms} "
-                  f"prompt_tok={usage.get('prompt_tokens')} completion_tok={usage.get('completion_tokens')} "
-                  f"raw_chars={len(raw)}", flush=True)
-        except Exception:
-            pass
+        raw = rr.content.strip()
+        print(f"[HNI] router OK slug={cache_slug} model={rr.model_key} "
+              f"elapsed_ms={rr.latency_ms} tok={rr.prompt_tokens}/{rr.completion_tokens} "
+              f"cost=${rr.estimated_cost_usd:.6f} fallback_depth={rr.fallback_depth} "
+              f"raw_chars={len(raw)}", flush=True)
 
         _dbg["groq"] = {
-            "model": groq_model,
+            "requested_model": rr.requested_model,
+            "served_by_model": rr.model_key,
+            "provider":        rr.provider,
+            "fallback_depth":  rr.fallback_depth,
             "msgs": len(messages),
             "prompt_chars": prompt_chars,
             "temperature": 0.15,
-            "status": resp.status_code,
-            "elapsed_ms": groq_elapsed_ms,
-            "usage": groq_json.get("usage", {}),
+            "elapsed_ms": rr.latency_ms,
+            "usage": {"prompt_tokens": rr.prompt_tokens,
+                      "completion_tokens": rr.completion_tokens},
+            "estimated_cost_usd": rr.estimated_cost_usd,
             "raw_chars": len(raw),
             # Excerpt only — full prompt is too long for routine logs but useful in debug mode
             "prompt_excerpt": (messages[1]["content"][:600] if len(messages) > 1 else "")
@@ -2927,6 +2921,31 @@ def api_indicators_sentiment(symbol: str):
         s = dict(get_sentiment(rec["ticker"], rec["asset_class"]))
         s["resolved"] = rec
         return s
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ─── AI ROUTER STATS ──────────────────────────────────────────────────────
+# Aggregate latency / token / cost metrics from ai_calls.db. Use for capacity
+# planning, cost monitoring, and verifying fallback behaviour in production.
+
+@app.get("/api/ai/stats")
+def api_ai_stats(hours: int = 24):
+    """Per-model + per-task latency, success rate, token usage, and cost
+    estimate over the last ``hours`` (default 24)."""
+    try:
+        from ai_router import stats as _stats
+        return _stats(hours=max(1, min(int(hours), 168)))   # clamp 1h..7d
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/ai/health")
+def api_ai_health():
+    """Which providers are reachable + currently-configured task routes."""
+    try:
+        from ai_router import healthcheck
+        return healthcheck()
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
