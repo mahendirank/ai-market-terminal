@@ -1022,112 +1022,134 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 
     <!-- ═══ INDICATORS — 12-indicator engine + multi-TF consensus + AI blended score ═══ -->
     <style>
-      #indicators-panel { display:none; flex:1; flex-direction:column; background:#06090e; overflow:hidden; font-family:'SF Mono',Monaco,'Courier New',monospace; }
+      /* Typography hierarchy (4 tiers on dark bg #06090e)
+       *   T1 primary  #f0f4f8   ticker, scores, indicator names
+       *   T2 secondary#c0c8d4   values, body text
+       *   T3 tertiary #8a94a4   labels, column headers
+       *   T4 muted    #5a6478   metadata, dividers, chips
+       *   accent      #e8b85a   amber identity
+       *   bull        #6ec99a   /  bear #de8484                                */
+      #indicators-panel { display:none; flex:1; flex-direction:column; background:#06090e; overflow:hidden; font-family:'SF Mono',Monaco,'Courier New',monospace; -webkit-font-smoothing:antialiased; }
 
-      /* ── Header: single-row, 28px ──────────────────────────────────────── */
-      .ind-header { padding:0 10px; background:#080b10; border-bottom:1px solid #1c2230; display:flex; align-items:center; gap:8px; height:28px; flex-shrink:0; }
-      .ind-title  { color:#d4a64e; font-size:10px; font-weight:700; letter-spacing:1.5px; padding-right:8px; border-right:1px solid #1c2230; }
-      .ind-search-wrap { position:relative; flex:1; max-width:280px; }
-      .ind-search { width:100%; background:#0a0e14; border:1px solid #1c2230; color:#d4a64e; padding:3px 8px; font:inherit; font-size:10px; letter-spacing:0.5px; border-radius:2px; outline:none; text-transform:uppercase; height:20px; box-sizing:border-box; }
+      /* ── Header: 28px ─────────────────────────────────────────────────── */
+      .ind-header { padding:0 12px; background:#080b10; border-bottom:1px solid #1c2230; display:flex; align-items:center; gap:10px; height:28px; flex-shrink:0; }
+      .ind-title  { color:#e8b85a; font-size:11px; font-weight:700; letter-spacing:1.5px; padding-right:10px; border-right:1px solid #1c2230; }
+      .ind-search-wrap { position:relative; flex:1; max-width:300px; }
+      .ind-search { width:100%; background:#0a0e14; border:1px solid #1c2230; color:#e8b85a; padding:3px 9px; font:inherit; font-size:10.5px; letter-spacing:0.3px; border-radius:2px; outline:none; text-transform:uppercase; height:20px; box-sizing:border-box; }
       .ind-search::placeholder { color:#3a4658; text-transform:none; }
-      .ind-search:focus { border-color:#d4a64e; }
+      .ind-search:focus { border-color:#e8b85a; }
       .ind-suggest { position:absolute; top:100%; left:0; right:0; background:#0a0e14; border:1px solid #1c2230; border-top:none; max-height:260px; overflow-y:auto; z-index:50; display:none; }
       .ind-suggest.open { display:block; }
-      .ind-sg-item { padding:3px 8px; font-size:10px; color:#a8b0bd; cursor:pointer; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #0f1520; }
-      .ind-sg-item:hover, .ind-sg-item.active { background:#15110a; color:#d4a64e; }
-      .ind-sg-item .cls { font-size:8px; color:#4a5568; padding:0 4px; border:1px solid #1c2230; border-radius:2px; letter-spacing:1px; }
+      .ind-sg-item { padding:4px 9px; font-size:10.5px; color:#c0c8d4; cursor:pointer; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #0f1520; }
+      .ind-sg-item:hover, .ind-sg-item.active { background:#15110a; color:#e8b85a; }
+      .ind-sg-item .cls { font-size:8.5px; color:#7a8494; padding:0 5px; border:1px solid #1c2230; border-radius:2px; letter-spacing:1px; font-weight:600; }
       .ind-tfrow { display:flex; }
-      .ind-tf-btn { background:#0a0e14; border:1px solid #1c2230; border-right:none; color:#5a6478; padding:0 8px; height:20px; cursor:pointer; font:inherit; font-size:9px; letter-spacing:1px; font-weight:600; }
+      .ind-tf-btn { background:#0a0e14; border:1px solid #1c2230; border-right:none; color:#7a8494; padding:0 9px; height:20px; cursor:pointer; font:inherit; font-size:9.5px; letter-spacing:1px; font-weight:700; }
       .ind-tf-btn:last-child { border-right:1px solid #1c2230; }
-      .ind-tf-btn:hover { color:#d4a64e; }
-      .ind-tf-btn.active { background:#15110a; color:#d4a64e; border-color:#3a2a10; }
-      .ind-tf-btn.cons { color:#5a7a9a; }
-      .ind-tf-btn.cons.active { background:#0a1820; color:#5fa8c4; border-color:#1a3a4a; }
-      .ind-refresh { background:#0a0e14; border:1px solid #1c2230; color:#5a6478; font:inherit; font-size:11px; padding:0 7px; height:20px; cursor:pointer; }
-      .ind-refresh:hover { color:#d4a64e; }
-      .ind-updated { color:#3a4658; font-size:9px; letter-spacing:0.5px; margin-left:auto; }
+      .ind-tf-btn:hover { color:#e8b85a; }
+      .ind-tf-btn.active { background:#15110a; color:#e8b85a; border-color:#3a2a10; }
+      .ind-tf-btn.cons { color:#7a94a4; }
+      .ind-tf-btn.cons.active { background:#0a1820; color:#6fb8d4; border-color:#1a3a4a; }
+      .ind-refresh { background:#0a0e14; border:1px solid #1c2230; color:#7a8494; font:inherit; font-size:11px; padding:0 7px; height:20px; cursor:pointer; }
+      .ind-refresh:hover { color:#e8b85a; }
+      .ind-updated { color:#5a6478; font-size:9.5px; letter-spacing:0.5px; margin-left:auto; font-variant-numeric:tabular-nums; }
 
       /* ── Body ─────────────────────────────────────────────────────────── */
       .ind-body { flex:1; overflow-y:auto; padding:0; display:flex; flex-direction:column; }
-      .ind-empty { color:#3a4658; text-align:center; padding:60px 0; font-size:10px; letter-spacing:1px; }
+      .ind-empty { color:#5a6478; text-align:center; padding:60px 0; font-size:11px; letter-spacing:1px; }
 
-      /* ── Status strip: 24px row, ticker · class · price · chg · sentiment ── */
-      .ind-strip { display:flex; align-items:center; gap:0; height:24px; padding:0 10px; background:#080b10; border-bottom:1px solid #1c2230; font-size:10px; color:#a8b0bd; flex-shrink:0; }
-      .ind-strip .cell { padding:0 10px; border-right:1px solid #131a26; height:100%; display:flex; align-items:center; gap:6px; }
+      /* ── Status strip: 26px ───────────────────────────────────────────── */
+      .ind-strip { display:flex; align-items:center; gap:0; height:26px; padding:0 12px; background:#080b10; border-bottom:1px solid #1c2230; font-size:10.5px; color:#c0c8d4; flex-shrink:0; }
+      .ind-strip .cell { padding:0 12px; border-right:1px solid #131a26; height:100%; display:flex; align-items:center; gap:7px; }
+      .ind-strip .cell:first-child { padding-left:0; }
       .ind-strip .cell:last-child { border-right:none; }
-      .ind-strip .k { color:#4a5568; font-size:8px; letter-spacing:1.5px; font-weight:600; }
-      .ind-strip .v { color:#d8dee8; font-weight:600; }
-      .ind-strip .v.tk { color:#d4a64e; letter-spacing:1px; }
-      .ind-strip .chip { font-size:8px; color:#5a6478; padding:0 5px; border:1px solid #1c2230; border-radius:1px; letter-spacing:1px; font-weight:700; height:14px; display:inline-flex; align-items:center; }
-      .ind-strip .chg.up { color:#5fb98a; } .ind-strip .chg.dn { color:#cf7575; }
+      .ind-strip .k { color:#7a8494; font-size:8.5px; letter-spacing:1.5px; font-weight:700; }
+      .ind-strip .v { color:#f0f4f8; font-weight:600; font-variant-numeric:tabular-nums; }
+      .ind-strip .v.tk { color:#e8b85a; letter-spacing:1px; font-size:11.5px; font-weight:700; }
+      .ind-strip .chip { font-size:8.5px; color:#8a94a4; padding:0 6px; border:1px solid #1c2230; border-radius:1px; letter-spacing:1px; font-weight:700; height:15px; display:inline-flex; align-items:center; }
+      .ind-strip .chg { font-variant-numeric:tabular-nums; font-weight:700; }
+      .ind-strip .chg.up { color:#6ec99a; } .ind-strip .chg.dn { color:#de8484; }
 
-      /* ── Composite row: 32px, one line ────────────────────────────────── */
-      .ind-comp { display:flex; align-items:center; height:32px; padding:0 10px; background:#0a0e14; border-bottom:1px solid #1c2230; gap:14px; font-size:10px; }
-      .ind-comp .lbl { color:#4a5568; font-size:8px; letter-spacing:1.5px; font-weight:600; }
-      .ind-comp .score { font-size:14px; font-weight:700; letter-spacing:0.5px; }
-      .ind-comp .tag { font-size:9px; font-weight:700; letter-spacing:1.5px; padding:1px 6px; border:1px solid; border-radius:1px; }
-      .ind-comp .bar-wrap { flex:1; display:flex; align-items:center; gap:6px; max-width:380px; }
-      .ind-comp .bar { flex:1; height:8px; display:flex; background:#0e1520; border:1px solid #1c2230; border-radius:1px; overflow:hidden; }
-      .ind-comp .bar .bull { background:#5fb98a; }
-      .ind-comp .bar .bear { background:#cf7575; }
-      .ind-comp .pct { color:#7a8494; font-size:9px; min-width:34px; text-align:right; }
-      .ind-comp .pct.bull { color:#5fb98a; } .ind-comp .pct.bear { color:#cf7575; }
-      .ind-comp .conf { color:#d4a64e; font-weight:700; }
-      .ind-comp .counts { color:#5a6478; font-size:9px; }
-      .ind-comp .counts .b { color:#5fb98a; } .ind-comp .counts .s { color:#cf7575; }
+      /* ── Composite row: 34px, one line ────────────────────────────────── */
+      .ind-comp { display:flex; align-items:center; height:34px; padding:0 12px; background:#0a0e14; border-bottom:1px solid #1c2230; gap:14px; font-size:10.5px; }
+      .ind-comp .lbl { color:#7a8494; font-size:8.5px; letter-spacing:1.5px; font-weight:700; }
+      .ind-comp .score { font-size:17px; font-weight:800; letter-spacing:-0.3px; font-variant-numeric:tabular-nums; min-width:54px; }
+      .ind-comp .tag { font-size:9.5px; font-weight:700; letter-spacing:1.5px; padding:2px 7px; border:1px solid; border-radius:1px; white-space:nowrap; }
+      .ind-comp .bar-wrap { flex:1; display:flex; align-items:center; gap:7px; max-width:420px; }
+      .ind-comp .bar { flex:1; height:10px; display:flex; background:#0e1520; border:1px solid #1c2230; border-radius:1px; overflow:hidden; }
+      .ind-comp .bar .bull { background:#6ec99a; }
+      .ind-comp .bar .bear { background:#de8484; }
+      .ind-comp .pct { font-size:10px; min-width:38px; text-align:right; font-variant-numeric:tabular-nums; font-weight:700; }
+      .ind-comp .pct.bull { color:#6ec99a; } .ind-comp .pct.bear { color:#de8484; }
+      .ind-comp .conf { color:#e8b85a; font-weight:700; font-variant-numeric:tabular-nums; }
+      .ind-comp .counts { color:#8a94a4; font-size:10px; font-variant-numeric:tabular-nums; font-weight:600; }
+      .ind-comp .counts .b { color:#6ec99a; } .ind-comp .counts .s { color:#de8484; }
 
-      /* ── Signal classes (used by tags + cells) ────────────────────────── */
-      .sg-STRONG-BUY  { color:#5fb98a; border-color:#2a4a3a; background:rgba(95,185,138,0.06); }
-      .sg-BUY         { color:#5fb98a; border-color:#2a4a3a; }
-      .sg-NEUTRAL     { color:#5a6478; border-color:#1c2230; }
-      .sg-SELL        { color:#cf7575; border-color:#4a2a2a; }
-      .sg-STRONG-SELL { color:#cf7575; border-color:#4a2a2a; background:rgba(207,117,117,0.06); }
-      .c-bull { color:#5fb98a; } .c-bear { color:#cf7575; } .c-neu { color:#5a6478; }
+      /* ── Signal classes ───────────────────────────────────────────────── */
+      .sg-STRONG-BUY  { color:#6ec99a; border-color:#3a5a48; background:rgba(110,201,154,0.10); }
+      .sg-BUY         { color:#6ec99a; border-color:#2a4a3a; }
+      .sg-NEUTRAL     { color:#8a94a4; border-color:#1c2230; }
+      .sg-SELL        { color:#de8484; border-color:#4a2a2a; }
+      .sg-STRONG-SELL { color:#de8484; border-color:#5a3030; background:rgba(222,132,132,0.10); }
+      .c-bull { color:#6ec99a; } .c-bear { color:#de8484; } .c-neu { color:#8a94a4; }
 
-      /* ── Indicator table: dense rows, 22px each ───────────────────────── */
-      .ind-tbl { width:100%; border-collapse:collapse; font-size:10px; }
-      .ind-tbl thead th { background:#080b10; color:#4a5568; font-weight:600; letter-spacing:1.5px; font-size:8px; padding:4px 8px; text-align:left; border-bottom:1px solid #1c2230; position:sticky; top:0; }
+      /* ── Indicator table: dense rows, 24px each, fixed layout ─────────── */
+      .ind-tbl { width:100%; border-collapse:collapse; font-size:10.5px; table-layout:fixed; }
+      .ind-tbl col.c-cat { width:48px; }
+      .ind-tbl col.c-nm  { width:108px; }
+      .ind-tbl col.c-v   { width:96px; }
+      .ind-tbl col.c-str { width:72px; }
+      .ind-tbl col.c-bd  { width:40px; }
+      /* c-ex: remaining width */
+      .ind-tbl thead th { background:#080b10; color:#8a94a4; font-weight:700; letter-spacing:1.5px; font-size:9px; padding:5px 10px; text-align:left; border-bottom:1px solid #1c2230; position:sticky; top:0; }
       .ind-tbl thead th.r { text-align:right; }
       .ind-tbl thead th.c { text-align:center; }
-      .ind-tbl tbody td { padding:0 8px; height:22px; border-bottom:1px solid #0e1520; color:#a8b0bd; }
-      .ind-tbl tbody tr:hover td { background:#0a0e14; }
-      .ind-tbl tbody td.cat { color:#4a5568; font-size:8px; letter-spacing:1.5px; font-weight:600; width:42px; }
-      .ind-tbl tbody td.nm  { color:#d8dee8; font-weight:600; width:90px; }
-      .ind-tbl tbody td.v   { color:#d8dee8; text-align:right; width:80px; font-variant-numeric:tabular-nums; }
-      .ind-tbl tbody td.bd  { text-align:center; width:36px; padding:0; }
-      .ind-tbl tbody td.bd .badge { display:inline-block; width:18px; height:14px; line-height:14px; font-size:9px; font-weight:700; border-radius:1px; }
-      .badge.B { background:rgba(95,185,138,0.18); color:#5fb98a; }
-      .badge.S { background:rgba(207,117,117,0.18); color:#cf7575; }
-      .badge.N { background:rgba(90,100,120,0.15); color:#5a6478; }
-      .ind-tbl tbody td.str { width:60px; padding:0 8px; }
-      .ind-tbl tbody td.str .sbar { position:relative; height:4px; background:#0e1520; border-radius:1px; overflow:hidden; }
+      .ind-tbl tbody td { padding:0 10px; height:24px; border-bottom:1px solid #161e2a; color:#c0c8d4; font-variant-numeric:tabular-nums; }
+      .ind-tbl tbody tr.r-B td { background:rgba(110,201,154,0.035); }
+      .ind-tbl tbody tr.r-S td { background:rgba(222,132,132,0.035); }
+      .ind-tbl tbody tr:hover td { background:#0c1218; }
+      .ind-tbl tbody tr.r-B:hover td { background:rgba(110,201,154,0.07); }
+      .ind-tbl tbody tr.r-S:hover td { background:rgba(222,132,132,0.07); }
+      .ind-tbl tbody td.cat { color:#7a8494; font-size:9px; letter-spacing:1.5px; font-weight:700; }
+      .ind-tbl tbody td.nm  { color:#f0f4f8; font-weight:600; letter-spacing:0.3px; }
+      .ind-tbl tbody td.v   { color:#f0f4f8; text-align:right; font-weight:600; }
+      .ind-tbl tbody td.bd  { text-align:center; padding:0; }
+      .ind-tbl tbody td.bd .badge { display:inline-block; width:22px; height:16px; line-height:16px; font-size:10.5px; font-weight:800; border-radius:2px; letter-spacing:0; }
+      .badge.B { background:rgba(110,201,154,0.22); color:#6ec99a; }
+      .badge.S { background:rgba(222,132,132,0.22); color:#de8484; }
+      .badge.N { background:rgba(138,148,164,0.12); color:#7a8494; }
+      .ind-tbl tbody td.str { padding:0 10px; }
+      .ind-tbl tbody td.str .sbar { position:relative; height:5px; background:#0e1520; border-radius:1px; overflow:hidden; }
       .ind-tbl tbody td.str .sfill { position:absolute; top:0; height:100%; }
-      .ind-tbl tbody td.str .sfill.up { background:#5fb98a; left:50%; }
-      .ind-tbl tbody td.str .sfill.dn { background:#cf7575; right:50%; }
-      .ind-tbl tbody td.str .saxis { position:absolute; left:50%; top:-1px; height:6px; width:1px; background:#1c2230; }
-      .ind-tbl tbody td.ex  { color:#7a8494; font-size:10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:0; }
+      .ind-tbl tbody td.str .sfill.up { background:#6ec99a; left:50%; }
+      .ind-tbl tbody td.str .sfill.dn { background:#de8484; right:50%; }
+      .ind-tbl tbody td.str .saxis { position:absolute; left:50%; top:-2px; height:9px; width:1px; background:#2a3344; }
+      .ind-tbl tbody td.ex  { color:#8a94a4; font-size:10.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
       /* ── Consensus TF strip + heatmap ─────────────────────────────────── */
-      .ind-tfstrip { display:flex; height:22px; border-bottom:1px solid #1c2230; background:#0a0e14; font-size:9px; }
-      .ind-tfstrip .tfcell { flex:1; display:flex; align-items:center; justify-content:center; gap:6px; border-right:1px solid #131a26; color:#7a8494; letter-spacing:1px; }
+      .ind-tfstrip { display:flex; height:26px; border-bottom:1px solid #1c2230; background:#0a0e14; font-size:10px; }
+      .ind-tfstrip .tfcell { flex:1; display:flex; align-items:center; justify-content:center; gap:8px; border-right:1px solid #131a26; color:#c0c8d4; letter-spacing:0.5px; }
       .ind-tfstrip .tfcell:last-child { border-right:none; }
-      .ind-tfstrip .tfcell .tk { color:#4a5568; font-size:8px; font-weight:700; letter-spacing:1.5px; }
-      .ind-tfstrip .tfcell .v  { font-weight:700; font-variant-numeric:tabular-nums; }
+      .ind-tfstrip .tfcell .tk { color:#7a8494; font-size:9px; font-weight:700; letter-spacing:1.5px; }
+      .ind-tfstrip .tfcell .v  { font-weight:800; font-variant-numeric:tabular-nums; font-size:11.5px; }
+      .ind-tfstrip .tfcell .lbl { color:#7a8494; font-size:9px; font-weight:700; letter-spacing:1px; }
 
-      .ind-heat { width:100%; border-collapse:collapse; font-size:10px; }
-      .ind-heat thead th { background:#080b10; color:#4a5568; font-size:8px; letter-spacing:1.5px; font-weight:600; padding:4px 8px; border-bottom:1px solid #1c2230; text-align:center; position:sticky; top:0; }
+      .ind-heat { width:100%; border-collapse:collapse; font-size:10.5px; table-layout:fixed; }
+      .ind-heat col.c-cat { width:48px; }
+      .ind-heat col.c-nm  { width:128px; }
+      .ind-heat thead th { background:#080b10; color:#8a94a4; font-size:9px; letter-spacing:1.5px; font-weight:700; padding:5px 10px; border-bottom:1px solid #1c2230; text-align:center; position:sticky; top:0; }
       .ind-heat thead th.lbl { text-align:left; }
-      .ind-heat tbody td { padding:0 8px; height:22px; border-bottom:1px solid #0e1520; text-align:center; font-weight:700; font-size:10px; }
-      .ind-heat tbody tr:hover td { background:#0a0e14; }
-      .ind-heat tbody td.lbl { text-align:left; color:#d8dee8; font-weight:500; }
-      .ind-heat tbody td.cat { text-align:left; color:#4a5568; font-size:8px; letter-spacing:1.5px; width:42px; }
-      .ind-heat tbody td.B { color:#5fb98a; background:rgba(95,185,138,0.06); }
-      .ind-heat tbody td.S { color:#cf7575; background:rgba(207,117,117,0.06); }
-      .ind-heat tbody td.N { color:#3a4658; }
-      .ind-heat tbody td.NA { color:#1c2230; }
+      .ind-heat tbody td { padding:0 10px; height:24px; border-bottom:1px solid #161e2a; text-align:center; font-weight:800; font-size:11px; }
+      .ind-heat tbody tr:hover td { background:#0c1218; }
+      .ind-heat tbody td.lbl { text-align:left; color:#f0f4f8; font-weight:600; letter-spacing:0.3px; }
+      .ind-heat tbody td.cat { text-align:left; color:#7a8494; font-size:9px; letter-spacing:1.5px; font-weight:700; }
+      .ind-heat tbody td.B { color:#6ec99a; background:rgba(110,201,154,0.08); }
+      .ind-heat tbody td.S { color:#de8484; background:rgba(222,132,132,0.08); }
+      .ind-heat tbody td.N { color:#5a6478; }
+      .ind-heat tbody td.NA { color:#2a3344; }
 
-      .ind-sect { padding:6px 10px; background:#080b10; border-bottom:1px solid #1c2230; color:#4a5568; font-size:8px; letter-spacing:1.5px; font-weight:600; display:flex; justify-content:space-between; align-items:center; }
-      .ind-sect .meta { color:#3a4658; font-weight:400; }
+      .ind-sect { padding:7px 12px; background:#080b10; border-bottom:1px solid #1c2230; color:#8a94a4; font-size:9px; letter-spacing:1.5px; font-weight:700; display:flex; justify-content:space-between; align-items:center; }
+      .ind-sect .meta { color:#5a6478; font-weight:500; letter-spacing:1px; }
     </style>
 
     <div id="indicators-panel">
@@ -1350,7 +1372,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
           const x = ind[k]; if (!x) return '';
           const badge = _indBadge(x.signal);
           const v = x.value != null ? (typeof x.value === 'number' ? x.value.toLocaleString('en-US',{maximumFractionDigits:4}) : x.value) : '—';
-          return `<tr title="${(x.explanation||'').replace(/"/g,'&quot;')}">
+          return `<tr class="r-${badge}" title="${(x.explanation||'').replace(/"/g,'&quot;')}">
             <td class="cat">${cat}</td>
             <td class="nm">${x.name}</td>
             <td class="v">${v}</td>
@@ -1365,6 +1387,9 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
           _indCompositeRow(d.composite || {}, { label: 'COMPOSITE · ' + d.timeframe_label }) +
           `<div class="ind-sect">▸ INDICATORS <span class="meta">${_IND_ORDER.length} active · hover row for detail</span></div>
            <table class="ind-tbl">
+             <colgroup>
+               <col class="c-cat"><col class="c-nm"><col class="c-v"><col class="c-str"><col class="c-bd"><col>
+             </colgroup>
              <thead><tr><th>CAT</th><th>INDICATOR</th><th class="r">VALUE</th><th class="c">STRENGTH</th><th class="c">SIG</th><th>EXPLANATION</th></tr></thead>
              <tbody>${rows}</tbody>
            </table>`;
@@ -1420,6 +1445,9 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
            <div class="ind-tfstrip">${tfStrip}</div>
            <div class="ind-sect">▸ HEATMAP <span class="meta">B/S/· per indicator × timeframe — hover for explanation</span></div>
            <table class="ind-heat">
+             <colgroup>
+               <col class="c-cat"><col class="c-nm">${tfs.map(()=>'<col>').join('')}
+             </colgroup>
              <thead><tr><th class="lbl">CAT</th><th class="lbl">INDICATOR</th>${tfs.map(t => `<th>${t.toUpperCase()}</th>`).join('')}</tr></thead>
              <tbody>${heatRows}</tbody>
            </table>`;
