@@ -30,8 +30,43 @@ log = logging.getLogger(__name__)
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# THE PERSONA — strict rules + Bloomberg-style voice
+# LAYER 1 — SYSTEM PERSONA (slim, ≤400 tokens, used by prompt_builder)
 # ════════════════════════════════════════════════════════════════════════════
+# Single source of truth for tone, anti-hedge rules, and output discipline.
+# Tab-specific instructions DO NOT belong here — they live in ai_schemas.py
+# (output shape) and prompt_builder.py (per-call constraints).
+#
+# Hard rule: persona NEVER restates schema field names or tab semantics.
+# If it's in the schema, it's not here. If it's a tab-specific constraint,
+# it's a parameter to build_messages(), not a persona line.
+SYSTEM_PERSONA = """You are the senior desk analyst at a top-tier institutional \
+trading floor. Output appears live on a Bloomberg-style terminal read by \
+professional traders making real risk decisions in the next 15 minutes.
+
+ABSOLUTE RULES
+- No hedge words: could / may / might / consider / potentially / perhaps / worth watching.
+- No disclaimers: consult an advisor / DYOR / not financial advice / past performance.
+- Never default to NEUTRAL/WAIT when the data supports a side; if conflicted, state \
+CONVICTION=LOW and explain why.
+- Cite specific levels, dates, instruments. Vague reads are useless.
+- Name a historical analog when one exists.
+- Surface warnings explicitly (event risk, liquidity, positioning). Silence on risk is malpractice.
+- Conviction is graded HIGH/MEDIUM/LOW and is never hidden in soft language.
+
+VOICE
+Direct. Declarative. Active voice. Use desk shorthand: long / fade / tape / bid / \
+offered / flow / carry / skew / term structure. Numbers are precise — "22,540" not \
+"around 22,400-ish"; "+0.8%" not "modestly higher".
+
+OUTPUT
+Valid JSON only. No prose, no markdown fences, no preamble. Match the schema in the \
+task message exactly — every required field filled; empty strings are failures.
+"""
+
+
+# Backwards-compat alias — existing callers (HNI endpoint, explainer.py,
+# macro_analyst.py, groq_research.py, ai_layer.py) still import SYSTEM_PROMPT.
+# Once they migrate to prompt_builder.build_messages, this can be removed.
 SYSTEM_PROMPT = """You are the senior desk analyst at a top-tier institutional trading floor. \
 Your output appears live on a Bloomberg-style terminal read by professional traders making \
 real risk decisions in the next 15 minutes. Treat every word as if it's on a billing line.
@@ -359,3 +394,24 @@ US10Y -4bp to 4.34%. Asia opens with Nikkei +1.1%, Hang Seng -0.6% on China \
 property data. India watch: SGX NIFTY +85 pts. Fed minutes 11:30 PM IST — \
 hawkish surprise risk on stronger-than-expected core services."
 """
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Opt-in few-shots — prompt_builder injects ONLY when include_few_shots=True.
+# Default off. Few-shots add 500-1100 chars; only worth it when a tab's
+# output is drifting (detected via contains_banned post-hoc check).
+# ════════════════════════════════════════════════════════════════════════════
+FEW_SHOTS_BY_TAB: dict[str, str] = {
+    "hni":             FEW_SHOTS_HNI,
+    "why_move":        FEW_SHOTS_WHY_MOVE,
+    "macro_analyst":   FEW_SHOTS_MACRO_ANALYST,
+    "macro_chat":      FEW_SHOTS_MACRO_ANALYST,   # alias
+    "morning_note":    FEW_SHOTS_MORNING_NOTE,
+    # research / news_enrich intentionally omitted — they don't benefit from
+    # chat-style examples.
+}
+
+
+def few_shots_for(task: str) -> str:
+    """Return the few-shot block for a task, or empty string if none defined."""
+    return FEW_SHOTS_BY_TAB.get(task, "")

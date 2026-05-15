@@ -565,6 +565,157 @@ def get_intel_snapshot(symbol: Optional[str] = None, *,
     return snap
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# LAYER 2 — Compact state block (used by prompt_builder)
+# ════════════════════════════════════════════════════════════════════════════
+# Tight syntax. No verbose section headers. Drops anything redundant with
+# Layer 1 (persona) or Layer 3 (task/schema). The model reads, doesn't reason
+# about the format.
+#
+# Target: ≤ 1000 chars for typical snapshots (~250 tokens). Compare to
+# format_intel_for_prompt's ~2000 chars (~500 tokens).
+def format_state_compact(snap: dict, *, max_clusters: int = 8,
+                          max_anomalies: int = 4, max_events: int = 5) -> str:
+    """Compact L2 state block for new-architecture prompt_builder.
+
+    Drops the verbose human-readable section headers used in the legacy
+    formatter. Single short line per concept where possible.
+    """
+    if not snap or snap.get("error"):
+        return "STATE: unavailable"
+
+    lines: list[str] = []
+
+    # Regime — prefer v2 state vector summary when meaningful
+    rs = snap.get("regime_state") or {}
+    r  = snap.get("regime", {}) or {}
+    if rs.get("composite") and rs.get("confidence", 0) > 0:
+        # Dimensions as a single dense line: "RISK=70 INFL=55 FED=50 VOL=15 CRD=45 BRD=60"
+        dims = rs.get("dimensions") or {}
+        dim_bits = " ".join(
+            f"{k[:4]}={int((dims.get(k) or {}).get('score') or 0)}"
+            for k in ("RISK", "INFLATION", "FED", "VOLATILITY", "CREDIT", "BREADTH")
+            if dims.get(k)
+        )
+        lines.append(f"REG: {rs['composite']}/{rs.get('confidence',0)}%  {dim_bits}")
+        for t in (rs.get("transitions") or [])[:2]:
+            lines.append(f"  Δ{t['dim']}:{t['prev_score']:.0f}→{t['curr_score']:.0f}")
+    elif r.get("regime"):
+        lines.append(f"REG: {r.get('regime','?')}/{r.get('confidence',0)}%")
+
+    # Fear/greed — both gauges on one line
+    fg = snap.get("fear_greed") or {}
+    local = (fg.get("local") or {}).get("score")
+    cnn   = (fg.get("cnn")   or {}).get("score")
+    if local is not None or cnn is not None:
+        lines.append(f"FNG: local={local}  cnn={cnn}")
+
+    # Sentiment tilt
+    s = snap.get("sentiment") or {}
+    if s.get("sample_size"):
+        bits = [f"score={s.get('tilt_score',0):+.2f}", f"n={s.get('sample_size',0)}"]
+        # Top 4 per-asset (handles both v1 and v2 shapes)
+        rich = s.get("by_asset") if isinstance(s.get("by_asset"), dict) else None
+        if rich:
+            ranked = sorted(rich.items(),
+                            key=lambda kv: abs(kv[1].get("score",0)), reverse=True)[:4]
+            bits.append(" ".join(f"{k}{v['score']:+.2f}" for k, v in ranked))
+        elif s.get("asset_scores"):
+            ranked = sorted(s["asset_scores"].items(),
+                            key=lambda kv: abs(kv[1]), reverse=True)[:4]
+            bits.append(" ".join(f"{k}{v:+.2f}" for k, v in ranked))
+        lines.append(f"TILT[{s.get('macro_tilt','?')}]: " + " ".join(bits))
+
+    # Macro snapshot — single line, key levels only
+    m = snap.get("macro_snapshot") or {}
+    macro_bits = []
+    for k in ("dxy", "us10y", "vix", "gold", "oil", "btc"):
+        v = m.get(k)
+        if v is None:
+            continue
+        if isinstance(v, dict):
+            p = v.get("price") or v.get("last")
+            macro_bits.append(f"{k.upper()}:{p}")
+        else:
+            macro_bits.append(f"{k.upper()}:{v}")
+    if macro_bits:
+        lines.append("MAC: " + " ".join(macro_bits))
+
+    # Correlation anomalies (one per line, σ-deviation only)
+    anomalies = (snap.get("correlations") or {}).get("anomalies", [])
+    for a in anomalies[:max_anomalies]:
+        try:
+            lines.append(
+                f"COR: {a.get('a','?')}/{a.get('b','?')} "
+                f"now={a.get('corr',0):+.2f} exp={a.get('expected',0):+.2f} "
+                f"({a.get('sigma',0):+.1f}σ)"
+            )
+        except Exception:
+            continue
+
+    # Event distribution one-liner
+    by_cat = ((snap.get("events_classified") or {}).get("by_category")) or {}
+    if by_cat:
+        top = sorted(by_cat.items(), key=lambda kv: kv[1].get("max_sev", 0), reverse=True)[:4]
+        lines.append("EVT: " + " ".join(
+            f"{c[:6]}={d.get('count',0)}/s{d.get('max_sev',0)}"
+            for c, d in top
+        ))
+
+    # Upcoming events
+    events = snap.get("events") or {}
+    cb   = events.get("central_bank", [])
+    econ = events.get("economic", [])
+    ern  = events.get("earnings_high_impact", [])
+    upcoming = []
+    for e in cb[:2]:
+        upcoming.append(f"CB {(e.get('date') or '')[:10]} {e.get('bank','')[:4]} {(e.get('event') or '')[:35]}")
+    for e in econ[:2]:
+        upcoming.append(f"ECON {(e.get('date') or '')[:10]} {e.get('country','')[:4]} {(e.get('event') or '')[:35]}")
+    for e in ern[:1]:
+        tk = e.get('ticker') or e.get('symbol','')
+        upcoming.append(f"ERN {(e.get('date','') or '')[:10]} {tk} {(e.get('company','') or '')[:30]}")
+    if upcoming:
+        lines.append("UPCOMING:")
+        for u in upcoming[:max_events]:
+            lines.append(f"  {u}")
+
+    # Top clusters — terse
+    clusters = (snap.get("news") or {}).get("clusters", [])[:max_clusters]
+    if clusters:
+        lines.append("CLUSTERS:")
+        for c in clusters:
+            srcs = ",".join(c.get("sources", [])[:2])
+            ev   = (c.get("event") or {}).get("category", "")
+            sev  = (c.get("event") or {}).get("severity", "")
+            tag  = f" [{ev}/s{sev}]" if ev else ""
+            lines.append(f"  • {c.get('topic','')[:110]}  ({srcs},n={c.get('size',1)}){tag}")
+
+    # Historical analogs — one per line, terse
+    analogs = snap.get("analogs") or []
+    if analogs:
+        lines.append("ANALOGS:")
+        for a in analogs[:3]:
+            fr = a.get("forward_returns") or {}
+            fr_bits = ""
+            if fr:
+                fr_bits = "  fwd:" + ",".join(f"{k}{v:+.2f}%" for k, v in list(fr.items())[:2])
+            lines.append(
+                f"  • {(a.get('date_label') or '?')[:30]}  d={a.get('distance',0):.2f}{fr_bits}  "
+                f"{(a.get('commentary') or '')[:60]}"
+            )
+
+    # Symbol focus (compact)
+    sf = snap.get("symbol_focus")
+    if sf:
+        lines.append(
+            f"FOCUS[{sf.get('symbol','')}]: senti={sf.get('sentiment_score','-')}  "
+            f"related={len(sf.get('related_clusters', []))}"
+        )
+
+    return "\n".join(lines)
+
+
 # ─── Prompt formatter — what AI tabs paste into their user message ──────────
 def format_intel_for_prompt(snap: dict, *, include_clusters: int = 10) -> str:
     """Render the snapshot as a tight text block AI prompts can paste in.
