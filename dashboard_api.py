@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Body, Request, Response, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, RedirectResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import asyncio
@@ -2206,32 +2206,42 @@ async def hni_summary_standalone(request: Request):
                 "they may be on different tickers."
             )
 
+        # ── Structured market intel — replaces scattered regime + macro + news blocks ──
+        # Single STRUCTURED INTEL block: clustered news, per-asset sentiment,
+        # composite F&G, correlation anomalies, upcoming events, regime read.
+        # Falls back gracefully to the old blocks if market_intel fails.
+        try:
+            from market_intel import get_intel_snapshot, format_intel_for_prompt
+            intel_snap  = get_intel_snapshot(symbol=(resolved or {}).get("display"))
+            intel_block = format_intel_for_prompt(intel_snap, include_clusters=10)
+        except Exception as _e:
+            print(f"[HNI] market_intel unavailable ({_e}) — falling back to raw blocks", flush=True)
+            intel_block = ""
+
+        # Fallback assembly when intel pipeline fails — keep legacy raw blocks
+        if not intel_block:
+            intel_block = (
+                f"=== MARKET REGIME ENGINE OUTPUT ===\n{regime_block}\n\n"
+                f"=== LIVE INDICES ===\n{idx_block}\n\n"
+                f"=== MACRO DATA ===\n{macro_block}\n\n"
+                f"=== HIGH-PRIORITY NEWS FEED ===\n{news_block}"
+            )
+
         prompt = f"""Generate the live HNI desk read for the next 15-min window.
 
 {focus_header}
 
 {setup_constraint}
 
-The regime engine has already classified conditions — your trade_bias, conviction \
-and hni_view MUST be consistent with it. If you disagree, state CONVICTION=LOW and \
-explain in hni_view why the engine read differs from price action.
+The structured intel below is your PRIMARY CONTEXT — trade_bias, conviction
+and hni_view MUST be consistent with it. If signals conflict (e.g. regime
+bullish but sentiment tilt bearish), state CONVICTION=LOW and call out the
+conflict in hni_view. Cite specific cluster topics by name where relevant.
 
-=== MARKET REGIME ENGINE OUTPUT ===
-{regime_block}
+{intel_block}
 
 {perf_block}
 {recent_calls_block}
-
-{upcoming_block}
-
-=== LIVE INDICES ===
-{idx_block}
-
-=== MACRO DATA ===
-{macro_block}
-
-=== HIGH-PRIORITY NEWS FEED ===
-{news_block}
 
 Return ONLY this JSON object (no preamble, no markdown):
 
@@ -2921,6 +2931,53 @@ def api_indicators_sentiment(symbol: str):
         s = dict(get_sentiment(rec["ticker"], rec["asset_class"]))
         s["resolved"] = rec
         return s
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ─── MARKET INTELLIGENCE ─────────────────────────────────────────────────
+# Unified structured snapshot AI tabs reason from. See market_intel.py.
+
+@app.get("/api/intel/snapshot")
+def api_intel_snapshot(symbol: str = "", clusters: int = 20, force: bool = False):
+    """Full market intel snapshot — regime + correlations + F&G + clusters +
+    per-asset sentiment + upcoming events. Optional `symbol=...` adds a focus
+    block with related clusters."""
+    try:
+        from market_intel import get_intel_snapshot
+        sym = symbol.strip() or None
+        return get_intel_snapshot(symbol=sym, max_clusters=max(5, min(int(clusters), 50)),
+                                  force=bool(force))
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/intel/clusters")
+def api_intel_clusters(limit: int = 20):
+    """Just the clustered news view — useful for the dashboard's news panel
+    or quick scans without pulling the full snapshot."""
+    try:
+        from market_intel import get_intel_snapshot
+        snap = get_intel_snapshot(max_clusters=max(5, min(int(limit), 50)))
+        return {
+            "clusters": snap.get("news", {}).get("clusters", []),
+            "stats":    snap.get("news", {}).get("stats", {}),
+            "ts":       snap.get("ts"),
+        }
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/intel/prompt")
+def api_intel_prompt(symbol: str = "", clusters: int = 10):
+    """Returns the formatted prompt block AI tabs paste into their context.
+    Useful for verifying what the AI actually sees."""
+    try:
+        from market_intel import get_intel_snapshot, format_intel_for_prompt
+        sym = symbol.strip() or None
+        snap = get_intel_snapshot(symbol=sym)
+        block = format_intel_for_prompt(snap, include_clusters=max(1, min(int(clusters), 30)))
+        return PlainTextResponse(block)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
