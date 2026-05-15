@@ -374,7 +374,8 @@ def get_intel_snapshot(symbol: Optional[str] = None, *,
     force : bool
         Skip cache and recompute.
     """
-    cache_key = f"intel:snap:{symbol or '_market_'}:{max_clusters}"
+    # Bump cache key on v2 so old shape doesn't get served from cache after rollout
+    cache_key = f"intel:snap:v2:{symbol or '_market_'}:{max_clusters}"
     if not force:
         cached = _cache_get(cache_key)
         if cached:
@@ -414,16 +415,103 @@ def get_intel_snapshot(symbol: Optional[str] = None, *,
         macro    = _await("macro",    {})
         news_raw = _await("news",     [])
 
-    # Clustering — only after dedup pass
-    from intel_cluster import cluster_headlines, compression_stats
-    clusters = cluster_headlines(news_raw, max_clusters=max_clusters)
+    # ── v2 INTEL LAYER — event classification → dedup → regime engine →
+    #    sentiment weighting → market memory (analog finder)
+    # Each step degrades gracefully: an import or compute failure on any
+    # v2 module falls back to the v1 path so existing behaviour is preserved.
 
-    # Per-asset sentiment from enriched news
-    sentiment_agg = _aggregate_sentiment_by_asset(news_raw)
+    # Step 1: classify each news item by event taxonomy. Adds `event` field
+    # in-place. Powers downstream sentiment_weighting + regime FED/INFL dims.
+    try:
+        from event_classifier import classify_batch, summarize_distribution
+        news_raw = classify_batch(news_raw)
+        events_summary = summarize_distribution(news_raw)
+    except Exception as e:
+        log.debug("event_classifier failed: %s", e)
+        events_summary = {}
 
-    # Composite local F&G
+    # Step 2: dedup. Use the stronger news_deduper when available, fall back
+    # to intel_cluster otherwise.
+    try:
+        from news_deduper import dedupe_news, compression_stats as v2_stats
+        clusters = dedupe_news(news_raw, max_clusters=max_clusters)
+        cluster_stats = v2_stats(len(news_raw), clusters)
+    except Exception as e:
+        log.debug("news_deduper failed, falling back to intel_cluster: %s", e)
+        from intel_cluster import cluster_headlines, compression_stats
+        clusters = cluster_headlines(news_raw, max_clusters=max_clusters)
+        cluster_stats = compression_stats(len(news_raw), clusters)
+
+    # Step 3: per-asset weighted sentiment (uses event classifications).
+    # If classifications missing, falls back to the v1 aggregator.
+    try:
+        from sentiment_weighting import aggregate as weighted_aggregate
+        sentiment_v2 = weighted_aggregate(news_raw)
+        if sentiment_v2.get("sample_size", 0) > 0:
+            sentiment_agg = {
+                "asset_scores": {k: v["score"] for k, v in sentiment_v2.get("by_asset", {}).items()},
+                "macro_tilt":   sentiment_v2.get("macro_tilt", "NEUTRAL"),
+                "tilt_score":   sentiment_v2.get("tilt_score", 0.0),
+                "sample_size":  sentiment_v2.get("sample_size", 0),
+                "by_asset":     sentiment_v2.get("by_asset", {}),   # rich form
+            }
+        else:
+            sentiment_agg = _aggregate_sentiment_by_asset(news_raw)
+    except Exception as e:
+        log.debug("sentiment_weighting failed: %s", e)
+        sentiment_agg = _aggregate_sentiment_by_asset(news_raw)
+
+    # Step 4: multi-dimensional regime state (overlays the v1 regime label).
+    try:
+        from regime_engine import compute_regime_state
+        regime_state = compute_regime_state(macro=macro, news_tilt=events_summary,
+                                            persist=True).to_dict()
+    except Exception as e:
+        log.debug("regime_engine failed: %s", e)
+        regime_state = {}
+
+    # Step 5: local composite F&G — uses regime + sentiment + macro + CNN
     fng = _local_fear_greed(macro=macro, sentiment_agg=sentiment_agg,
                              regime=regime, cnn=cnn)
+
+    # Step 6: historical analogs — find K nearest past states. Record this
+    # snapshot for future analog searches. Skip on first run if memory empty.
+    analogs: list[dict] = []
+    try:
+        from market_memory import (
+            record_snapshot, find_analogs, seed_classic_analogs,
+            last_snapshot_ts,
+        )
+        # One-time seed of well-known historical episodes
+        seed_classic_analogs()
+        # Build a feature vector matching market_memory's expected schema
+        dims = regime_state.get("dimensions", {}) if regime_state else {}
+        current_state = {
+            "regime":         regime_state.get("composite") or regime.get("regime"),
+            "risk_score":     (dims.get("RISK") or {}).get("score"),
+            "infl_score":     (dims.get("INFLATION") or {}).get("score"),
+            "fed_score":      (dims.get("FED") or {}).get("score"),
+            "vol_score":      (dims.get("VOLATILITY") or {}).get("score"),
+            "credit_score":   (dims.get("CREDIT") or {}).get("score"),
+            "breadth_score":  (dims.get("BREADTH") or {}).get("score"),
+            "fng_local":      (fng or {}).get("score"),
+            "vix":            (macro.get("vix") or {}).get("price") if isinstance(macro.get("vix"), dict) else macro.get("vix"),
+            "us10y":          (macro.get("us10y") or {}).get("price") if isinstance(macro.get("us10y"), dict) else macro.get("us10y"),
+            "dxy":            (macro.get("dxy") or {}).get("price") if isinstance(macro.get("dxy"), dict) else macro.get("dxy"),
+            "sentiment_tilt": sentiment_agg.get("tilt_score", 0.0),
+        }
+        analogs = find_analogs(current_state, k=3, min_age_hours=24)
+        # Persist current — but throttle to hourly to avoid DB spam
+        prior_ts = last_snapshot_ts()
+        if not prior_ts or (time.time() - prior_ts) > 3600:
+            record_snapshot(
+                regime_state=regime_state, macro=macro,
+                fng={"local": fng, "cnn": cnn},
+                sentiment_tilt=sentiment_agg.get("tilt_score"),
+                commentary=regime.get("commentary", "")[:160],
+            )
+    except Exception as e:
+        log.debug("market_memory failed: %s", e)
 
     # Optional per-symbol filter
     symbol_focus = None
@@ -442,7 +530,11 @@ def get_intel_snapshot(symbol: Optional[str] = None, *,
     snap = {
         "ts": int(time.time()),
         "computed_in_ms": int((time.time() - start) * 1000),
+        "schema_version": 2,
+        # Legacy single-label regime (kept for backwards-compat)
         "regime": regime,
+        # NEW — multi-dimensional state vector from regime_engine
+        "regime_state": regime_state,
         "macro_snapshot": macro,
         "correlations": correl,
         "fear_greed": {
@@ -450,6 +542,8 @@ def get_intel_snapshot(symbol: Optional[str] = None, *,
             "cnn":   cnn,
         },
         "sentiment": sentiment_agg,
+        # NEW — event taxonomy summary
+        "events_classified": events_summary,
         "events": {
             "central_bank":     cb,
             "economic":         econ,
@@ -459,9 +553,11 @@ def get_intel_snapshot(symbol: Optional[str] = None, *,
         },
         "news": {
             "clusters":     clusters,
-            "stats":        compression_stats(len(news_raw), clusters),
+            "stats":        cluster_stats,
             "macro_tilt":   sentiment_agg["macro_tilt"],
         },
+        # NEW — historical analog matches
+        "analogs": analogs,
         "symbol_focus": symbol_focus,
     }
 
@@ -481,9 +577,14 @@ def format_intel_for_prompt(snap: dict, *, include_clusters: int = 10) -> str:
 
     lines: list[str] = ["=== STRUCTURED MARKET INTEL ==="]
 
-    # Regime
-    r = snap.get("regime", {})
-    if r:
+    # Regime — prefer v2 state vector when available (richer + more reliable)
+    rs = snap.get("regime_state") or {}
+    r  = snap.get("regime", {}) or {}
+    legacy_unknown = (not r.get("regime")) or r.get("regime") == "unknown"
+    if rs.get("composite") and (rs.get("confidence", 0) > 0 or legacy_unknown):
+        # Show summary from regime_state (full dimension breakdown follows below)
+        lines.append(f"REGIME:    {rs['composite']} ({rs.get('confidence',0)}% conf)")
+    elif r:
         conf = r.get("confidence", 0)
         lines.append(f"REGIME:    {r.get('regime','?')} ({conf}% conf) — {r.get('commentary','')[:120]}")
         if r.get("dominant_driver"):
@@ -566,6 +667,53 @@ def format_intel_for_prompt(snap: dict, *, include_clusters: int = 10) -> str:
             extra = f" [{ticks}]" if ticks else ""
             lines.append(f"  • {c.get('topic','')[:120]}  ({srcs}, n={c.get('size',1)}, "
                          f"imp={c.get('max_score',0):.0f}){extra}")
+
+    # v2: Regime state vector dimensions (one line each)
+    rs = snap.get("regime_state") or {}
+    if rs.get("dimensions"):
+        lines.append(f"REGIME STATE: {rs.get('summary','')}")
+        if rs.get("transitions"):
+            for t in rs["transitions"][:3]:
+                lines.append(
+                    f"  ⚠ TRANSITION {t['dim']}: {t['prev_score']} → {t['curr_score']} "
+                    f"(Δ{t['delta']:+.1f}, age {t.get('age_minutes',0)}min)"
+                )
+
+    # v2: Event taxonomy directional tilt
+    ev_sum = snap.get("events_classified") or {}
+    by_cat = ev_sum.get("by_category") or {}
+    if by_cat:
+        top_cats = sorted(by_cat.items(), key=lambda kv: kv[1].get("count", 0), reverse=True)[:4]
+        bits = "  ".join(f"{c}({d.get('count',0)},sev{d.get('max_sev',0)})"
+                          for c, d in top_cats)
+        lines.append(f"EVENT MIX: {bits}")
+
+    # v2: Top sentiment drivers (one strongest BULL + one strongest BEAR)
+    rich_sent = snap.get("sentiment", {}).get("by_asset", {})
+    if isinstance(rich_sent, dict) and rich_sent:
+        # find the asset with strongest absolute conviction
+        ranked = sorted(rich_sent.items(),
+                        key=lambda kv: abs(kv[1].get("score",0)) * kv[1].get("confidence",0),
+                        reverse=True)
+        for asset, info in ranked[:2]:
+            if info.get("drivers"):
+                d = info["drivers"][0]
+                lines.append(f"DRIVER {asset}: + {d.get('source','?')}: {d.get('text','')[:90]}")
+            if info.get("opposing"):
+                d = info["opposing"][0]
+                lines.append(f"OPPOSE {asset}: - {d.get('source','?')}: {d.get('text','')[:90]}")
+
+    # v2: Historical analogs (only if we have non-trivial matches)
+    analogs = snap.get("analogs") or []
+    if analogs:
+        lines.append("ANALOGS (closest historical states):")
+        for a in analogs[:3]:
+            extras = ""
+            fr = a.get("forward_returns") or {}
+            if fr:
+                extras = "  fwd: " + ", ".join(f"{k}:{v:+.2f}%" for k, v in list(fr.items())[:3])
+            lines.append(f"  • {a.get('date_label','?')}  dist={a.get('distance',0):.2f}  "
+                         f"{(a.get('commentary') or '')[:90]}{extras}")
 
     # Symbol focus
     sf = snap.get("symbol_focus")
