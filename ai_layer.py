@@ -7,7 +7,7 @@ import os, re, json, time, sqlite3, threading, requests
 from datetime import datetime, timezone
 
 GROQ_API_KEY  = os.environ.get("GROQ_API_KEY", "")
-GROQ_MODEL    = "llama-3.1-8b-instant"   # fastest, 131k ctx, free tier
+GROQ_MODEL    = "llama-3.3-70b-versatile"   # upgraded from 8b-instant for nuanced news scoring
 GROQ_URL      = "https://api.groq.com/openai/v1/chat/completions"
 OLLAMA_URL    = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
 OLLAMA_MODEL  = "llama3.2:latest"
@@ -57,10 +57,17 @@ def _cache_set(key, data):
 
 
 # ── Prompt builder ────────────────────────────────────────────
-_SYSTEM = (
-    "You are a professional financial analyst. Analyze news for traders. "
-    "Be concise. JSON only, no extra text."
-)
+# Persona pulled from ai_persona — single source of truth for desk voice.
+# News enrichment doesn't need the full few-shots (token budget), just the
+# SYSTEM_PROMPT + REQUIRED_FIELDS_HINT so the model knows the conviction rules.
+try:
+    from ai_persona import SYSTEM_PROMPT as _PERSONA_SYS
+    _SYSTEM = _PERSONA_SYS + "\n\nFor each news item, output {summary, sentiment, impact, assets, why} with desk-grade specificity — no chatbot hedge."
+except Exception:
+    _SYSTEM = (
+        "You are a senior desk analyst. Never use hedge words (could, may, "
+        "consider, consult, advisor). Be direct, opinionated, specific. JSON only."
+    )
 
 def _make_prompt(news_items):
     items_txt = "\n".join(

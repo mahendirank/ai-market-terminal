@@ -90,6 +90,24 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 .ctab .cnt { background:#1c2230; color:var(--muted); font-size:9px; padding:1px 4px; border-radius:2px; margin-left:3px; }
 .ctab.active .cnt { background:#2a1e00; color:var(--accent); }
 
+/* ════ Shared AI tab UX — skeleton, fallback, timestamp ════════════════ */
+.ai-skel-wrap { padding:14px 16px; display:flex; flex-direction:column; gap:10px; }
+.ai-skel-row { height:12px; border-radius:2px; background:linear-gradient(90deg, #0e1520 0%, #1c2230 50%, #0e1520 100%); background-size:200% 100%; animation:ai-skel-shimmer 1.6s linear infinite; }
+@keyframes ai-skel-shimmer { 0% { background-position:200% 0; } 100% { background-position:-200% 0; } }
+.ai-fallback { padding:16px 18px; background:#1a0a0a; border:1px solid #4a2020; border-left:3px solid #cf7575; border-radius:4px; color:#e2e8f0; font-family:'SF Mono',Monaco,monospace; font-size:11px; line-height:1.5; max-width:640px; }
+.ai-fb-head { display:flex; align-items:center; gap:10px; padding-bottom:8px; border-bottom:1px solid #2a1010; margin-bottom:10px; }
+.ai-fb-icon { color:#cf7575; font-size:14px; }
+.ai-fb-title { color:#f0f4f8; font-weight:700; font-size:12px; letter-spacing:0.5px; }
+.ai-fb-status { margin-left:auto; color:#8a94a4; font-size:9.5px; padding:1px 6px; border:1px solid #2a1010; border-radius:2px; letter-spacing:1px; font-weight:700; }
+.ai-fb-msg { color:#c0c8d4; padding:4px 0; }
+.ai-fb-actions { display:flex; align-items:center; gap:12px; margin-top:10px; }
+.ai-retry-btn { background:#0a1820; border:1px solid #1c3a50; color:#22d3ee; padding:5px 14px; border-radius:3px; font:inherit; font-size:10.5px; font-weight:700; letter-spacing:1px; cursor:pointer; }
+.ai-retry-btn:hover { background:#15110a; border-color:#22d3ee; color:#e8b85a; }
+.ai-fb-tip { color:#6b7280; font-size:9.5px; letter-spacing:0.5px; }
+.ai-stamp { display:inline-flex; align-items:center; gap:6px; color:#6b7280; font-size:9.5px; font-family:'SF Mono',Monaco,monospace; letter-spacing:0.5px; font-variant-numeric:tabular-nums; }
+.ai-stamp .lbl { color:#4b5563; font-size:8.5px; letter-spacing:1.5px; font-weight:700; }
+.ai-stamp .dot { width:4px; height:4px; border-radius:50%; background:#22d3ee; box-shadow:0 0 4px #22d3ee; }
+
 .news-feed { flex:1; overflow-y:auto; }
 .news-feed::-webkit-scrollbar { width:3px; }
 .news-feed::-webkit-scrollbar-thumb { background:#2a3040; border-radius:2px; }
@@ -7052,6 +7070,88 @@ function _showSpecialPanel(panelId, tab) {
   document.getElementById('asset-filters').style.display = 'none';
   var p = document.getElementById(panelId);
   if (p) { p.style.display = 'flex'; p.style.flexDirection = 'column'; }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Shared AI tab utilities — skeleton, timestamp, timeout, retry fallback
+// ════════════════════════════════════════════════════════════════════════════
+
+// Skeleton (shimmer) for any AI tab while Groq is thinking
+function _aiSkeleton(rows) {
+  rows = rows || 4;
+  let html = '<div class="ai-skel-wrap">';
+  const widths = ['80%','60%','90%','70%','85%','55%','75%','65%'];
+  for (let i = 0; i < rows; i++) {
+    html += `<div class="ai-skel-row" style="width:${widths[i % widths.length]}"></div>`;
+  }
+  html += '</div>';
+  return html;
+}
+
+// Format unix timestamp → "14:23:08 IST" for the refresh stamp shown on every tab
+function _aiStamp(unixOrIso) {
+  if (!unixOrIso) return '—';
+  const dt = (typeof unixOrIso === 'number')
+    ? new Date(unixOrIso * 1000)
+    : new Date(unixOrIso);
+  if (isNaN(dt.getTime())) return String(unixOrIso);
+  return dt.toLocaleTimeString('en-IN', {
+    hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false
+  }) + ' IST';
+}
+
+// Fetch wrapper: 40s timeout + structured error envelope every caller can rely on
+async function _aiTabFetch(url, opts) {
+  opts = opts || {};
+  const timeoutMs = opts.timeoutMs || 40000;
+  const ctrl = new AbortController();
+  const tId = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, Object.assign({
+      method: opts.method || 'GET',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {}),
+      body: opts.body,
+      signal: ctrl.signal,
+      cache: 'no-store',
+    }, {}));
+    clearTimeout(tId);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { ok: false, status: res.status, error: data.error || data.detail || `Server error ${res.status}`,
+               suggestions: data.suggestions || null, data };
+    }
+    return { ok: true, status: res.status, data };
+  } catch (err) {
+    clearTimeout(tId);
+    const isTimeout = err.name === 'AbortError';
+    return {
+      ok: false,
+      status: 0,
+      error: isTimeout
+        ? `Timed out after ${Math.round(timeoutMs/1000)}s — Groq may be rate-limited or slow.`
+        : (err.message || 'Network error'),
+      timeout: isTimeout,
+    };
+  }
+}
+
+// Render a fallback card when an AI tab fails. Provides a Retry button.
+function _aiFallback(containerEl, errResult, retryFn) {
+  if (!containerEl) return;
+  const retryAttr = retryFn ? `onclick="(${retryFn.toString()})()"` : '';
+  containerEl.innerHTML = `
+    <div class="ai-fallback">
+      <div class="ai-fb-head">
+        <span class="ai-fb-icon">⚠</span>
+        <span class="ai-fb-title">${errResult.timeout ? 'Request timed out' : 'Analysis failed'}</span>
+        ${errResult.status ? `<span class="ai-fb-status">HTTP ${errResult.status}</span>` : ''}
+      </div>
+      <div class="ai-fb-msg">${(errResult.error || 'Unknown error').replace(/</g,'&lt;')}</div>
+      <div class="ai-fb-actions">
+        <button class="ai-retry-btn" ${retryAttr}>↻ RETRY</button>
+        <span class="ai-fb-tip">If this keeps happening, check GROQ_API_KEY and the container logs.</span>
+      </div>
+    </div>`;
 }
 
 // ── MORNING NOTE ─────────────────────────────────────────────────────────────

@@ -2416,7 +2416,16 @@ async def _build_morning_note_data() -> dict:
                 headlines.append(item.get("text", ""))
 
     today_str = datetime.now(IST).strftime("%d %b %Y")
-    prompt = f"""You are a senior NSE institutional trader writing the morning briefing for HNI clients.
+
+    # Persona-driven prompt — single source of voice via ai_persona
+    from ai_persona import (
+        build_messages, build_recent_calls_block, build_upcoming_events_block,
+        contains_banned, attach_meta, FEW_SHOTS_MORNING_NOTE,
+    )
+    recent_calls_block = build_recent_calls_block(limit=5)
+    upcoming_block     = build_upcoming_events_block(days=3)
+
+    prompt = f"""Generate the NSE morning desk note for HNI clients.
 Date: {today_str}  |  Market opens in 15 minutes.
 
 LIVE INDICES:
@@ -2428,35 +2437,41 @@ MACRO DATA:
 TOP OVERNIGHT NEWS:
 {chr(10).join(f'• {h}' for h in headlines[:10] if h) or 'No major news.'}
 
-Write a sharp morning note in this EXACT JSON format — no markdown, just JSON:
+{recent_calls_block}
+
+{upcoming_block}
+
+Return ONLY this JSON object — no markdown, no preamble:
 {{
   "date": "{today_str}",
-  "headline": "<one bold market theme for today, max 12 words>",
-  "global_cues": "<2-3 sentences on overnight US/Asia cues and impact on India>",
+  "headline": "<bold market theme for today, max 12 words>",
+  "global_cues": "<2-3 sentences on overnight US/Asia cues and impact on India. Cite specific levels and % moves.>",
   "key_levels": {{
-    "nifty":     {{"support": "<level>", "resistance": "<level>", "bias": "BUY or SELL or WAIT"}},
-    "banknifty": {{"support": "<level>", "resistance": "<level>", "bias": "BUY or SELL or WAIT"}}
+    "nifty":     {{"support": "<level>", "resistance": "<level>", "bias": "BUY | SELL | WAIT"}},
+    "banknifty": {{"support": "<level>", "resistance": "<level>", "bias": "BUY | SELL | WAIT"}}
   }},
   "top_3_ideas": [
-    {{"instrument": "<name>", "direction": "BUY or SELL", "rationale": "<20 words max>", "entry": "<level>", "sl": "<level>", "target": "<level>"}},
-    {{"instrument": "<name>", "direction": "BUY or SELL", "rationale": "<20 words max>", "entry": "<level>", "sl": "<level>", "target": "<level>"}},
-    {{"instrument": "<name>", "direction": "BUY or SELL", "rationale": "<20 words max>", "entry": "<level>", "sl": "<level>", "target": "<level>"}}
+    {{"instrument": "<name>", "direction": "BUY | SELL", "rationale": "<≤20 words with specific level>", "entry": "<level>", "sl": "<level>", "target": "<level>"}},
+    {{"instrument": "<name>", "direction": "BUY | SELL", "rationale": "<≤20 words>", "entry": "<level>", "sl": "<level>", "target": "<level>"}},
+    {{"instrument": "<name>", "direction": "BUY | SELL", "rationale": "<≤20 words>", "entry": "<level>", "sl": "<level>", "target": "<level>"}}
   ],
-  "watch_out_for": "<key risk or event to watch today, 1 sentence>",
-  "overall_bias": "BULLISH or BEARISH or NEUTRAL"
+  "watch_out_for": "<key risk or event to watch today, 1 sentence with specific time>",
+  "overall_bias": "BULLISH | BEARISH | NEUTRAL",
+  "conviction_tier": "HIGH | MEDIUM | LOW",
+  "historical_analog": "<specific prior episode, e.g. 'similar to 14-Mar-2024 pre-FOMC open' — or 'none' if novel>",
+  "warnings": ["<specific event/risk to flag>", "<another if applicable>"]
 }}"""
 
     try:
+        messages = build_messages(prompt, include_few_shots=True,
+                                  few_shot_block=FEW_SHOTS_MORNING_NOTE)
         resp = _rq.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
             json={
                 "model": "llama-3.3-70b-versatile",
-                "messages": [
-                    {"role": "system", "content": "You are a professional institutional trader. Respond with valid JSON only."},
-                    {"role": "user",   "content": prompt},
-                ],
-                "max_tokens": 800, "temperature": 0.3,
+                "messages": messages,
+                "max_tokens": 1000, "temperature": 0.2,
             },
             timeout=30,
         )
@@ -2468,7 +2483,18 @@ Write a sharp morning note in this EXACT JSON format — no markdown, just JSON:
             if raw.startswith("json"): raw = raw[4:]
         raw = raw.strip().rstrip("`").strip()
         data = _json.loads(raw)
-        data["generated_at"] = datetime.now(IST).strftime("%I:%M %p IST")
+
+        # Persona drift check
+        try:
+            drift = contains_banned(_json.dumps(data, ensure_ascii=False))
+            if drift:
+                print(f"[MORNING] persona drift — banned phrases: {drift}", flush=True)
+        except Exception:
+            drift = []
+
+        # Standardized envelope (active_symbol, generated_at, cache_key, ...)
+        data = attach_meta(data, tab="morning_note", persona_drift=drift)
+        data["generated_at_label"] = datetime.now(IST).strftime("%I:%M %p IST")
         return data
     except Exception as e:
         return {"error": str(e)}

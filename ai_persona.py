@@ -8,16 +8,22 @@ Goal: make AI tabs sound like a sharp institutional desk (Bloomberg First Word
 style) — opinionated, specific, conviction-tiered — instead of a hedged
 ChatGPT-default assistant.
 
-Three components:
-  1. SYSTEM_PROMPT          — the persona + hard rules. Use as ``system`` message.
-  2. FEW_SHOTS              — concrete examples of good vs bad tone. Inject as
-                              additional turns or append to the system message.
-  3. Helpers                — context builders that pull from signal_memory,
-                              regime, cb_calendar so callers don't reimplement.
+Components:
+  1. SYSTEM_PROMPT             — the persona + hard rules. Use as ``system`` msg.
+  2. FEW_SHOTS_*               — concrete tone examples per tab.
+  3. REQUIRED_FIELDS_HINT      — schema fields every AI response must include.
+  4. Context builders          — pull from signal_memory, regime, cb_calendar.
+  5. attach_meta()             — stamps active_symbol/generated_at/cache_key
+                                 onto any tab's response. Single helper so
+                                 every tab returns the same envelope shape.
+  6. cache_slug()              — filesystem-safe slug for per-symbol caching.
+  7. validate_response()       — sanity-checks required fields are present.
 """
 from __future__ import annotations
 
 import logging
+import re
+import time
 from typing import Optional
 
 log = logging.getLogger(__name__)
@@ -212,3 +218,144 @@ def contains_banned(text: str) -> list[str]:
         return []
     lo = text.lower()
     return [p for p in banned_phrases() if p in lo]
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Standardized response envelope — every AI tab returns these meta fields
+# ════════════════════════════════════════════════════════════════════════════
+STANDARD_SCHEMA_DOC = """
+Every AI tab response wraps its content in the same meta envelope so the
+frontend can render a consistent header (ACTIVE SYMBOL badge + timestamp +
+conviction tier + warnings) regardless of which tab produced it.
+
+  {
+    "tab":               "hni_ai" | "why_move" | "macro_analyst" | "ai_research" | "morning_note",
+    "active_symbol":     {ticker, display, asset_class, exchange} | null,
+    "generated_at":      <unix int>,
+    "cache_key":         <slug str>,
+    "conviction_tier":   "HIGH" | "MEDIUM" | "LOW",
+    "historical_analog": <str>,
+    "warnings":          [<str>, ...],
+    "view":              <2-3 sentence desk read>,
+    "bias":              "BUY" | "SELL" | "WAIT" | "NEUTRAL"   (where applicable),
+
+    // tab-specific extension fields below — see each tab's docstring
+    ...
+  }
+
+Use attach_meta(result, resolved=..., cache_key=..., tab=...) to stamp the
+envelope in one line instead of repeating the dict-merge per tab.
+"""
+
+
+def cache_slug(ticker: Optional[str]) -> str:
+    """Filesystem + dict-key safe slug for per-symbol caches.
+
+    Shared so every AI tab uses identical slugging — no chance of one tab's
+    cache colliding with another's.
+
+      "GC=F"     -> "GC_F"
+      "BTC-USD"  -> "BTC_USD"
+      "^NSEI"    -> "_NSEI"
+      None       -> "_market_"
+    """
+    if not ticker:
+        return "_market_"
+    s = re.sub(r"[^A-Za-z0-9]+", "_", ticker)
+    return s or "_market_"
+
+
+def attach_meta(result: dict, *, tab: str, resolved: Optional[dict] = None,
+                cache_key: Optional[str] = None,
+                persona_drift: Optional[list] = None) -> dict:
+    """Stamp the standardized envelope onto a tab's result dict.
+
+    Idempotent — safe to call even if some fields already present.
+    """
+    if not isinstance(result, dict):
+        return result
+
+    result.setdefault("tab", tab)
+    result["active_symbol"] = (resolved if resolved
+                                else {"ticker": "_market_",
+                                      "display": "Market-wide",
+                                      "asset_class": "market",
+                                      "exchange": "—"})
+    result["generated_at"] = int(time.time())
+    result["cache_key"]    = cache_key or cache_slug(
+        result["active_symbol"].get("ticker") if isinstance(result.get("active_symbol"), dict) else None
+    )
+
+    # Required schema fields — fill with safe defaults if model omitted them
+    result.setdefault("conviction_tier",   "LOW")
+    result.setdefault("historical_analog", "none — no clean analog cited")
+    result.setdefault("warnings",          [])
+    result.setdefault("view",              result.get("hni_view") or result.get("summary") or "")
+
+    if persona_drift:
+        result["_persona_warnings"] = persona_drift
+
+    return result
+
+
+def validate_response(result: dict) -> list[str]:
+    """Return list of missing/invalid required fields. Empty list = valid.
+
+    Useful in tests or for auto-retry logic when the model omits structure.
+    """
+    if not isinstance(result, dict):
+        return ["result_not_dict"]
+    missing: list[str] = []
+    for k in ("active_symbol", "generated_at", "conviction_tier",
+              "historical_analog", "warnings"):
+        if k not in result:
+            missing.append(k)
+    ct = result.get("conviction_tier", "")
+    if ct and ct not in {"HIGH", "MEDIUM", "LOW"}:
+        missing.append(f"conviction_tier_invalid:{ct}")
+    if not isinstance(result.get("warnings", []), list):
+        missing.append("warnings_not_list")
+    return missing
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Tab-specific few-shot snippets — append to FEW_SHOTS_HNI as needed
+# ════════════════════════════════════════════════════════════════════════════
+FEW_SHOTS_WHY_MOVE = """═══ WHY-MOVE EXAMPLES ═══
+
+BAD: "Gold rallied today due to various market factors and investor sentiment."
+GOOD: "Gold +1.2% to $2,668 — driven by DXY break below 104 (US10Y -7bp on \
+soft retail sales). Spec longs covered shorts into Friday close. Last analog: \
+Sep-2024 retail miss → 4-session gold rally averaging +0.8%/day."
+
+BAD: "NIFTY declined amid global concerns."
+GOOD: "NIFTY -0.8% to 23,180 — Adani complex -3.5% led decline after Hindenburg \
+follow-up. Banks underperformed (HDFCBANK -1.4%) on credit cost guidance. \
+FII net sell ₹2,140 cr — third straight session of outflows."
+"""
+
+FEW_SHOTS_MACRO_ANALYST = """═══ MACRO ANALYST CHAT EXAMPLES ═══
+
+USER: "Should I be worried about US10Y at 4.6%?"
+BAD: "Higher yields could potentially affect equity valuations. Investors should \
+consider their risk tolerance and consult a financial advisor."
+GOOD: "4.6% is the level that broke SPX in Oct-2023 (4.65% top → -8% drawdown). \
+Watch for term premium expansion if 5y5y fwd inflation breaks 2.6%. Real concern \
+is duration trade unwind — TLT skew most stretched since Mar-2023 SVB. CONVICTION=\
+HIGH on rate-sensitive sectors (REITs, utilities) being the relief valve."
+
+USER: "What's driving DXY today?"
+BAD: "The dollar is being influenced by various factors including Fed policy."
+GOOD: "DXY +0.4% to 104.30 — driven by EUR weakness (Lagarde dovish on disinflation \
+this morning) + JPY soft after MOF intervention rhetoric only. Layered short DXY \
+into 104.50 — same setup as Mar-2024 Lagarde squeeze that reversed within 48h."
+"""
+
+FEW_SHOTS_MORNING_NOTE = """═══ MORNING NOTE EXAMPLES ═══
+
+BAD: "Markets were mixed overnight. Investors will be watching for various data."
+GOOD: "Overnight: SPX +0.4% (NVDA earnings beat, +9% AH), DXY -0.3% on weak retail. \
+US10Y -4bp to 4.34%. Asia opens with Nikkei +1.1%, Hang Seng -0.6% on China \
+property data. India watch: SGX NIFTY +85 pts. Fed minutes 11:30 PM IST — \
+hawkish surprise risk on stronger-than-expected core services."
+"""

@@ -244,34 +244,44 @@ def already_explained(sig: str) -> bool:
 
 # ─── LLM call ─────────────────────────────────────────────────────────────────
 
-SYSTEM_PROMPT = """You are a senior macro strategist writing institutional desk commentary in real time. Your output is JSON ONLY — no preamble, no markdown fences.
+try:
+    from ai_persona import (
+        SYSTEM_PROMPT as _PERSONA_SYS,
+        FEW_SHOTS_WHY_MOVE as _FS,
+        REQUIRED_FIELDS_HINT as _REQ,
+    )
+except Exception:
+    _PERSONA_SYS = ""
+    _FS = ""
+    _REQ = ""
 
-When given a strong asset move and current macro context, produce a structured explanation as a single JSON object with these exact keys:
+_WHY_MOVE_OVERLAY = """═══ WHY-MOVE OVERLAY (asset moved >threshold, explain it) ═══
 
+You are explaining a single strong asset move on a live desk. Output is a
+single JSON object — no preamble, no markdown fences. Cite ONLY data points
+present in the LIVE SNAPSHOT given to you. Never fabricate a number.
+
+Schema (every key required):
 {
-  "what_moved":        "one sentence stating the asset and the magnitude with specific numbers",
-  "why_it_moved":      "2-3 sentences linking the move to specific macro drivers cited in the live snapshot",
-  "evidence":          ["bullet 1 citing live data", "bullet 2", "bullet 3"],
-  "historical":        "one short analogue if applicable, e.g. 'similar to the late-2024 carry unwind after BoJ surprise hike'",
-  "risk_to_thesis":    "what data point or event would invalidate this thesis",
-  "forward_implication": "what the move suggests for related assets and the coming session/week",
-  "tags":              ["institutional term 1", "institutional term 2"]
+  "what_moved":          "one sentence — asset + magnitude with specific numbers",
+  "why_it_moved":        "2-3 sentences linking the move to macro drivers in the snapshot",
+  "evidence":            ["bullet 1 citing live data", "bullet 2", "bullet 3"],
+  "historical_analog":   "specific prior episode, or 'none — no clean analog'",
+  "risk_to_thesis":      "what data point or event would invalidate this thesis",
+  "forward_implication": "what the move suggests for related assets in next session/week",
+  "conviction_tier":     "HIGH | MEDIUM | LOW",
+  "warnings":            ["specific risks, e.g. 'liquidity thinning into close'", ...],
+  "tags":                ["institutional term", "term 2", "term 3"]
 }
 
-VOCABULARY to use (institutional, not retail):
+INSTITUTIONAL VOCAB (pick from these for tags + prose):
   carry unwind, dollar liquidity, duration bid, real yield compression,
   safe haven demand, inflation repricing, growth scare, risk rotation,
   steepening, term-premium, bid-cover, basis squeeze, cross-asset spillover,
   positioning unwind, vol regime shift, equity-bond correlation flip
-
-RULES:
-- Cite ONLY data points present in the LIVE SNAPSHOT given to you. Do not fabricate numbers.
-- Tags must use institutional vocabulary (pick 2-4 from the list above or similar).
-- No retail vocabulary ("moon", "rip", "pump").
-- No emoji.
-- Output must be valid JSON parseable by json.loads().
-- If a section doesn't apply, write a brief note rather than inventing content.
 """
+
+SYSTEM_PROMPT = "\n\n".join(p.strip() for p in (_PERSONA_SYS, _WHY_MOVE_OVERLAY, _REQ, _FS) if p)
 
 
 def _format_context_for_llm(asset_def: dict, move: dict, ctx: dict) -> str:

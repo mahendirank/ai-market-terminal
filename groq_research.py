@@ -9,10 +9,23 @@ from datetime import datetime, timezone, timedelta
 
 GROQ_API_KEY    = os.environ.get("GROQ_API_KEY", "")
 GROQ_URL        = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL      = "llama-3.1-8b-instant"
+GROQ_MODEL      = "llama-3.3-70b-versatile"   # upgraded from 8b-instant for desk-grade research
 TAVILY_API_KEY  = os.environ.get("TAVILY_API_KEY") or os.environ.get("Tavily_API_KEY", "")
 TAVILY_URL      = "https://api.tavily.com/search"
 CACHE_TTL       = 900   # 15 minutes
+
+# Persona-based research system prompt — pulled from shared ai_persona
+try:
+    from ai_persona import SYSTEM_PROMPT as _PERSONA_SYS
+    _RESEARCH_SYSTEM = (_PERSONA_SYS + "\n\nResearch mode: respond in tight bullets. "
+                        "Each bullet must cite specific live data (price, level, %, date). "
+                        "Start with the strongest signal. End with 1 line on what would "
+                        "invalidate the read. No preamble, no closing pleasantries.")
+except Exception:
+    _RESEARCH_SYSTEM = (
+        "You are a senior desk analyst. Bullets only. Each cites specific data. "
+        "No hedge words (could, may, consider, consult). End with an invalidator line."
+    )
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -234,11 +247,11 @@ def _call_groq_research(prompt):
             json={
                 "model":       GROQ_MODEL,
                 "messages":    [
-                    {"role": "system", "content": "You are a professional financial analyst. Be concise and trader-focused. Use bullet points."},
+                    {"role": "system", "content": _RESEARCH_SYSTEM},
                     {"role": "user",   "content": prompt},
                 ],
                 "max_tokens":  700,
-                "temperature": 0.3,
+                "temperature": 0.25,
             },
             timeout=20,
         )
