@@ -14,18 +14,9 @@ TAVILY_API_KEY  = os.environ.get("TAVILY_API_KEY") or os.environ.get("Tavily_API
 TAVILY_URL      = "https://api.tavily.com/search"
 CACHE_TTL       = 900   # 15 minutes
 
-# Persona-based research system prompt — pulled from shared ai_persona
-try:
-    from ai_persona import SYSTEM_PROMPT as _PERSONA_SYS
-    _RESEARCH_SYSTEM = (_PERSONA_SYS + "\n\nResearch mode: respond in tight bullets. "
-                        "Each bullet must cite specific live data (price, level, %, date). "
-                        "Start with the strongest signal. End with 1 line on what would "
-                        "invalidate the read. No preamble, no closing pleasantries.")
-except Exception:
-    _RESEARCH_SYSTEM = (
-        "You are a senior desk analyst. Bullets only. Each cites specific data. "
-        "No hedge words (could, may, consider, consult). End with an invalidator line."
-    )
+# Research mode prompt is composed via prompt_builder (L1 persona + L3 schema).
+# Schema SCHEMA_RESEARCH (in ai_schemas) defines the bullet format. No
+# inline composition here — single source of truth in ai_persona.
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -235,6 +226,37 @@ Data sources: live news feed{source_note}."""
 
 
 def _call_groq_research(prompt):
+    """Route research request through ai_router with 3-layer prompt composition.
+
+    The 'prompt' arg is the user content (research query / asset segment); the
+    composer adds L1 persona + L3 schema. Returns the model's bullet text or
+    None on any failure (caller handles fallback).
+    """
+    try:
+        from ai_router import chat
+        from prompt_builder import build_messages
+    except Exception as e:
+        print(f"[research] composer import failed ({e})", flush=True)
+        return None
+    messages = build_messages(
+        task="research",
+        snap=None,                       # query already carries its own context
+        extra_context=prompt,            # user's research query
+        include_few_shots=False,
+    )
+    result = chat(
+        task="research",
+        messages=messages,
+        temperature=0.25,
+        max_tokens=700,
+        timeout=20,
+    )
+    if not result.ok or not result.content:
+        return None
+    return result.content
+    # The pre-router HTTP path follows but is now dead code reachable only
+    # if the import above raises and the early return doesn't fire. Left in
+    # place for one cycle as a safety net; remove next cleanup pass.
     if not GROQ_API_KEY:
         return None
     try:
@@ -247,7 +269,7 @@ def _call_groq_research(prompt):
             json={
                 "model":       GROQ_MODEL,
                 "messages":    [
-                    {"role": "system", "content": _RESEARCH_SYSTEM},
+                    {"role": "system", "content": "You are a senior desk analyst. Bullets only."},
                     {"role": "user",   "content": prompt},
                 ],
                 "max_tokens":  700,

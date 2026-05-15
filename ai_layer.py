@@ -56,57 +56,31 @@ def _cache_set(key, data):
     except: pass
 
 
-# ── Prompt builder ────────────────────────────────────────────
-# Persona pulled from ai_persona — single source of truth for desk voice.
-# News enrichment doesn't need the full few-shots (token budget), just the
-# SYSTEM_PROMPT + REQUIRED_FIELDS_HINT so the model knows the conviction rules.
-try:
-    from ai_persona import SYSTEM_PROMPT as _PERSONA_SYS
-    _SYSTEM = _PERSONA_SYS + "\n\nFor each news item, output {summary, sentiment, impact, assets, why} with desk-grade specificity — no chatbot hedge."
-except Exception:
-    _SYSTEM = (
-        "You are a senior desk analyst. Never use hedge words (could, may, "
-        "consider, consult, advisor). Be direct, opinionated, specific. JSON only."
-    )
-
-def _make_prompt(news_items):
+# ── Routed AI call via 3-layer prompt_builder ─────────────────────────
+# Persona (L1), state-not-applicable, schema (L3 = SCHEMA_NEWS_ENRICH) all
+# composed by prompt_builder. No inline persona text — single source of truth.
+def _format_items_block(news_items: list) -> str:
+    """The only news-enrichment-specific content: the numbered headline list."""
     items_txt = "\n".join(
         f"{i+1}. [{item.get('source','')}] {item.get('text','')}"
         for i, item in enumerate(news_items)
     )
-    return f"""Analyze these {len(news_items)} financial news items for traders.
-
-{items_txt}
-
-For EACH item return a JSON array. Each object must have:
-- "i": item number (1-based)
-- "summary": 1 sentence max 20 words, market-focused
-- "sentiment": "BULL", "BEAR", or "NEU"
-- "impact": integer 1-10 (10=market-moving, 1=noise)
-- "assets": array of affected assets e.g. ["GOLD","DXY","OIL","BTC","SPX","NIFTY"]
-- "why": max 15 words explaining trader relevance
-
-Return ONLY a valid JSON array, nothing else. Example:
-[{{"i":1,"summary":"Fed holds rates, dollar weakens","sentiment":"BULL","impact":9,"assets":["GOLD","DXY"],"why":"Rate hold weakens dollar, boosts gold and risk assets"}}]"""
+    return f"Analyze these {len(news_items)} financial news items for traders:\n\n{items_txt}"
 
 
-# ── Routed AI call (Groq primary, automatic fallback chain) ───────────
-# Replaces the legacy direct-Groq path. The router handles:
-#   - model selection per task (news_enrich → llama-3.1-8b currently)
-#   - fallback to ollama:llama3.2 if Groq fails or rate-limits
-#   - latency + token + cost logging to ai_calls.db
-#   - retry-friendly structured response envelope
 def _call_router(news_items):
     try:
         from ai_router import chat
+        from prompt_builder import build_messages
     except Exception as e:
-        log_msg = f"[ai_layer] ai_router import failed ({e}) — keyword fallback only"
-        print(log_msg, flush=True)
+        print(f"[ai_layer] composer import failed ({e}) — keyword fallback only", flush=True)
         return []
-    messages = [
-        {"role": "system", "content": _SYSTEM},
-        {"role": "user",   "content": _make_prompt(news_items)},
-    ]
+    messages = build_messages(
+        task="news_enrich",
+        snap=None,                          # batched per-item, no market state needed
+        extra_context=_format_items_block(news_items),
+        include_few_shots=False,
+    )
     result = chat(
         task="news_enrich",
         messages=messages,
@@ -129,6 +103,12 @@ def _call_router(news_items):
     except Exception:
         pass
     return []
+
+
+# Legacy alias — preserved for any code that still imports _make_prompt or _call_groq
+def _make_prompt(news_items):
+    """Deprecated: use _format_items_block + prompt_builder.build_messages."""
+    return _format_items_block(news_items)
 
 
 # Legacy alias — preserved for any code that still imports _call_groq directly

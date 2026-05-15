@@ -2364,54 +2364,35 @@ async def _build_morning_note_data() -> dict:
 
     today_str = datetime.now(IST).strftime("%d %b %Y")
 
-    # Persona-driven prompt — single source of voice via ai_persona
+    # 3-layer prompt composition (Morning Note cascade — matches HNI pattern).
+    from prompt_builder import build_messages
     from ai_persona import (
-        build_messages, build_recent_calls_block, build_upcoming_events_block,
-        contains_banned, attach_meta, FEW_SHOTS_MORNING_NOTE,
+        build_recent_calls_block, build_upcoming_events_block,
+        contains_banned, attach_meta,
     )
     recent_calls_block = build_recent_calls_block(limit=5)
     upcoming_block     = build_upcoming_events_block(days=3)
 
-    prompt = f"""Generate the NSE morning desk note for HNI clients.
-Date: {today_str}  |  Market opens in 15 minutes.
-
-LIVE INDICES:
-{chr(10).join(idx_lines) or 'Loading...'}
-
-MACRO DATA:
-{chr(10).join(macro_lines) or 'Loading...'}
-
-TOP OVERNIGHT NEWS:
-{chr(10).join(f'• {h}' for h in headlines[:10] if h) or 'No major news.'}
-
-{recent_calls_block}
-
-{upcoming_block}
-
-Return ONLY this JSON object — no markdown, no preamble:
-{{
-  "date": "{today_str}",
-  "headline": "<bold market theme for today, max 12 words>",
-  "global_cues": "<2-3 sentences on overnight US/Asia cues and impact on India. Cite specific levels and % moves.>",
-  "key_levels": {{
-    "nifty":     {{"support": "<level>", "resistance": "<level>", "bias": "BUY | SELL | WAIT"}},
-    "banknifty": {{"support": "<level>", "resistance": "<level>", "bias": "BUY | SELL | WAIT"}}
-  }},
-  "top_3_ideas": [
-    {{"instrument": "<name>", "direction": "BUY | SELL", "rationale": "<≤20 words with specific level>", "entry": "<level>", "sl": "<level>", "target": "<level>"}},
-    {{"instrument": "<name>", "direction": "BUY | SELL", "rationale": "<≤20 words>", "entry": "<level>", "sl": "<level>", "target": "<level>"}},
-    {{"instrument": "<name>", "direction": "BUY | SELL", "rationale": "<≤20 words>", "entry": "<level>", "sl": "<level>", "target": "<level>"}}
-  ],
-  "watch_out_for": "<key risk or event to watch today, 1 sentence with specific time>",
-  "overall_bias": "BULLISH | BEARISH | NEUTRAL",
-  "conviction_tier": "HIGH | MEDIUM | LOW",
-  "historical_analog": "<specific prior episode, e.g. 'similar to 14-Mar-2024 pre-FOMC open' — or 'none' if novel>",
-  "warnings": ["<specific event/risk to flag>", "<another if applicable>"]
-}}"""
+    # Tab-specific morning-note context (live indices/macro/overnight news).
+    # Lives in extra_context; the L3 schema (SCHEMA_MORNING_NOTE) is added
+    # automatically by the composer.
+    morning_context = "\n\n".join(p for p in (
+        f"DATE: {today_str}  |  Market opens in 15 minutes.",
+        "LIVE INDICES:\n" + ("\n".join(idx_lines) or "Loading..."),
+        "MACRO DATA:\n" + ("\n".join(macro_lines) or "Loading..."),
+        "TOP OVERNIGHT NEWS:\n" + ("\n".join(f"• {h}" for h in headlines[:10] if h) or "No major news."),
+        recent_calls_block,
+        upcoming_block,
+    ) if p)
 
     try:
-        messages = build_messages(prompt, include_few_shots=True,
-                                  few_shot_block=FEW_SHOTS_MORNING_NOTE)
+        messages = build_messages(
+            task="morning_note",
+            snap=None,                 # context already inlined above
+            extra_context=morning_context,
+            constraints=[f"Today's date in the response MUST be '{today_str}'."],
+            include_few_shots=False,   # flip True if persona drift observed
+        )
         resp = _rq.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},

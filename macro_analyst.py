@@ -397,11 +397,31 @@ def ask_analyst(session_id: str, user_question: str) -> dict:
     ctx = _build_context_snapshot()
     context_block = _format_context_for_llm(ctx)
 
-    # 2) Build message thread: system + context + history + new question
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "system", "content": context_block},
-    ]
+    # 2) Build message thread via 3-layer composer.
+    # Chat mode is multi-turn: composer builds the standard L1+L2+L3 prefix,
+    # then we inject the history (last 8 exchanges) BEFORE the new user
+    # question so the model sees the conversation in order.
+    try:
+        from prompt_builder import build_messages
+        # The composer's L3 task block carries SCHEMA_MACRO_CHAT (prose format).
+        # context_block (live macro snapshot) goes in extra_context so it's
+        # part of L2 state, not duplicated in every turn's user message.
+        base = build_messages(
+            task="macro_analyst",
+            snap=None,
+            extra_context=context_block,
+            include_few_shots=False,
+        )
+        # base is [system, user_with_task_block]. Move the task block into a
+        # system-anchor message, then layer history + new question on top.
+        messages = [base[0], {"role": "system", "content": base[1]["content"]}]
+    except Exception as _e:
+        print(f"[macro_analyst] composer unavailable ({_e}) — legacy path", flush=True)
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": context_block},
+        ]
+
     # Add last 8 historical exchanges (16 messages max) for continuity
     history = get_chat_history(session_id, limit=8)
     for h in history[-16:]:

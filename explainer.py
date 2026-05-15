@@ -391,10 +391,25 @@ def generate_explanation_for(asset_def: dict, force: bool = False) -> dict | Non
     confidence, supports = _compute_signal_alignment(asset_def["key"], direction, ctx)
 
     context_block = _format_context_for_llm(asset_def, move, ctx)
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user",   "content": context_block + "\n\nWrite the institutional desk explanation now, as JSON only."},
-    ]
+
+    # 3-layer prompt composition via prompt_builder.
+    # L1 persona + L3 SCHEMA_WHY_MOVE; context_block goes into extra_context.
+    try:
+        from prompt_builder import build_messages
+        messages = build_messages(
+            task="why_move",
+            snap=None,                  # context_block carries its own snapshot
+            extra_context=context_block,
+            constraints=["Write the institutional desk explanation now, as JSON only."],
+            include_few_shots=False,
+        )
+    except Exception as _e:
+        # Fallback to legacy path if composer unavailable
+        print(f"[explainer] composer unavailable ({_e}) — using legacy path", flush=True)
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user",   "content": context_block + "\n\nWrite the institutional desk explanation now, as JSON only."},
+        ]
     parsed = _call_groq_json(messages, max_tokens=700)
     if not parsed:
         return None
