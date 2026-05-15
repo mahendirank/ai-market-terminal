@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 import json as _json
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -22,12 +23,11 @@ _bg_tasks: set = set()   # hold strong refs so asyncio doesn't GC tasks
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start all background tasks when server boots."""
-    # Restore HNI + morning note from disk (survives Railway restarts)
-    saved_hni = _disk_load("hni_summary", HNI_CACHE_TTL)
+    # Restore market-wide HNI from disk (per-symbol caches load lazily on request)
+    saved_hni = _disk_load("hni_v3__market_", HNI_CACHE_TTL)
     if saved_hni:
-        _hni_cache["data"] = saved_hni
-        _hni_cache["ts"]   = _time.time()
-        print("[HNI] restored from disk cache", flush=True)
+        _hni_cache["_market_"] = {"data": saved_hni, "ts": _time.time()}
+        print("[HNI] market-wide cache restored from disk", flush=True)
     saved_note = _disk_load("morning_note", 86400)
     if saved_note and saved_note.get("date") == datetime.now(IST).strftime("%Y-%m-%d"):
         _morning_note.update(saved_note)
@@ -273,8 +273,38 @@ def _disk_load(key: str, ttl: int):
         pass
     return None
 
-# ── HNI deduplicator lock + morning note state ────────────────
+# ── HNI deduplicator lock + per-symbol cache state ─────────────
+# _hni_cache maps cache_key (ticker slug or "_market_") → {data, ts}
+# This replaces the previous global single-slot cache so different symbols
+# don't clobber each other's analysis.
 _hni_lock          = asyncio.Lock()
+
+
+def _hni_cache_slug(ticker: str | None) -> str:
+    """Filesystem + dict-key safe slug for the HNI per-symbol cache."""
+    if not ticker:
+        return "_market_"
+    s = re.sub(r"[^A-Za-z0-9]+", "_", ticker)
+    return s or "_market_"
+
+
+def _hni_cache_get(slug: str) -> dict | None:
+    entry = _hni_cache.get(slug)
+    if entry and (_time.time() - entry.get("ts", 0)) < HNI_CACHE_TTL:
+        return entry.get("data")
+    return None
+
+
+def _hni_cache_put(slug: str, data: dict) -> None:
+    _hni_cache[slug] = {"data": data, "ts": _time.time()}
+    try:
+        _disk_save(f"hni_v3_{slug}", data)
+    except Exception:
+        pass
+
+
+def _hni_cache_load_disk(slug: str) -> dict | None:
+    return _disk_load(f"hni_v3_{slug}", HNI_CACHE_TTL)
 _morning_note: dict = {}   # {"date": "YYYY-MM-DD", "data": {...}}
 _morning_note_lock = asyncio.Lock()
 
@@ -1963,28 +1993,101 @@ Be direct. Be opinionated. HNI clients pay for a clear POV, not hedged neutral c
 
 @app.post("/api/hni-summary")
 async def hni_summary_standalone(request: Request):
-    """Standalone HNI regime analysis using Groq + live terminal data. No Docker required."""
+    """HNI desk read. Per-symbol when `symbol` is provided in the JSON body,
+    otherwise a market-wide multi-asset read.
+
+    Body schema: ``{"symbol": "GOLD"}`` (preferred) or legacy ``{"context": "..."}``.
+
+    Debug: pass ``?debug=1`` to get a ``_debug`` block in the response containing
+    the request payload, resolved symbol, cache slug, cache hit/miss, prompt
+    excerpt, Groq metadata, and timings. Server-side logs ``[HNI]`` lines for
+    every request regardless of the debug flag.
+    """
     import requests as _rq
 
-    # ── Fast path: memory cache (no lock) ─────────────────────
-    cached = _hni_cache.get("data")
-    if cached and (_time.time() - _hni_cache.get("ts", 0)) < HNI_CACHE_TTL:
+    req_start_ms = int(_time.time() * 1000)
+    debug_mode = request.query_params.get("debug", "").lower() in {"1", "true", "yes"}
+
+    # ── Parse body: extract symbol (preferred) or legacy context ──────────
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    raw_symbol = (body.get("symbol") or body.get("context") or "").strip()
+    client_ip = (request.client.host if request.client else "?") or "?"
+    print(f"[HNI] req ip={client_ip} body_keys={list(body.keys())} raw_symbol={raw_symbol!r} debug={debug_mode}", flush=True)
+
+    # ── Resolve symbol if provided ────────────────────────────────────────
+    resolved = None
+    if raw_symbol:
+        try:
+            import symbol_resolver as _sr
+            resolved = _sr.resolve(raw_symbol)
+            if not resolved:
+                suggestions = _sr.suggest(raw_symbol, limit=6)
+                print(f"[HNI] resolve MISS raw={raw_symbol!r} suggestions={[s['ticker'] for s in suggestions]}", flush=True)
+                return JSONResponse({
+                    "error": f"Cannot resolve symbol '{raw_symbol}'",
+                    "query": raw_symbol,
+                    "suggestions": suggestions,
+                }, status_code=400)
+            print(f"[HNI] resolve OK raw={raw_symbol!r} -> ticker={resolved['ticker']} "
+                  f"class={resolved['asset_class']} source={resolved.get('source','?')}", flush=True)
+        except Exception as e:
+            print(f"[HNI] resolver ERROR raw={raw_symbol!r}: {e}", flush=True)
+            return JSONResponse({"error": "resolver_error", "detail": str(e)}, status_code=500)
+    else:
+        print(f"[HNI] no symbol provided -> market-wide read", flush=True)
+
+    cache_slug = _hni_cache_slug(resolved["ticker"] if resolved else None)
+
+    # Build the debug payload incrementally so we can attach it at the end
+    _dbg: dict = {
+        "request": {"raw_symbol": raw_symbol, "body_keys": list(body.keys()),
+                    "client_ip": client_ip, "ts_ms": req_start_ms},
+        "resolved": resolved,
+        "cache_slug": cache_slug,
+        "cache_hit": None,        # filled below
+        "cache_source": None,     # "memory" | "disk" | None
+        "groq": None,             # filled before/after Groq call
+        "elapsed_ms": None,
+    }
+
+    # ── Fast path: per-symbol memory cache (no lock) ──────────────────────
+    cached = _hni_cache_get(cache_slug)
+    if cached:
+        elapsed = int(_time.time() * 1000) - req_start_ms
+        print(f"[HNI] cache HIT (memory) slug={cache_slug} elapsed_ms={elapsed}", flush=True)
+        if debug_mode:
+            _dbg.update(cache_hit=True, cache_source="memory", elapsed_ms=elapsed)
+            out = dict(cached); out["_debug"] = _dbg
+            return JSONResponse(out)
         return JSONResponse(cached)
 
-    # ── Slow path: deduplicated lock — only ONE Groq call ──────
-    # All concurrent requests queue here; only the first calls Groq,
-    # the rest exit the lock and hit the now-populated memory cache.
+    # ── Slow path: deduplicated lock — only ONE Groq call per slug ────────
     async with _hni_lock:
-        # Double-check inside lock — another request may have just filled it
-        cached = _hni_cache.get("data")
-        if cached and (_time.time() - _hni_cache.get("ts", 0)) < HNI_CACHE_TTL:
+        cached = _hni_cache_get(cache_slug)
+        if cached:
+            elapsed = int(_time.time() * 1000) - req_start_ms
+            print(f"[HNI] cache HIT (memory, post-lock) slug={cache_slug} elapsed_ms={elapsed}", flush=True)
+            if debug_mode:
+                _dbg.update(cache_hit=True, cache_source="memory", elapsed_ms=elapsed)
+                out = dict(cached); out["_debug"] = _dbg
+                return JSONResponse(out)
             return JSONResponse(cached)
-        # Check file cache (survives Railway restarts)
-        disk = _disk_load("hni_summary", HNI_CACHE_TTL)
+        disk = _hni_cache_load_disk(cache_slug)
         if disk:
-            _hni_cache["data"] = disk
-            _hni_cache["ts"]   = _time.time()
+            _hni_cache_put(cache_slug, disk)
+            elapsed = int(_time.time() * 1000) - req_start_ms
+            print(f"[HNI] cache HIT (disk) slug={cache_slug} elapsed_ms={elapsed}", flush=True)
+            if debug_mode:
+                _dbg.update(cache_hit=True, cache_source="disk", elapsed_ms=elapsed)
+                out = dict(disk); out["_debug"] = _dbg
+                return JSONResponse(out)
             return JSONResponse(disk)
+
+    print(f"[HNI] cache MISS slug={cache_slug} -> calling Groq", flush=True)
+    _dbg["cache_hit"] = False
 
     groq_key = os.environ.get("GROQ_API_KEY", "")
     if not groq_key:
@@ -2061,15 +2164,66 @@ async def hni_summary_standalone(request: Request):
         except Exception:
             pass
 
-        prompt = f"""You are a senior institutional trader and HNI advisor covering NSE/global markets.
-Analyze the live data below and generate a complete market regime assessment.
+        # Inject desk persona context: recent calls + upcoming events
+        from ai_persona import (
+            build_messages, build_recent_calls_block, build_upcoming_events_block,
+            contains_banned,
+        )
+        recent_calls_block = build_recent_calls_block(limit=5)
+        upcoming_block     = build_upcoming_events_block(days=7)
 
-IMPORTANT: The regime engine has already classified current conditions. Use this as your PRIMARY CONTEXT — your trade bias, confidence and hni_view must be CONSISTENT with the detected regime below.
+        # ── Build prompt: symbol-focused if `symbol` provided, else multi-asset
+        if resolved:
+            focus_ticker  = resolved["ticker"]
+            focus_display = resolved["display"]
+            focus_class   = resolved["asset_class"].upper().replace("_", " ")
+            focus_header = (
+                f"FOCUSED ANALYSIS — single instrument: {focus_display} "
+                f"({focus_ticker} · {focus_class})"
+            )
+            instruments_schema = (
+                f'    {{"name": "{focus_ticker}", "signal": "BUY | SELL | WAIT", "rationale": "<≤25 words, cite a specific level on this instrument>"}},\n'
+                '    {{"name": "<top correlated driver, e.g. DXY/US10Y/VIX>", "signal": "BUY | SELL | WAIT", "rationale": "<why this drives the focus instrument>"}},\n'
+                '    {{"name": "<second driver>", "signal": "BUY | SELL | WAIT", "rationale": "<≤20 words>"}}'
+            )
+            setup_constraint = (
+                f'CRITICAL: scalp_setup.instrument AND swing_setup.instrument MUST equal '
+                f'"{focus_ticker}" (or its trader-readable name). All entry/stop/target '
+                f'levels MUST be valid for {focus_display}. Do NOT generate setups on '
+                f'unrelated instruments.'
+            )
+        else:
+            focus_header = "MULTI-ASSET DESK READ — cross-market view"
+            instruments_schema = (
+                '    {{"name": "NIFTY50",   "signal": "BUY | SELL | WAIT", "rationale": "<≤20 words, cite a level>"}},\n'
+                '    {{"name": "BANKNIFTY", "signal": "BUY | SELL | WAIT", "rationale": "<≤20 words, cite a level>"}},\n'
+                '    {{"name": "USDINR",    "signal": "BUY | SELL | WAIT", "rationale": "<≤20 words, cite a level>"}},\n'
+                '    {{"name": "GOLD",      "signal": "BUY | SELL | WAIT", "rationale": "<≤20 words, cite a level>"}},\n'
+                '    {{"name": "CRUDEOIL",  "signal": "BUY | SELL | WAIT", "rationale": "<≤20 words, cite a level>"}}'
+            )
+            setup_constraint = (
+                "Pick the cleanest scalp and swing across your covered instruments — "
+                "they may be on different tickers."
+            )
+
+        prompt = f"""Generate the live HNI desk read for the next 15-min window.
+
+{focus_header}
+
+{setup_constraint}
+
+The regime engine has already classified conditions — your trade_bias, conviction \
+and hni_view MUST be consistent with it. If you disagree, state CONVICTION=LOW and \
+explain in hni_view why the engine read differs from price action.
 
 === MARKET REGIME ENGINE OUTPUT ===
 {regime_block}
 
 {perf_block}
+{recent_calls_block}
+
+{upcoming_block}
+
 === LIVE INDICES ===
 {idx_block}
 
@@ -2079,59 +2233,89 @@ IMPORTANT: The regime engine has already classified current conditions. Use this
 === HIGH-PRIORITY NEWS FEED ===
 {news_block}
 
-Respond ONLY with a valid JSON object — no markdown, no explanation, just the JSON.
-Use this EXACT structure:
+Return ONLY this JSON object (no preamble, no markdown):
 
 {{
-  "macro_regime": "one of: BULL_MOMENTUM | BEAR_PRESSURE | RISK_OFF | RISK_ON | SIDEWAYS | BREAKOUT | DISTRIBUTION | ACCUMULATION",
-  "trade_bias": "BUY or SELL or WAIT",
+  "macro_regime": "BULL_MOMENTUM | BEAR_PRESSURE | RISK_OFF | RISK_ON | SIDEWAYS | BREAKOUT | DISTRIBUTION | ACCUMULATION",
+  "trade_bias": "BUY | SELL | WAIT",
   "confidence": <integer 0-100>,
-  "hni_view": "<2-3 sentence opinionated trader view with specific levels and reasoning>",
+  "conviction_tier": "HIGH | MEDIUM | LOW",
+  "hni_view": "<2-3 sentence opinionated desk read on {(resolved['display'] if resolved else 'the broad tape')}. Cite specific levels. No hedge words. No disclaimers.>",
+  "historical_analog": "<specific prior episode, or 'none — no clean analog' only if genuinely novel>",
+  "warnings": [
+    "<specific actionable risk>",
+    "<event risk if applicable>"
+  ],
   "instruments": [
-    {{"name": "NIFTY50",    "signal": "BUY or SELL or WAIT", "rationale": "<20 words max>"}},
-    {{"name": "BANKNIFTY",  "signal": "BUY or SELL or WAIT", "rationale": "<20 words max>"}},
-    {{"name": "USDINR",     "signal": "BUY or SELL or WAIT", "rationale": "<20 words max>"}},
-    {{"name": "GOLD",       "signal": "BUY or SELL or WAIT", "rationale": "<20 words max>"}},
-    {{"name": "CRUDEOIL",   "signal": "BUY or SELL or WAIT", "rationale": "<20 words max>"}}
+{instruments_schema}
   ],
   "scalp_setup": {{
-    "bias": "BUY or SELL or WAIT",
-    "instrument": "<e.g. BANKNIFTY or NIFTY50>",
-    "entry_zone": "<price range, e.g. 52200-52250>",
-    "stop_loss": "<specific price>",
-    "tp1": "<first target price>",
-    "tp2": "<second target price>",
-    "trigger_condition": "<what must happen for entry, e.g. break above 52250 with volume>"
+    "bias": "BUY | SELL | WAIT",
+    "instrument": "<{(resolved['ticker'] if resolved else 'pick best instrument')}>",
+    "entry_zone": "<exact price range>",
+    "stop_loss": "<exact price>",
+    "tp1": "<exact price>",
+    "tp2": "<exact price>",
+    "trigger_condition": "<what confirms entry, with volume/level specifics>"
   }},
   "swing_setup": {{
-    "bias": "BUY or SELL or WAIT",
-    "instrument": "<e.g. NIFTY50>",
-    "entry_zone": "<price range>",
-    "stop_loss": "<specific price>",
-    "tp": "<swing target with timeframe, e.g. 24800 in 5-7 sessions>",
-    "catalyst": "<what event or data will drive this move>"
+    "bias": "BUY | SELL | WAIT",
+    "instrument": "<{(resolved['ticker'] if resolved else 'pick best instrument')}>",
+    "entry_zone": "<exact range>",
+    "stop_loss": "<exact price>",
+    "tp": "<target + timeframe, e.g. '24800 over 5-7 sessions'>",
+    "catalyst": "<specific event/data that drives the move>"
   }}
 }}"""
+
+        messages = build_messages(prompt, include_few_shots=True)
+        groq_model = "llama-3.3-70b-versatile"
+        prompt_chars = sum(len(m.get("content", "")) for m in messages)
+        groq_start_ms = int(_time.time() * 1000)
+        print(f"[HNI] groq REQ slug={cache_slug} model={groq_model} "
+              f"msgs={len(messages)} prompt_chars={prompt_chars} temp=0.15", flush=True)
 
         resp = _rq.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
             json={
-                "model": "llama-3.3-70b-versatile",
-                "messages": [
-                    {"role": "system", "content": "You are a professional institutional trader. Always respond with valid JSON only — no markdown fences, no explanation."},
-                    {"role": "user", "content": prompt},
-                ],
-                "max_tokens": 900,
-                "temperature": 0.2,
+                "model": groq_model,
+                "messages": messages,
+                "max_tokens": 1200,
+                "temperature": 0.15,
             },
             timeout=30,
         )
+        groq_elapsed_ms = int(_time.time() * 1000) - groq_start_ms
 
         if resp.status_code != 200:
+            print(f"[HNI] groq ERR slug={cache_slug} status={resp.status_code} "
+                  f"elapsed_ms={groq_elapsed_ms} body={resp.text[:200]!r}", flush=True)
             return JSONResponse({"error": "groq_error", "detail": resp.text[:200]}, status_code=503)
 
-        raw = resp.json()["choices"][0]["message"]["content"].strip()
+        groq_json = resp.json()
+        raw = groq_json["choices"][0]["message"]["content"].strip()
+        try:
+            usage = groq_json.get("usage", {})
+            print(f"[HNI] groq OK slug={cache_slug} elapsed_ms={groq_elapsed_ms} "
+                  f"prompt_tok={usage.get('prompt_tokens')} completion_tok={usage.get('completion_tokens')} "
+                  f"raw_chars={len(raw)}", flush=True)
+        except Exception:
+            pass
+
+        _dbg["groq"] = {
+            "model": groq_model,
+            "msgs": len(messages),
+            "prompt_chars": prompt_chars,
+            "temperature": 0.15,
+            "status": resp.status_code,
+            "elapsed_ms": groq_elapsed_ms,
+            "usage": groq_json.get("usage", {}),
+            "raw_chars": len(raw),
+            # Excerpt only — full prompt is too long for routine logs but useful in debug mode
+            "prompt_excerpt": (messages[1]["content"][:600] if len(messages) > 1 else "")
+                              + ("…" if len(messages) > 1 and len(messages[1]["content"]) > 600 else ""),
+        }
 
         # Strip any accidental markdown fences
         raw = raw.strip()
@@ -2143,10 +2327,50 @@ Use this EXACT structure:
 
         result = _json.loads(raw)
 
-        # Save to memory + disk (disk survives Railway restarts)
-        _hni_cache["data"] = result
-        _hni_cache["ts"]   = _time.time()
-        _disk_save("hni_summary", result)
+        # Quality check — flag if the model fell back to chatbot defaults
+        try:
+            blob = _json.dumps(result, ensure_ascii=False)
+            hits = contains_banned(blob)
+            if hits:
+                print(f"[HNI] persona drift — banned phrases detected: {hits}", flush=True)
+                result["_persona_warnings"] = hits
+        except Exception:
+            pass
+
+        # Attach symbol binding metadata so the frontend can render ACTIVE SYMBOL
+        result["active_symbol"] = (resolved or {"ticker": "_market_", "display": "Market-wide read",
+                                                 "asset_class": "market", "exchange": "—"})
+        result["generated_at"]  = int(_time.time())
+        result["cache_key"]     = cache_slug
+
+        # Save to per-symbol memory + disk
+        _hni_cache_put(cache_slug, result)
+
+        # Final response log — confirms what's actually shipping to the client
+        total_elapsed = int(_time.time() * 1000) - req_start_ms
+        scalp_instr = (result.get("scalp_setup") or {}).get("instrument", "?")
+        swing_instr = (result.get("swing_setup") or {}).get("instrument", "?")
+        active_tk   = result["active_symbol"].get("ticker", "?")
+        print(f"[HNI] RESPONSE active={active_tk} bias={result.get('trade_bias','?')} "
+              f"conviction={result.get('conviction_tier','?')} "
+              f"scalp.instr={scalp_instr!r} swing.instr={swing_instr!r} "
+              f"warnings={len(result.get('warnings', []))} "
+              f"elapsed_ms={total_elapsed}", flush=True)
+
+        if debug_mode:
+            _dbg["elapsed_ms"] = total_elapsed
+            _dbg["persona_warnings"] = result.get("_persona_warnings", [])
+            _dbg["response_shape"] = {
+                "active_symbol": result["active_symbol"],
+                "scalp_instrument": scalp_instr,
+                "swing_instrument": swing_instr,
+                "trade_bias": result.get("trade_bias"),
+                "conviction_tier": result.get("conviction_tier"),
+                "instrument_count": len(result.get("instruments", [])),
+                "warning_count": len(result.get("warnings", [])),
+            }
+            out = dict(result); out["_debug"] = _dbg
+            return JSONResponse(out)
 
         return JSONResponse(result)
 

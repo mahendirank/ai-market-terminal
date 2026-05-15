@@ -1848,21 +1848,41 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 
       <!-- Header -->
       <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #0e2a36;padding-bottom:10px;">
-        <div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
           <div style="color:#22d3ee;font-size:13px;font-weight:bold;letter-spacing:1.5px;">🧠 HNI AI INSIGHTS</div>
-          <div style="color:#4b5563;font-size:9px;letter-spacing:1px;margin-top:2px;">MACRO REGIME · TRADE BIAS · SCALP &amp; SWING SETUPS</div>
+          <span id="hni-title-badge" style="display:none;align-items:center;gap:6px;font-family:'SF Mono',Monaco,monospace;font-size:11px;letter-spacing:0.5px;padding:2px 8px;background:#0a1820;border:1px solid #1c3a50;border-left:2px solid #22d3ee;border-radius:3px;">
+            <span style="color:#4b5563;font-weight:700;">→</span>
+            <span id="hni-title-badge-name"   style="color:#e2e8f0;font-weight:700;">—</span>
+            <span id="hni-title-badge-ticker" style="color:#e8b85a;font-weight:700;">(—)</span>
+          </span>
+          <div style="color:#4b5563;font-size:9px;letter-spacing:1px;width:100%;">MACRO REGIME · TRADE BIAS · SCALP &amp; SWING SETUPS</div>
         </div>
         <div style="color:#ef4444;font-size:9px;letter-spacing:1px;background:#1a0000;border:1px solid #7f1d1d;padding:3px 8px;border-radius:3px;">AI REFERENCE ONLY — NOT FINANCIAL ADVICE</div>
       </div>
 
-      <!-- Input row -->
-      <div style="display:flex;gap:8px;align-items:flex-start;">
-        <textarea id="hni-context-input" rows="2" placeholder="Optional: paste a headline or market context. Leave blank for auto-analysis from live data."
-          style="flex:1;background:#0d1520;border:1px solid #1c3a50;color:#e2e8f0;font-size:11px;padding:8px 10px;border-radius:4px;outline:none;resize:vertical;font-family:inherit;line-height:1.5;"></textarea>
+      <!-- Symbol input row -->
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span style="color:#4b5563;font-size:9px;letter-spacing:1.5px;font-weight:bold;">SYMBOL</span>
+        <input id="hni-symbol-input" type="text" autocomplete="off" placeholder="GOLD · NIFTY50 · BTC · USDJPY · CRUDEOIL  (or leave blank for market-wide)"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();loadHniInsights();}"
+          style="flex:1;background:#0d1520;border:1px solid #1c3a50;color:#22d3ee;font-size:12px;padding:7px 10px;border-radius:4px;outline:none;font-family:'SF Mono',Monaco,monospace;letter-spacing:0.5px;text-transform:uppercase;height:32px;box-sizing:border-box;">
+        <label style="display:flex;align-items:center;gap:4px;color:#6b7280;font-size:9px;letter-spacing:1.5px;font-weight:700;cursor:pointer;user-select:none;">
+          <input type="checkbox" id="hni-debug-toggle" style="accent-color:#0891b2;cursor:pointer;">
+          DEBUG
+        </label>
         <button onclick="loadHniInsights()"
-          style="background:#0891b2;color:#fff;border:none;padding:10px 18px;border-radius:4px;font-size:11px;font-weight:bold;cursor:pointer;white-space:nowrap;letter-spacing:0.5px;min-width:90px;">
+          style="background:#0891b2;color:#fff;border:none;padding:0 18px;border-radius:4px;font-size:11px;font-weight:bold;cursor:pointer;white-space:nowrap;letter-spacing:0.5px;min-width:90px;height:32px;">
           ▶ ANALYZE
         </button>
+      </div>
+
+      <!-- ACTIVE SYMBOL banner — populated by loadHniInsights, hidden until first response -->
+      <div id="hni-active-banner" style="display:none;align-items:center;gap:10px;padding:6px 12px;background:#0a1820;border:1px solid #1c3a50;border-left:3px solid #22d3ee;border-radius:3px;font-family:'SF Mono',Monaco,monospace;font-size:10.5px;color:#c0c8d4;">
+        <span style="color:#4b5563;font-size:8.5px;letter-spacing:1.5px;font-weight:700;">ACTIVE SYMBOL</span>
+        <span id="hni-active-tk"      style="color:#22d3ee;font-weight:700;letter-spacing:0.5px;">—</span>
+        <span id="hni-active-display" style="color:#a8b0bd;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">—</span>
+        <span id="hni-active-class"   style="color:#6b7280;font-size:8.5px;padding:1px 6px;border:1px solid #1c3a50;border-radius:1px;letter-spacing:1px;font-weight:700;">—</span>
+        <span id="hni-active-ts"      style="color:#4b5563;font-size:9px;letter-spacing:0.5px;font-variant-numeric:tabular-nums;">—</span>
       </div>
 
       <!-- Loading state -->
@@ -1910,6 +1930,9 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 
       <!-- Error state -->
       <div id="hni-error" style="display:none;background:#1a0a0a;border:1px solid #7f1d1d;border-radius:5px;padding:14px;color:#f87171;font-size:11px;"></div>
+
+      <!-- Debug payload — visible only when DEBUG checkbox is on -->
+      <pre id="hni-debug-payload" style="display:none;background:#080b10;border:1px solid #1c2230;border-left:3px solid #f5a623;border-radius:3px;padding:10px 12px;color:#c0c8d4;font-family:'SF Mono',Monaco,monospace;font-size:10px;line-height:1.45;letter-spacing:0.2px;white-space:pre-wrap;word-break:break-all;max-height:420px;overflow-y:auto;margin:0;"></pre>
 
       <div style="text-align:center;color:#1f2937;font-size:9px;letter-spacing:1px;margin-top:4px;padding-top:8px;border-top:1px solid #0e1a24;">
         POWERED BY GROQ AI · AUTO-READS LIVE MARKET DATA · CACHED 10 MIN · FOR REFERENCE ONLY
@@ -5534,16 +5557,44 @@ function hideHniInsights() {
   if (af) af.style.display = 'flex';
 }
 
-async function loadHniInsights() {
-  const HNI_URL = `${BASE}/api/hni-summary`;
-  const ctx = (document.getElementById('hni-context-input').value || '').trim();
+function _hniClearStale() {
+  // Wipe every output element so a stale prior-symbol response can never bleed through
+  const ids = ['hni-regime','hni-bias','hni-view','hni-conf-text','hni-instruments',
+               'hni-scalp-direction','hni-scalp-details','hni-swing-direction',
+               'hni-swing-details','hni-ts','hni-active-tk','hni-active-display',
+               'hni-active-class','hni-active-ts',
+               'hni-title-badge-name','hni-title-badge-ticker'];
+  ids.forEach(id => { const el = document.getElementById(id); if (el) el.textContent = '—'; });
+  const cb = document.getElementById('hni-conf-bar'); if (cb) cb.style.width = '0%';
+  const ib = document.getElementById('hni-instruments'); if (ib) ib.innerHTML = '';
+  const tb = document.getElementById('hni-title-badge'); if (tb) tb.style.display = 'none';
+}
 
+function _hniShortName(display, ticker) {
+  // Strip trailing parenthetical and uppercase. "Gold (XAU/USD)" -> "GOLD"
+  const base = (display || ticker || '').split(' (')[0].trim();
+  return base ? base.toUpperCase() : (ticker || '').toUpperCase();
+}
+
+async function loadHniInsights() {
+  const inp = document.getElementById('hni-symbol-input');
+  const symbol = (inp ? inp.value : '').trim();
+  const debugOn = !!document.getElementById('hni-debug-toggle')?.checked;
+  const HNI_URL = `${BASE}/api/hni-summary${debugOn ? '?debug=1' : ''}`;
+
+  // Hard reset all output state before firing the request
+  _hniClearStale();
+  document.getElementById('hni-active-banner').style.display = 'none';
+  const dbgBox = document.getElementById('hni-debug-payload');
+  if (dbgBox) { dbgBox.style.display = 'none'; dbgBox.textContent = ''; }
   document.getElementById('hni-loading').style.display  = 'block';
+  document.getElementById('hni-loading').querySelector('div:nth-child(2)').textContent =
+    symbol ? `ANALYZING ${symbol.toUpperCase()}...` : 'ANALYZING MARKET REGIME...';
   document.getElementById('hni-results').style.display  = 'none';
   document.getElementById('hni-error').style.display    = 'none';
 
   try {
-    const body = JSON.stringify({ context: ctx });
+    const body = JSON.stringify({ symbol });
     const ctrl = new AbortController();
     const _tId = setTimeout(() => ctrl.abort(), 40000);
     const res  = await fetch(HNI_URL, {
@@ -5551,13 +5602,57 @@ async function loadHniInsights() {
       headers: { 'Content-Type': 'application/json' },
       body,
       signal: ctrl.signal,
+      cache: 'no-store',
     });
     clearTimeout(_tId);
     if (!res.ok) {
       const errJson = await res.json().catch(() => ({}));
+      // Resolver miss → 400 with suggestions[]
+      if (res.status === 400 && Array.isArray(errJson.suggestions) && errJson.suggestions.length) {
+        const sugg = errJson.suggestions.map(s =>
+          `<div onclick="document.getElementById('hni-symbol-input').value='${s.ticker}';loadHniInsights();"
+                style="display:flex;gap:10px;padding:6px 10px;background:#0a0e14;border-bottom:1px solid #131a26;cursor:pointer;font-size:10.5px;font-family:'SF Mono',Monaco,monospace;"
+                onmouseover="this.style.background='#15110a'" onmouseout="this.style.background='#0a0e14'">
+             <span style="color:#22d3ee;font-weight:700;min-width:100px;">${s.ticker}</span>
+             <span style="color:#a8b0bd;flex:1;">${s.display || ''}</span>
+             <span style="color:#6b7280;font-size:8.5px;padding:1px 6px;border:1px solid #1c3a50;border-radius:1px;letter-spacing:1px;font-weight:700;">${(s.asset_class||'').toUpperCase().replace('_',' ')}</span>
+           </div>`
+        ).join('');
+        document.getElementById('hni-error').innerHTML =
+          `<div style="font-weight:700;margin-bottom:8px;">⚠ ${errJson.error}</div>` +
+          `<div style="color:#94a3b8;font-size:9.5px;letter-spacing:1.5px;margin:8px 0 4px;font-weight:700;">DID YOU MEAN —</div>` +
+          `<div style="border:1px solid #1c3a50;border-radius:3px;overflow:hidden;">${sugg}</div>`;
+        document.getElementById('hni-error').style.display = 'block';
+        document.getElementById('hni-loading').style.display = 'none';
+        return;
+      }
       throw new Error(errJson.detail || errJson.error || `Server error ${res.status}`);
     }
     const d = await res.json();
+
+    // Populate ACTIVE SYMBOL banner — single source of truth for what was analyzed
+    const ab = d.active_symbol || {};
+    document.getElementById('hni-active-tk').textContent      = ab.ticker  || '—';
+    document.getElementById('hni-active-display').textContent = ab.display || '—';
+    document.getElementById('hni-active-class').textContent   = (ab.asset_class || '—').toUpperCase().replace('_',' ');
+    if (d.generated_at) {
+      const dt = new Date(d.generated_at * 1000);
+      document.getElementById('hni-active-ts').textContent =
+        dt.toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false }) + ' IST';
+    }
+    document.getElementById('hni-active-banner').style.display = 'flex';
+
+    // Inline title badge — "HNI AI INSIGHTS → GOLD (GC=F)". Hidden in market-wide mode.
+    const tBadge = document.getElementById('hni-title-badge');
+    if (tBadge) {
+      if (ab.ticker && ab.ticker !== '_market_') {
+        document.getElementById('hni-title-badge-name').textContent   = _hniShortName(ab.display, ab.ticker);
+        document.getElementById('hni-title-badge-ticker').textContent = `(${ab.ticker})`;
+        tBadge.style.display = 'inline-flex';
+      } else {
+        tBadge.style.display = 'none';
+      }
+    }
 
     // Regime + confidence (actual field names from engine)
     const regimeColors = {
@@ -5632,6 +5727,15 @@ async function loadHniInsights() {
 
     document.getElementById('hni-ts').textContent = 'UPDATED ' + new Date().toLocaleTimeString();
     document.getElementById('hni-results').style.display = 'flex';
+
+    // Debug payload renderer — only when ?debug=1 returned _debug
+    if (d._debug) {
+      const dbgBox = document.getElementById('hni-debug-payload');
+      if (dbgBox) {
+        dbgBox.textContent = JSON.stringify(d._debug, null, 2);
+        dbgBox.style.display = 'block';
+      }
+    }
 
   } catch (err) {
     _hniLoaded = false; // allow retry on next tab click
