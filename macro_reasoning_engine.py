@@ -595,3 +595,117 @@ def analyze_stage3(snap: dict) -> dict:
         "regime_synthesis": regime,
         "stage":            "3_regime_synthesis",
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# STAGE 4 — SCENARIO MATCHING
+# ═══════════════════════════════════════════════════════════════════════════
+# Matches the stage3 state vector against named institutional scenarios
+# from macro_scenarios.MACRO_SCENARIOS. Each scenario is a list of small
+# predicate functions; match_strength = fraction of conditions satisfied.
+#
+# Scenario selection:
+#   1. Compute match_strength for every scenario.
+#   2. Pick the scenario with the highest strength.
+#   3. If best strength < MATCH_THRESHOLD_MIN, fall back to NO_CLEAN_SCENARIO.
+#
+# Deterministic: same stage3 input → same scenario output. Pure function.
+# Linear scan over ~8 scenarios is sub-millisecond.
+
+def match_scenario(stage3: dict) -> dict:
+    """Return the best-matching scenario for a stage3 state dict.
+
+    Output:
+      {
+        "name":              str,
+        "match_strength":    float 0..1,
+        "matched_conditions":list[int],   # indices of conditions that fired
+        "failed_conditions": list[int],   # indices that didn't fire
+        "trade_lean":        dict,        # copied from scenario
+        "analog_keywords":   list[str],
+        "horizon_bias":      dict,
+        "conviction_baseline": int,
+        "description":       str,
+      }
+    """
+    from macro_scenarios import (
+        MACRO_SCENARIOS, NO_CLEAN_SCENARIO, MATCH_THRESHOLD_MIN,
+    )
+
+    if not isinstance(stage3, dict):
+        return _scenario_envelope(NO_CLEAN_SCENARIO, 0.0, [], [])
+
+    # Require at least the 4 core analyzer sections to be present. An empty
+    # state dict shouldn't accidentally satisfy RANGE_BOUND_CHOP (whose
+    # conditions are all "neutral defaults") — that's a data hole, not a
+    # genuine flat-tape signal.
+    required_sections = ("yields", "usd", "volatility", "sentiment")
+    if not all(isinstance(stage3.get(k), dict) for k in required_sections):
+        return _scenario_envelope(NO_CLEAN_SCENARIO, 0.0, [], [])
+
+    best_scenario = None
+    best_strength = -1.0
+    best_matched: list[int] = []
+    best_failed:  list[int] = []
+
+    for scenario in MACRO_SCENARIOS:
+        conditions = scenario.get("conditions") or []
+        if not conditions:
+            continue
+        matched_idx: list[int] = []
+        failed_idx:  list[int] = []
+        for idx, cond in enumerate(conditions):
+            try:
+                ok = bool(cond(stage3))
+            except Exception:
+                ok = False
+            (matched_idx if ok else failed_idx).append(idx)
+        strength = len(matched_idx) / len(conditions)
+
+        if strength > best_strength:
+            best_strength = strength
+            best_scenario = scenario
+            best_matched  = matched_idx
+            best_failed   = failed_idx
+
+    if best_scenario is None or best_strength < MATCH_THRESHOLD_MIN:
+        return _scenario_envelope(NO_CLEAN_SCENARIO,
+                                   round(best_strength, 3) if best_strength > 0 else 0.0,
+                                   best_matched, best_failed)
+    return _scenario_envelope(best_scenario,
+                               round(best_strength, 3), best_matched, best_failed)
+
+
+def _scenario_envelope(scenario: dict, strength: float,
+                        matched: list[int], failed: list[int]) -> dict:
+    return {
+        "name":                scenario.get("name", "?"),
+        "description":         scenario.get("description", ""),
+        "match_strength":      strength,
+        "matched_conditions":  matched,
+        "failed_conditions":   failed,
+        "trade_lean":          scenario.get("trade_lean") or
+                                 {"long": [], "short": [], "avoid": []},
+        "analog_keywords":     scenario.get("analog_keywords") or [],
+        "horizon_bias":        scenario.get("horizon_bias") or {},
+        "conviction_baseline": int(scenario.get("conviction_baseline") or 50),
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# STAGE 4 COMPOSER
+# ═══════════════════════════════════════════════════════════════════════════
+def analyze_stage4(snap: dict) -> dict:
+    """Run Stage 2 + 3 + 4: analyzers, synthesis, scenario match.
+
+    Same purity guarantees as the earlier composers. This is the deepest
+    public entry point currently shipping — Stage 5 (trade generation) is
+    not yet implemented.
+    """
+    s3 = analyze_stage3(snap)
+    scenario = match_scenario(s3)
+    return {
+        **s3,
+        "scenario": scenario,
+        "stage":    "4_scenario_match",
+    }
