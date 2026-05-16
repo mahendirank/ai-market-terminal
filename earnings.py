@@ -41,18 +41,23 @@ WATCH_LIST = {
     "IN_METALS":   ["TATASTEEL.NS", "JSWSTEEL.NS", "HINDALCO.NS", "VEDL.NS"],
     "IN_ENERGY2":  ["RELIANCE.NS", "ONGC.NS", "BPCL.NS"],
     "IN_MISC":     ["TITAN.NS", "ASIANPAINT.NS", "BAJFINANCE.NS",
-                    "APOLLOHOSP.NS", "DMART.NS", "ZOMATO.NS"],
+                    "APOLLOHOSP.NS", "DMART.NS", "ETERNAL.NS"],
+                    # ZOMATO.NS → ETERNAL.NS (Zomato renamed to "Eternal Limited",
+                    # NSE ticker changed in 2025)
 
     # ── EUROPE ───────────────────────────────────────────────
     "EU_TECH":     ["SAP", "ASML", "SIEGY", "NXPI"],
     "EU_FINANCE":  ["HSBC", "UBS", "AZN", "ALIZY", "DB"],
-    "EU_AUTOS":    ["VWAGY", "BMWYY", "STLA"],
+    "EU_AUTOS":    ["VWAGY", "BMW.DE", "STLA"],
+                   # BMWYY ADR has been intermittently broken on Yahoo for years —
+                   # use the Frankfurt-listed BMW.DE which Yahoo serves reliably
     "EU_CONSUM":   ["NSRGY", "LVMUY", "IDEXY"],
 
     # ── JAPAN ────────────────────────────────────────────────
     "JP_AUTOS":    ["TM", "HMC", "NSANY"],
     "JP_TECH":     ["SONY", "NTDOY", "KYCCF", "FANUY"],
-    "JP_FINANCE":  ["MUFG", "SMFG", "NTT"],
+    "JP_FINANCE":  ["MUFG", "SMFG", "NTTYY"],
+                   # Yahoo uses NTTYY (ADR symbol) — the bare "NTT" 404s
 
     # ── CHINA (US-listed ADRs) ────────────────────────────────
     "CN_TECH":     ["BABA", "JD", "BIDU", "PDD", "NTES"],
@@ -121,16 +126,16 @@ NAMES = {
     "RELIANCE.NS":"Reliance","ONGC.NS":"ONGC","BPCL.NS":"BPCL",
     "TITAN.NS":"Titan","ASIANPAINT.NS":"Asian Paints",
     "BAJFINANCE.NS":"Bajaj Finance","APOLLOHOSP.NS":"Apollo Hospitals",
-    "DMART.NS":"DMart","ZOMATO.NS":"Zomato",
+    "DMART.NS":"DMart","ETERNAL.NS":"Eternal (Zomato)",
     # Europe
     "SAP":"SAP","ASML":"ASML","SIEGY":"Siemens","NXPI":"NXP Semi",
     "HSBC":"HSBC","UBS":"UBS","AZN":"AstraZeneca","ALIZY":"Allianz","DB":"Deutsche Bank",
-    "VWAGY":"Volkswagen","BMWYY":"BMW","STLA":"Stellantis",
+    "VWAGY":"Volkswagen","BMW.DE":"BMW","STLA":"Stellantis",
     "NSRGY":"Nestle","LVMUY":"LVMH","IDEXY":"Industria de Diseño",
     # Japan
     "TM":"Toyota","HMC":"Honda","NSANY":"Nissan",
     "SONY":"Sony","NTDOY":"Nintendo","KYCCF":"Keyence","FANUY":"Fanuc",
-    "MUFG":"Mitsubishi UFJ","SMFG":"Sumitomo Mitsui","NTT":"NTT",
+    "MUFG":"Mitsubishi UFJ","SMFG":"Sumitomo Mitsui","NTTYY":"NTT",
     # China
     "BABA":"Alibaba","JD":"JD.com","BIDU":"Baidu","PDD":"PDD Holdings",
     "NTES":"NetEase","TCEHY":"Tencent",

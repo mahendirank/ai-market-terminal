@@ -36,7 +36,7 @@ NIFTY50_YF = [
     "CIPLA.NS", "TECHM.NS", "BAJAJ-AUTO.NS", "EICHERMOT.NS", "JSWSTEEL.NS",
     "TATASTEEL.NS", "HINDALCO.NS", "DIVISLAB.NS", "ASIANPAINT.NS", "DMART.NS",
     "ULTRACEMCO.NS", "GRASIM.NS", "M&M.NS", "HEROMOTOCO.NS", "BPCL.NS",
-    "COALINDIA.NS", "VEDL.NS", "ZOMATO.NS", "APOLLOHOSP.NS", "BRITANNIA.NS",
+    "COALINDIA.NS", "VEDL.NS", "ETERNAL.NS", "APOLLOHOSP.NS", "BRITANNIA.NS",
 ]
 
 SYMBOL_NAMES = {
@@ -61,7 +61,7 @@ SYMBOL_NAMES = {
     "GRASIM.NS": "Grasim Industries","M&M.NS": "Mahindra & Mahindra",
     "HEROMOTOCO.NS": "Hero MotoCorp","BPCL.NS": "BPCL",
     "COALINDIA.NS": "Coal India",   "VEDL.NS": "Vedanta",
-    "ZOMATO.NS": "Zomato",         "APOLLOHOSP.NS": "Apollo Hospitals",
+    "ETERNAL.NS": "Eternal (Zomato)", "APOLLOHOSP.NS": "Apollo Hospitals",
     "BRITANNIA.NS": "Britannia",
 }
 
@@ -81,7 +81,7 @@ SECTOR_MAP = {
     "VEDL.NS": "Metal",        "COALINDIA.NS": "Mining",
     "LT.NS": "Infra",          "ADANIPORTS.NS": "Infra", "NTPC.NS": "Energy",
     "POWERGRID.NS": "Energy",  "ULTRACEMCO.NS": "Cement","GRASIM.NS": "Cement",
-    "BHARTIARTL.NS": "Telecom","DMART.NS": "Retail",     "ZOMATO.NS": "Consumer",
+    "BHARTIARTL.NS": "Telecom","DMART.NS": "Retail",     "ETERNAL.NS": "Consumer",
 }
 
 
