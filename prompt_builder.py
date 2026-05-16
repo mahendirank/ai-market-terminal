@@ -35,11 +35,141 @@ from ai_persona import SYSTEM_PERSONA, few_shots_for
 from ai_schemas import schema_for
 
 
+# ─── Reasoning payload rendering (Phase 6) ──────────────────────────────────
+# Renders the macro_reasoning_engine Stage-5 output into a compact text block
+# AI tabs can read alongside the state block. Pure string concatenation —
+# no LLM, no summarization, deterministic.
+#
+# Reasoning payload represents DIRECTIONAL INTELLIGENCE, never trade orders.
+# The "INTEL · not_for_execution · directional_intelligence" footer is
+# rendered literally so downstream consumers (humans + LLMs) see the marker.
+
+REASONING_MODES = ("compact", "verbose", "hidden")
+DEFAULT_REASONING_MODE = "compact"
+
+
+def format_reasoning_compact(reasoning: dict) -> str:
+    """Render Stage-5 reasoning as a compact macro-read block.
+
+    Target: <120 tokens. Pure rendering, no LLM, no summarization.
+    Returns empty string if reasoning is None or not a dict.
+
+    Block sections (each one line):
+      REGIME · DRIVER · POSTURE · PREFERRED · WEAK · CONFLICTS · VOL · CATALYST
+      + intent marker footer
+    """
+    if not reasoning or not isinstance(reasoning, dict):
+        return ""
+
+    lines: list[str] = ["=== MACRO READ ==="]
+
+    scenario = reasoning.get("scenario_name") or "UNKNOWN"
+    conf     = reasoning.get("overall_confidence") or 0
+    lines.append(f"REGIME: {scenario}  CONF: {conf}/100")
+
+    driver = reasoning.get("dominant_driver") or "ambiguous"
+    lines.append(f"DRIVER: {driver}")
+
+    scalp_bias = (reasoning.get("scalp")    or {}).get("bias", "?")
+    intra_bias = (reasoning.get("intraday") or {}).get("bias", "?")
+    swing_bias = (reasoning.get("swing")    or {}).get("bias", "?")
+    lines.append(f"POSTURE: scalp={scalp_bias} · intraday={intra_bias} · swing={swing_bias}")
+
+    preferred = reasoning.get("preferred_assets") or []
+    weak      = reasoning.get("weak_assets") or []
+    if preferred:
+        lines.append("PREFERRED: " + ", ".join(str(a) for a in preferred[:5]))
+    if weak:
+        lines.append("WEAK: " + ", ".join(str(a) for a in weak[:5]))
+
+    conflicts = reasoning.get("conflicts") or []
+    if conflicts:
+        types = [str(c.get("type", "?")) for c in conflicts]
+        sample = ", ".join(types[:2])
+        if len(conflicts) > 2:
+            sample += f" (+{len(conflicts) - 2} more)"
+        lines.append(f"CONFLICTS({len(conflicts)}): {sample}")
+
+    # Cap warnings at 78 chars so worst-case compact (with conflicts + both
+    # warnings) stays under the 120-token target. Truncation is informational
+    # only — full text is reachable in verbose mode or the raw reasoning dict.
+    vw = reasoning.get("volatility_warning")
+    if vw:
+        lines.append(f"VOL: {str(vw)[:78]}")
+    cr = reasoning.get("catalyst_risk")
+    if cr:
+        lines.append(f"CATALYST: {str(cr)[:78]}")
+
+    # Intent footer — survives prompt rendering deliberately so downstream
+    # consumers (AI tabs reading their own prompt, debugging tools, telemetry)
+    # see it. NOT cosmetic — preserves the not_for_execution contract.
+    lines.append("INTEL · not_for_execution · directional_intelligence")
+
+    return "\n".join(lines)
+
+
+def format_reasoning_verbose(reasoning: dict) -> str:
+    """Verbose macro-read block — compact + breakdown + thesis text.
+
+    Target: <300 tokens. Use for debugging, audit trails, or high-stakes
+    calls where the full reasoning matters. Default tabs should use compact.
+    """
+    if not reasoning or not isinstance(reasoning, dict):
+        return ""
+
+    base = format_reasoning_compact(reasoning)
+    if not base:
+        return ""
+
+    extras: list[str] = []
+
+    breakdown = reasoning.get("confidence_breakdown") or {}
+    if breakdown:
+        bits = " · ".join(f"{k}={v}" for k, v in breakdown.items())
+        extras.append(f"CONF_BREAKDOWN: {bits}")
+
+    # Per-horizon thesis invalidator — the macro-thesis-breaks condition,
+    # NOT a stop-loss. Preserves the directional_intelligence semantics.
+    for hz in ("scalp", "intraday", "swing"):
+        h = reasoning.get(hz) or {}
+        inv = h.get("thesis_invalidator")
+        if inv:
+            extras.append(f"{hz.upper()}_THESIS_BREAKS_IF: {str(inv)[:100]}")
+
+    conflicts = reasoning.get("conflicts") or []
+    if conflicts:
+        extras.append("CONFLICT_DETAILS:")
+        for c in conflicts[:4]:
+            desc    = str(c.get("description", "?"))[:110]
+            penalty = c.get("penalty", 0)
+            extras.append(f"  · {desc} ({penalty:+d})")
+
+    if not extras:
+        return base
+    return base + "\n" + "\n".join(extras)
+
+
+def _render_reasoning_block(reasoning: Optional[dict],
+                              mode: str) -> str:
+    """Internal dispatch for build_messages — returns the rendered block
+    (or empty string for ``hidden`` / unknown modes)."""
+    if reasoning is None:
+        return ""
+    mode = mode if mode in REASONING_MODES else DEFAULT_REASONING_MODE
+    if mode == "hidden":
+        return ""
+    if mode == "verbose":
+        return format_reasoning_verbose(reasoning)
+    return format_reasoning_compact(reasoning)
+
+
 # ─── Builder ────────────────────────────────────────────────────────────────
 def build_messages(
     task: str,
     *,
     snap: Optional[dict] = None,
+    reasoning: Optional[dict] = None,
+    reasoning_mode: str = DEFAULT_REASONING_MODE,
     symbol: Optional[str] = None,
     focus_display: Optional[str] = None,
     focus_ticker: Optional[str] = None,
@@ -61,6 +191,16 @@ def build_messages(
         Output of market_intel.get_intel_snapshot(). Rendered into the L2
         state block via market_intel.format_state_compact(). Omit for tabs
         that don't need market state.
+    reasoning : dict, optional
+        Output of macro_reasoning_engine.generate_trades() or analyze_stage5().
+        When provided, a MACRO READ block is prepended to L2 above the raw
+        STATE block. Carries directional_intelligence — NOT trade orders.
+        The ``not_for_execution`` marker is preserved in the rendered text.
+        Default None (no MACRO READ block).
+    reasoning_mode : str
+        One of: ``compact`` (~80-110 tok, default), ``verbose`` (~180-260 tok,
+        adds breakdown + thesis text), ``hidden`` (skip block entirely).
+        Invalid modes fall back to compact.
     symbol : str, optional
         Active ticker (already resolved via symbol_resolver). When given,
         adds a FOCUS line to the task block and forces the model toward
@@ -104,6 +244,14 @@ def build_messages(
 
     # ── Layer 2: STATE ──────────────────────────────────────────────────────
     state_parts: list[str] = []
+
+    # OPTIONAL reasoning block — directional_intelligence, NOT entry signals.
+    # Rendered BEFORE the raw state so the conclusion sits above the evidence.
+    # When reasoning_mode == "hidden" or reasoning is None, this is a no-op.
+    reasoning_block = _render_reasoning_block(reasoning, reasoning_mode)
+    if reasoning_block:
+        state_parts.append(reasoning_block)
+
     if snap is not None:
         from market_intel import format_state_compact
         state_block = format_state_compact(snap, max_clusters=state_max_clusters)
