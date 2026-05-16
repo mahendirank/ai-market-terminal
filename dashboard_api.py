@@ -2188,6 +2188,32 @@ async def hni_summary_standalone(request: Request):
             print(f"[HNI] market_intel unavailable ({_e}) — proceeding without state block", flush=True)
             intel_snap = None
 
+        # ── OPT-IN MACRO REASONING PAYLOAD (Phase 6 limited integration) ───
+        # Gated by env var ENABLE_MACRO_REASONING. Read at request time so a
+        # flag flip takes effect without restart. When off (default), HNI
+        # behaviour is identical to pre-P6 (no MACRO READ block, zero extra
+        # tokens, zero engine call cost). When on, attaches the deterministic
+        # Stage-5 reasoning as directional_intelligence — NOT execution.
+        reasoning_payload = None
+        macro_reasoning_enabled = (
+            os.environ.get("ENABLE_MACRO_REASONING", "").strip().lower()
+            in {"1", "true", "yes", "on"}
+        )
+        if macro_reasoning_enabled and intel_snap is not None:
+            try:
+                from macro_reasoning_engine import analyze_stage5
+                stage5 = analyze_stage5(intel_snap)
+                reasoning_payload = stage5.get("trades")
+                print(f"[HNI] macro_reasoning ON  scenario={reasoning_payload.get('scenario_name','?')} "
+                      f"conf={reasoning_payload.get('overall_confidence','?')} "
+                      f"intent={reasoning_payload.get('intent','?')}", flush=True)
+            except Exception as _e:
+                print(f"[HNI] macro_reasoning unavailable ({_e}) — proceeding without payload", flush=True)
+                reasoning_payload = None
+        elif not macro_reasoning_enabled:
+            # Quiet log so production deploys can confirm gate is closed
+            pass
+
         # Build per-call constraints. Composer adds the FOCUS + scalp/swing
         # instrument constraint automatically when focus_ticker is given;
         # we only add multi-asset coverage hint when no symbol is supplied.
@@ -2202,6 +2228,20 @@ async def hni_summary_standalone(request: Request):
             "If signals conflict (e.g. regime bullish but sentiment tilt bearish), "
             "state CONVICTION=LOW and call out the conflict in hni_view."
         )
+        # Anti-hallucination guard — only added when reasoning payload is
+        # attached. Tells the model the MACRO READ block is context, not
+        # an order spec. Prevents the LLM from echoing the bias/posture
+        # values as if they were executable entries.
+        if reasoning_payload is not None:
+            constraints.append(
+                "The MACRO READ block above is directional_intelligence — "
+                "regime CONTEXT for your read. It is NOT an order, NOT entry "
+                "signals, NOT position sizing. Do NOT copy its POSTURE / "
+                "PREFERRED / WEAK lines verbatim into the schema fields. "
+                "Treat scalp/intraday/swing bias as macro posture only. "
+                "All scalp_setup / swing_setup price levels still belong to "
+                "you to derive from the STATE block."
+            )
 
         # Compose extra context from sources that aren't part of the snapshot:
         # signal_memory performance + last 5 desk calls + 7-day events.
@@ -2211,6 +2251,8 @@ async def hni_summary_standalone(request: Request):
         messages = build_messages(
             task="hni",
             snap=intel_snap,
+            reasoning=reasoning_payload,
+            reasoning_mode="compact",
             symbol=raw_symbol or None,
             focus_display=(resolved or {}).get("display"),
             focus_ticker=(resolved or {}).get("ticker"),
@@ -2262,6 +2304,15 @@ async def hni_summary_standalone(request: Request):
             # Excerpt only — full prompt is too long for routine logs but useful in debug mode
             "prompt_excerpt": (messages[1]["content"][:600] if len(messages) > 1 else "")
                               + ("…" if len(messages) > 1 and len(messages[1]["content"]) > 600 else ""),
+        }
+        # Phase-6 gate visibility — confirms whether MACRO READ was injected
+        _dbg["macro_reasoning"] = {
+            "enabled":    macro_reasoning_enabled,
+            "attached":   reasoning_payload is not None,
+            "mode":       "compact" if reasoning_payload is not None else None,
+            "scenario":   (reasoning_payload or {}).get("scenario_name"),
+            "confidence": (reasoning_payload or {}).get("overall_confidence"),
+            "intent":     (reasoning_payload or {}).get("intent"),
         }
 
         # Strip any accidental markdown fences
