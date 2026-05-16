@@ -892,45 +892,79 @@ def _contribution_split(final_conf: int) -> dict:
 
 
 def _build_trade(template: dict, *, horizon: str,
-                  dominant_driver: str, confidence_contribution: int) -> dict:
-    """Compose a single timeframe trade decision from a template + state."""
+                  dominant_driver: str, regime_contribution_weight: int) -> dict:
+    """Compose a single-horizon DIRECTIONAL INTELLIGENCE entry from a template.
+
+    NOT an entry signal. The ``bias`` value (LONG_BIAS / SHORT_BIAS / NEUTRAL)
+    describes the macro posture the regime favours over the given horizon.
+    Asset names are the focus class, not order tickers. ``thesis_invalidator``
+    is what would invalidate the MACRO READ — it is not a stop-loss.
+
+    Field semantics:
+      kind                          always "regime_bias" — schema marker
+      horizon                       "1-15m" / "1-4h" / "1-5d"
+      bias                          LONG_BIAS | SHORT_BIAS | NEUTRAL
+      primary_asset                 focus asset / class for the regime read
+      rationale_tags                list of compact tags (no prose)
+      thesis_invalidator            condition that invalidates the macro thesis
+      dominant_driver               which stage-3 layer drove this read
+      regime_contribution_weight    0-100 weight on the regime read,
+                                    NOT a position-size suggestion
+      posture_avoid_conditions      situations that would change the posture
+    """
     return {
-        "direction":               template.get("direction", "WAIT"),
-        "instrument":              template.get("instrument", "—"),
-        "horizon":                 horizon,
-        "rationale_tags":          list(template.get("rationale_tags") or []),
-        "invalidation":            template.get("invalidation", ""),
-        "dominant_driver":         dominant_driver,
-        "confidence_contribution": confidence_contribution,
-        "avoid_conditions":        list(template.get("avoid_conditions") or []),
+        "kind":                         "regime_bias",
+        "horizon":                      horizon,
+        "bias":                         template.get("bias", "NEUTRAL"),
+        "primary_asset":                template.get("primary_asset", "—"),
+        "rationale_tags":               list(template.get("rationale_tags") or []),
+        "thesis_invalidator":           template.get("thesis_invalidator", ""),
+        "dominant_driver":              dominant_driver,
+        "regime_contribution_weight":   regime_contribution_weight,
+        "posture_avoid_conditions":     list(template.get("posture_avoid_conditions") or []),
     }
 
 
 def _high_conviction_from_scenario(scenario: dict, confidence: int) -> list[dict]:
-    """Top picks pulled from scenario.trade_lean.long; emit only when
-    overall confidence is meaningful (>=60). Otherwise empty list."""
+    """High-conviction ASSET universe for the regime — NOT orders.
+
+    Records carry ``bias`` (LONG_BIAS) to signal posture, not direction
+    of a trade. Emitted only when overall confidence is meaningful (>=60).
+    """
     if confidence < 60:
         return []
     longs = (scenario.get("trade_lean") or {}).get("long") or []
     if not longs:
         return []
     tag = scenario.get("name", "").lower()
-    return [{"asset": a, "direction": "LONG", "rationale_tag": tag}
+    return [{"asset": a, "bias": "LONG_BIAS", "rationale_tag": tag}
             for a in longs[:3]]
 
 
 def _avoid_trades_from_scenario(scenario: dict) -> list[dict]:
-    """trade_lean.avoid → list of avoid_trades records with regime-derived reason."""
+    """Assets the regime cautions AGAINST — NOT a do-not-trade list, just
+    a flag of macro headwind for downstream review."""
     avoids = (scenario.get("trade_lean") or {}).get("avoid") or []
     reason = scenario.get("name", "current regime").lower().replace("_", " ")
     return [{"asset": a, "reason": f"{reason} regime"} for a in avoids[:8]]
 
 
 def generate_trades(stage4: dict) -> dict:
-    """Stage 5 — assemble the full trade-decision envelope.
+    """Stage 5 — assemble the DIRECTIONAL INTELLIGENCE envelope.
+
+    NOT an entry-signal generator. NOT order routing. NOT execution.
+
+    Outputs describe the macro POSTURE the current regime favours over each
+    time horizon. Asset names identify the focus class for the regime read;
+    they are not order tickers. ``thesis_invalidator`` is what invalidates
+    the macro thesis — it is not a stop-loss. ``regime_contribution_weight``
+    is a 0-100 weight on the regime read; it is not a position size.
+
+    Consumers should treat this output as desk-grade context for human
+    review and downstream prompt-building, never as an order specification.
 
     Inputs: dict produced by ``analyze_stage4(snap)``.
-    Outputs: the user's spec schema. Pure function, deterministic.
+    Pure function, deterministic.
     """
     from macro_scenarios import trade_template, PREFERRED_ASSETS, WEAK_ASSETS
 
@@ -949,24 +983,36 @@ def generate_trades(stage4: dict) -> dict:
     swing_tpl    = trade_template(scenario_name, "swing")
 
     return {
+        # ── Intent markers — schema-level disclaimer of purpose ───────────
+        "intent":            "directional_intelligence",
+        "not_for_execution": True,
+        "usage_note":        ("Macro posture for human review and downstream "
+                               "prompt-building. NOT orders. NOT entry signals. "
+                               "NOT position sizing."),
+        "output_schema_version": "5.1",
+
+        # ── Per-horizon regime biases ────────────────────────────────────
         "scalp":    _build_trade(scalp_tpl,    horizon="1-15m",
                                   dominant_driver=dominant_driver,
-                                  confidence_contribution=contribs["scalp"]),
+                                  regime_contribution_weight=contribs["scalp"]),
         "intraday": _build_trade(intraday_tpl, horizon="1-4h",
                                   dominant_driver=dominant_driver,
-                                  confidence_contribution=contribs["intraday"]),
+                                  regime_contribution_weight=contribs["intraday"]),
         "swing":    _build_trade(swing_tpl,    horizon="1-5d",
                                   dominant_driver=dominant_driver,
-                                  confidence_contribution=contribs["swing"]),
+                                  regime_contribution_weight=contribs["swing"]),
 
-        "high_conviction_trades": _high_conviction_from_scenario(scenario, final),
-        "avoid_trades":           _avoid_trades_from_scenario(scenario),
+        # ── Asset universe hints (not orders) ────────────────────────────
+        "high_conviction_assets": _high_conviction_from_scenario(scenario, final),
+        "assets_to_avoid":        _avoid_trades_from_scenario(scenario),
         "preferred_assets":       list(PREFERRED_ASSETS.get(scenario_name, [])),
         "weak_assets":            list(WEAK_ASSETS.get(scenario_name, [])),
 
+        # ── Risk overlay (informational) ─────────────────────────────────
         "volatility_warning":     _volatility_warning(stage4),
         "catalyst_risk":          _catalyst_risk(stage4),
 
+        # ── State diagnostics ────────────────────────────────────────────
         "conflicts":              conflicts,
         "overall_confidence":     final,
         "confidence_breakdown":   conf["breakdown"],

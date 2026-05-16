@@ -113,31 +113,37 @@ def test_every_scenario_emits_trades():
         out = generate_trades(s4)
         for tf in ("scalp", "intraday", "swing"):
             trade = out[tf]
-            _check(f"{name.lower()}_{tf}_has_direction",
-                   "direction" in trade and trade["direction"] in {"LONG","SHORT","WAIT"},
-                   f"got {trade.get('direction')}")
+            _check(f"{name.lower()}_{tf}_has_bias",
+                   "bias" in trade and trade["bias"] in {"LONG_BIAS","SHORT_BIAS","NEUTRAL"},
+                   f"got {trade.get('bias')}")
             _check(f"{name.lower()}_{tf}_has_rationale_tags",
                    isinstance(trade["rationale_tags"], list)
                    and len(trade["rationale_tags"]) > 0,
                    f"got {trade.get('rationale_tags')}")
-            _check(f"{name.lower()}_{tf}_has_invalidation",
-                   bool(trade["invalidation"]),
-                   f"got {trade.get('invalidation')!r}")
-            _check(f"{name.lower()}_{tf}_has_avoid_conditions",
-                   isinstance(trade["avoid_conditions"], list),
-                   f"got {trade.get('avoid_conditions')}")
+            _check(f"{name.lower()}_{tf}_has_thesis_invalidator",
+                   bool(trade["thesis_invalidator"]),
+                   f"got {trade.get('thesis_invalidator')!r}")
+            _check(f"{name.lower()}_{tf}_has_posture_avoid_conditions",
+                   isinstance(trade["posture_avoid_conditions"], list),
+                   f"got {trade.get('posture_avoid_conditions')}")
+            _check(f"{name.lower()}_{tf}_has_kind_regime_bias",
+                   trade.get("kind") == "regime_bias",
+                   f"got {trade.get('kind')}")
 
 
 def test_no_clean_scenario_emits_wait():
     print("\n═══ NO_CLEAN_SCENARIO → WAIT ═══")
     s4 = make_stage4("NO_CLEAN_SCENARIO", match_strength=0.0, conviction_baseline=30)
     out = generate_trades(s4)
-    _check("no_clean_scalp_wait",    out["scalp"]["direction"]    == "WAIT")
-    _check("no_clean_intraday_wait", out["intraday"]["direction"] == "WAIT")
-    _check("no_clean_swing_wait",    out["swing"]["direction"]    == "WAIT")
+    _check("no_clean_scalp_neutral",    out["scalp"]["bias"]    == "NEUTRAL")
+    _check("no_clean_intraday_neutral", out["intraday"]["bias"] == "NEUTRAL")
+    _check("no_clean_swing_neutral",    out["swing"]["bias"]    == "NEUTRAL")
     _check("no_clean_no_high_conviction",
-           out["high_conviction_trades"] == [],
-           f"got {out['high_conviction_trades']}")
+           out["high_conviction_assets"] == [],
+           f"got {out['high_conviction_assets']}")
+    _check("no_clean_intent_directional_intelligence",
+           out["intent"] == "directional_intelligence" and out["not_for_execution"] is True,
+           f"intent={out.get('intent')} not_for_execution={out.get('not_for_execution')}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -358,9 +364,9 @@ def test_preferred_weak_assets_populated():
     _check("tightening_panic_weak_includes_ndx",
            "NDX" in out["weak_assets"],
            f"got {out['weak_assets']}")
-    _check("avoid_trades_populated",
-           len(out["avoid_trades"]) > 0,
-           f"got {out['avoid_trades']}")
+    _check("assets_to_avoid_populated",
+           len(out["assets_to_avoid"]) > 0,
+           f"got {out['assets_to_avoid']}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -391,8 +397,9 @@ def test_stage5_composer_and_latency():
            f"elapsed_ms={elapsed_ms:.1f}")
     _check("stage5_trades_has_required_fields",
            all(k in out["trades"] for k in
-                ("scalp","intraday","swing","high_conviction_trades",
-                 "avoid_trades","preferred_assets","weak_assets",
+                ("intent","not_for_execution","usage_note",
+                 "scalp","intraday","swing","high_conviction_assets",
+                 "assets_to_avoid","preferred_assets","weak_assets",
                  "volatility_warning","catalyst_risk","conflicts",
                  "overall_confidence","confidence_breakdown")),
            f"got keys={list(out['trades'].keys())}")
