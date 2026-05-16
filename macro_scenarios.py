@@ -271,3 +271,225 @@ NO_CLEAN_SCENARIO = {
 def list_scenarios() -> list[str]:
     """Return the registered scenario names — useful for introspection."""
     return [s["name"] for s in MACRO_SCENARIOS]
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# TRADE MATRIX — per-scenario, per-timeframe trade templates
+# ════════════════════════════════════════════════════════════════════════════
+# Pure data. The engine looks up the matched scenario's name in this dict
+# and emits Stage-5 trade decisions. Each timeframe entry holds:
+#   direction        LONG | SHORT | WAIT
+#   instrument       primary asset for that timeframe
+#   rationale_tags   list of compact tags (no prose)
+#   invalidation     one-line condition that would invalidate the read
+#   avoid_conditions list of soft "don't pull the trigger if..." lines
+#
+# Conviction order: scalp < intraday < swing typically — but each cell can
+# override based on the regime's dominant pressure (e.g. CARRY_UNWIND
+# favours intraday-strength fade calls over swing-out commitments).
+TRADE_MATRIX: dict[str, dict] = {
+    "TIGHTENING_PANIC": {
+        "scalp": {
+            "direction": "SHORT", "instrument": "NDX",
+            "rationale_tags": ["yields_spike", "usd_strong", "vol_expansion"],
+            "invalidation":   "US10Y reverses -5bp OR DXY drops below -0.2%",
+            "avoid_conditions": ["if VIX retreats below 17",
+                                   "if MONETARY news softens"],
+        },
+        "intraday": {
+            "direction": "SHORT", "instrument": "growth_tech",
+            "rationale_tags": ["fed_hawkish", "duration_repricing"],
+            "invalidation":   "Fed-speak turns dovish OR US10Y closes flat",
+            "avoid_conditions": ["if breadth widens", "into pre-market on data"],
+        },
+        "swing": {
+            "direction": "LONG", "instrument": "DXY",
+            "rationale_tags": ["tightening_cycle", "global_dollar_squeeze"],
+            "invalidation":   "DXY closes below 20d MA for 2 sessions",
+            "avoid_conditions": ["into FOMC blackout", "into NFP if positioning crowded"],
+        },
+    },
+    "MELT_UP": {
+        "scalp": {
+            "direction": "LONG", "instrument": "NDX",
+            "rationale_tags": ["dips_get_bid", "low_vol_grind"],
+            "invalidation":   "VIX breaks above 17 OR NDX loses 20d MA intraday",
+            "avoid_conditions": ["if breadth narrows to <55% adv", "if DXY catches a bid"],
+        },
+        "intraday": {
+            "direction": "LONG", "instrument": "growth_tech",
+            "rationale_tags": ["dovish_anchor", "carry_friendly"],
+            "invalidation":   "Term-premium expansion OR Fed-speak rejection",
+            "avoid_conditions": ["into CPI", "if BTC breaks key support"],
+        },
+        "swing": {
+            "direction": "LONG", "instrument": "BTC",
+            "rationale_tags": ["risk_on", "liquidity_friendly"],
+            "invalidation":   "Vol regime breaks COMPRESSED OR DXY > +0.5% 2 sessions",
+            "avoid_conditions": ["into FOMC", "if regime composite drops below 60"],
+        },
+    },
+    "STAGFLATION_LITE": {
+        "scalp": {
+            "direction": "SHORT", "instrument": "cyclicals",
+            "rationale_tags": ["growth_scare", "yields_pressure"],
+            "invalidation":   "PMI surprise upside OR yields retreat",
+            "avoid_conditions": ["into close on Friday", "if commodity_complex rallies"],
+        },
+        "intraday": {
+            "direction": "LONG", "instrument": "GOLD",
+            "rationale_tags": ["safe_haven", "real_yield_compression"],
+            "invalidation":   "US10Y +10bp without DXY drop",
+            "avoid_conditions": ["if DXY breaks higher", "into US session if liquidity thins"],
+        },
+        "swing": {
+            "direction": "LONG", "instrument": "GOLD",
+            "rationale_tags": ["fed_overlap", "structural_safe_haven"],
+            "invalidation":   "Fed pivot priced in OR real yields > +200bp",
+            "avoid_conditions": ["into Fed minutes", "after large COMEX positioning shift"],
+        },
+    },
+    "GROWTH_SCARE": {
+        "scalp": {
+            "direction": "SHORT", "instrument": "small_caps",
+            "rationale_tags": ["recession_pricing", "credit_widening"],
+            "invalidation":   "Jobless claims surprise downside OR HY spreads tighten",
+            "avoid_conditions": ["if Fed-cut odds spike", "into close on benchmark days"],
+        },
+        "intraday": {
+            "direction": "LONG", "instrument": "TLT",
+            "rationale_tags": ["duration_bid", "flight_to_quality"],
+            "invalidation":   "Yields stop falling OR risk reversal in equities",
+            "avoid_conditions": ["if curve steepens sharply", "into supply auctions"],
+        },
+        "swing": {
+            "direction": "LONG", "instrument": "TLT",
+            "rationale_tags": ["recession_hedge", "data_dependent"],
+            "invalidation":   "PMI rebound OR NFP surprises upside",
+            "avoid_conditions": ["into Treasury auctions", "post-CPI dovish surprise"],
+        },
+    },
+    "CARRY_UNWIND": {
+        "scalp": {
+            "direction": "SHORT", "instrument": "USDJPY",
+            "rationale_tags": ["carry_unwind", "vol_premium"],
+            "invalidation":   "USDJPY closes back above 20d MA",
+            "avoid_conditions": ["if BoJ jawboning fades", "if VIX retreats"],
+        },
+        "intraday": {
+            "direction": "LONG", "instrument": "JPY",
+            "rationale_tags": ["safe_haven_funding", "risk_off"],
+            "invalidation":   "Risk asset reversal OR JPY positioning extreme",
+            "avoid_conditions": ["into Tokyo fix", "if MOF intervention rhetoric softens"],
+        },
+        "swing": {
+            "direction": "SHORT", "instrument": "EM_FX",
+            "rationale_tags": ["global_risk_off", "funding_squeeze"],
+            "invalidation":   "Central bank coordinated dovish action",
+            "avoid_conditions": ["into Asian month-end fix", "if China stimulus headlines"],
+        },
+    },
+    "GEOPOLITICAL_RISKOFF": {
+        "scalp": {
+            "direction": "LONG", "instrument": "GOLD",
+            "rationale_tags": ["panic_bid", "safe_haven"],
+            "invalidation":   "De-escalation headline OR DXY breaks higher",
+            "avoid_conditions": ["if event headlines stabilise", "into US close"],
+        },
+        "intraday": {
+            "direction": "LONG", "instrument": "OIL",
+            "rationale_tags": ["supply_risk", "geopolitical_premium"],
+            "invalidation":   "Ceasefire OR strategic-reserve release announcement",
+            "avoid_conditions": ["if API inventory builds large", "into expiry"],
+        },
+        "swing": {
+            "direction": "LONG", "instrument": "DXY",
+            "rationale_tags": ["risk_off_dollar_bid", "structural_safe_haven"],
+            "invalidation":   "Coordinated de-escalation OR Fed dovish surprise",
+            "avoid_conditions": ["into Friday close", "if BOJ intervention rhetoric"],
+        },
+    },
+    "REFLATION": {
+        "scalp": {
+            "direction": "LONG", "instrument": "cyclicals",
+            "rationale_tags": ["growth_acceleration", "commodity_bid"],
+            "invalidation":   "PMI surprise downside OR DXY catches structural bid",
+            "avoid_conditions": ["into CPI", "if breadth narrows"],
+        },
+        "intraday": {
+            "direction": "LONG", "instrument": "COPPER",
+            "rationale_tags": ["industrial_demand", "weak_dollar"],
+            "invalidation":   "China stimulus disappointment OR inventories spike",
+            "avoid_conditions": ["into LME settlement", "if DXY breaks higher"],
+        },
+        "swing": {
+            "direction": "LONG", "instrument": "EM_equity",
+            "rationale_tags": ["dollar_weakness", "growth_friendly"],
+            "invalidation":   "DXY reclaims 20d MA OR EM-credit spreads widen",
+            "avoid_conditions": ["into Fed", "if EM CB hawkish surprise"],
+        },
+    },
+    "RANGE_BOUND_CHOP": {
+        "scalp": {
+            "direction": "WAIT", "instrument": "—",
+            "rationale_tags": ["no_trend", "fade_extremes"],
+            "invalidation":   "Volume expansion OR ATR breakout",
+            "avoid_conditions": ["chasing breakouts", "size up before breakout confirms"],
+        },
+        "intraday": {
+            "direction": "WAIT", "instrument": "—",
+            "rationale_tags": ["scale_at_levels", "no_signal"],
+            "invalidation":   "Regime composite shifts OR catalyst hits",
+            "avoid_conditions": ["initiating high-conviction directional bets"],
+        },
+        "swing": {
+            "direction": "WAIT", "instrument": "—",
+            "rationale_tags": ["stay_small", "wait_for_signal"],
+            "invalidation":   "Regime transition flagged",
+            "avoid_conditions": ["pyramiding into chop"],
+        },
+    },
+    "NO_CLEAN_SCENARIO": {
+        "scalp": {
+            "direction": "WAIT", "instrument": "—",
+            "rationale_tags": ["no_clean_signal"],
+            "invalidation":   "Scenario match strength rises above 0.50",
+            "avoid_conditions": ["initiating high-conviction bets"],
+        },
+        "intraday": {
+            "direction": "WAIT", "instrument": "—",
+            "rationale_tags": ["wait_for_setup"],
+            "invalidation":   "Confirmed regime synthesis",
+            "avoid_conditions": ["sizing up before data clarifies"],
+        },
+        "swing": {
+            "direction": "WAIT", "instrument": "—",
+            "rationale_tags": ["no_swing_until_signal"],
+            "invalidation":   "Scenario solidifies",
+            "avoid_conditions": ["committing to multi-day positioning"],
+        },
+    },
+}
+
+
+# Preferred / weak asset shortcuts per scenario (subset of trade_lean).
+# Used by generate_trades to populate Stage-5 preferred_assets / weak_assets
+# without duplicating the trade_lean dict above.
+PREFERRED_ASSETS: dict[str, list[str]] = {
+    s["name"]: (s.get("trade_lean") or {}).get("long", []) for s in MACRO_SCENARIOS
+}
+WEAK_ASSETS: dict[str, list[str]] = {
+    s["name"]: (s.get("trade_lean") or {}).get("short", []) for s in MACRO_SCENARIOS
+}
+
+
+def trade_template(scenario_name: str, horizon: str) -> dict:
+    """Look up a trade template by scenario name + horizon.
+
+    Horizons: ``scalp`` | ``intraday`` | ``swing``.
+    Returns the NO_CLEAN_SCENARIO template if unknown.
+    """
+    entry = TRADE_MATRIX.get(scenario_name)
+    if not entry:
+        entry = TRADE_MATRIX["NO_CLEAN_SCENARIO"]
+    return dict(entry.get(horizon) or TRADE_MATRIX["NO_CLEAN_SCENARIO"][horizon])

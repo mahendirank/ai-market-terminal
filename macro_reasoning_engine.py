@@ -698,9 +698,7 @@ def _scenario_envelope(scenario: dict, strength: float,
 def analyze_stage4(snap: dict) -> dict:
     """Run Stage 2 + 3 + 4: analyzers, synthesis, scenario match.
 
-    Same purity guarantees as the earlier composers. This is the deepest
-    public entry point currently shipping — Stage 5 (trade generation) is
-    not yet implemented.
+    Same purity guarantees as the earlier composers.
     """
     s3 = analyze_stage3(snap)
     scenario = match_scenario(s3)
@@ -708,4 +706,290 @@ def analyze_stage4(snap: dict) -> dict:
         **s3,
         "scenario": scenario,
         "stage":    "4_scenario_match",
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# STAGE 5 — DETERMINISTIC TRADE GENERATION
+# ═══════════════════════════════════════════════════════════════════════════
+# Pure rules. No LLM. Reads Stage-4 output, emits the user's spec schema:
+# scalp/intraday/swing per timeframe, plus avoid_trades, preferred_assets,
+# weak_assets, volatility_warning, catalyst_risk, conflicts, confidence.
+#
+# Conflict-detection rules (downgrades confidence; never upgrades it):
+#   1. BULLISH sentiment under TIGHTENING_PANIC / CRISIS / GROWTH_SCARE: -20
+#   2. BEARISH sentiment under MELT_UP / GOLDILOCKS:                     -20
+#   3. RISING yields under RISK_ON / MELT_UP:                            -10
+#   4. FALLING yields under INFLATIONARY / REFLATION:                    -10
+#   5. STRONG USD under MELT_UP / REFLATION:                             -10
+#
+# Plus mechanical adjustments:
+#   match_strength < 0.75:                  -5 per 0.10 below (cap -20)
+#   vol=EXTREME with long-lean scenario:    -25
+#   internal_consistency ≥ 0.90 + match ≥ 0.75:  +5
+#   internal_consistency ≤ 0.40:            -5
+
+# ─── Conflict types (stable strings — referenced by tests + telemetry) ─────
+CFL_SENTIMENT_VS_REGIME_BULL = "sentiment_vs_regime_bullish_in_riskoff"
+CFL_SENTIMENT_VS_REGIME_BEAR = "sentiment_vs_regime_bearish_in_riskon"
+CFL_YIELDS_VS_REGIME_RISING  = "yields_rising_in_riskon"
+CFL_YIELDS_VS_REGIME_FALLING = "yields_falling_in_inflationary"
+CFL_USD_VS_REGIME            = "usd_strong_in_riskon_regime"
+
+
+_RISKOFF_REGIMES = {"TIGHTENING_PANIC", "CRISIS", "GROWTH_SCARE", "STAGFLATION", "RISK_OFF"}
+_RISKON_REGIMES  = {"MELT_UP", "GOLDILOCKS", "RISK_ON", "REFLATION"}
+_LONG_LEAN_SCENARIOS = {"MELT_UP", "REFLATION", "GOLDILOCKS"}
+
+
+def _detect_conflicts(stage3: dict, scenario: dict) -> list[dict]:
+    """Detect state-vs-regime contradictions. Each returned conflict is
+    a small dict: ``{type, description, penalty}`` (penalty < 0 always)."""
+    out: list[dict] = []
+    s = (stage3 or {}).get("sentiment") or {}
+    y = (stage3 or {}).get("yields") or {}
+    u = (stage3 or {}).get("usd") or {}
+    syn = (stage3 or {}).get("regime_synthesis") or {}
+    regime = syn.get("regime", "MIXED")
+
+    sent  = s.get("label", "NEUTRAL")
+    ydir  = y.get("direction", "FLAT")
+    udir  = u.get("direction", "RANGE")
+
+    # 1 & 2: sentiment vs regime
+    if sent == "BULLISH" and regime in _RISKOFF_REGIMES:
+        out.append({
+            "type":        CFL_SENTIMENT_VS_REGIME_BULL,
+            "description": f"BULLISH sentiment under {regime} regime",
+            "penalty":     -20,
+        })
+    elif sent == "BEARISH" and regime in {"MELT_UP", "GOLDILOCKS"}:
+        out.append({
+            "type":        CFL_SENTIMENT_VS_REGIME_BEAR,
+            "description": f"BEARISH sentiment under {regime} regime",
+            "penalty":     -20,
+        })
+
+    # 3 & 4: yields vs regime
+    if ydir == "RISING" and regime in {"RISK_ON", "MELT_UP"}:
+        out.append({
+            "type":        CFL_YIELDS_VS_REGIME_RISING,
+            "description": f"YIELDS RISING under {regime} (positioning risk)",
+            "penalty":     -10,
+        })
+    elif ydir == "FALLING" and regime in {"INFLATIONARY", "REFLATION"}:
+        out.append({
+            "type":        CFL_YIELDS_VS_REGIME_FALLING,
+            "description": f"YIELDS FALLING under {regime} regime",
+            "penalty":     -10,
+        })
+
+    # 5: USD vs regime
+    if udir == "STRONG" and regime in {"MELT_UP", "REFLATION"}:
+        out.append({
+            "type":        CFL_USD_VS_REGIME,
+            "description": f"USD STRONG under {regime} (dollar headwind)",
+            "penalty":     -10,
+        })
+
+    return out
+
+
+def _volatility_warning(stage3: dict) -> Optional[str]:
+    """Return a desk-grade vol warning string, or None when no warning needed."""
+    v = (stage3 or {}).get("volatility") or {}
+    regime = v.get("regime")
+    level  = v.get("vix_level")
+    if regime == VOL_EXTREME:
+        return (f"VIX {level} in EXTREME band — halve size, widen stops, "
+                f"avoid pyramiding into the move")
+    if regime == VOL_HIGH:
+        return (f"VIX {level} in HIGH regime — wide stops, halved size; "
+                f"reduce overnight risk into events")
+    if regime == VOL_COMPRESSED:
+        return (f"VIX {level} compressed — vol expansion risk; "
+                f"avoid tight stops into binary catalysts")
+    return None
+
+
+def _catalyst_risk(stage3: dict) -> Optional[str]:
+    """Return catalyst-window warning when a high-severity event is recent
+    or imminent. Targets the MONETARY / INFLATION / GEOPOLITICAL categories."""
+    e = (stage3 or {}).get("events") or {}
+    ev = e.get("dominant_event")
+    if not ev:
+        return None
+    sev   = int(ev.get("severity") or 0)
+    cat   = ev.get("category", "?")
+    age   = ev.get("age_hours")
+    window = e.get("catalyst_window_hours")
+    mover = e.get("first_or_second_mover")
+
+    if sev >= 9:
+        if mover == MOVER_FIRST:
+            return (f"{cat} event severity {sev} (FIRST_MOVER, ~{age}h old) — "
+                    f"flow still expanding; expect volatility {window}h")
+        return (f"{cat} event severity {sev} within {window}h window — "
+                f"close swings before the event, avoid pre-event entries")
+    if sev >= 7:
+        return (f"{cat} event severity {sev} active — keep size conservative, "
+                f"watch for second-order moves")
+    return None
+
+
+def _compute_confidence(scenario: dict, conflicts: list[dict],
+                         stage3: dict) -> dict:
+    """Final 0-100 confidence with decomposition breakdown."""
+    base = int(scenario.get("conviction_baseline") or 50)
+    conflict_penalty = sum(c.get("penalty", 0) for c in conflicts)
+
+    match_strength = float(scenario.get("match_strength") or 0)
+    if match_strength < 0.75:
+        # +1e-9 epsilon guards against float truncation: 0.20/0.10 = 1.9999... in float.
+        import math
+        gap_steps = max(0, math.floor((0.75 - match_strength) / 0.10 + 1e-9))
+        match_penalty = -min(20, gap_steps * 5)
+    else:
+        match_penalty = 0
+
+    vol_alignment = 0
+    v = (stage3 or {}).get("volatility") or {}
+    if v.get("regime") == VOL_EXTREME and scenario.get("name") in _LONG_LEAN_SCENARIOS:
+        vol_alignment = -25
+
+    syn = (stage3 or {}).get("regime_synthesis") or {}
+    consistency = float(syn.get("internal_consistency") or 0.5)
+    if consistency >= 0.90 and match_strength >= 0.75:
+        consistency_bonus = +5
+    elif consistency <= 0.40:
+        consistency_bonus = -5
+    else:
+        consistency_bonus = 0
+
+    raw = base + conflict_penalty + match_penalty + vol_alignment + consistency_bonus
+    final = max(0, min(100, raw))
+
+    return {
+        "overall_confidence": final,
+        "breakdown": {
+            "base":                       base,
+            "conflict_penalty":           conflict_penalty,
+            "match_strength_penalty":     match_penalty,
+            "vol_alignment_penalty":      vol_alignment,
+            "internal_consistency_bonus": consistency_bonus,
+        },
+    }
+
+
+def _contribution_split(final_conf: int) -> dict:
+    """Map overall confidence to per-timeframe confidence_contribution.
+    Scalp gets the smallest slice (high noise), swing the largest."""
+    return {
+        "scalp":    round(final_conf * 0.30),
+        "intraday": round(final_conf * 0.32),
+        "swing":    round(final_conf * 0.38),
+    }
+
+
+def _build_trade(template: dict, *, horizon: str,
+                  dominant_driver: str, confidence_contribution: int) -> dict:
+    """Compose a single timeframe trade decision from a template + state."""
+    return {
+        "direction":               template.get("direction", "WAIT"),
+        "instrument":              template.get("instrument", "—"),
+        "horizon":                 horizon,
+        "rationale_tags":          list(template.get("rationale_tags") or []),
+        "invalidation":            template.get("invalidation", ""),
+        "dominant_driver":         dominant_driver,
+        "confidence_contribution": confidence_contribution,
+        "avoid_conditions":        list(template.get("avoid_conditions") or []),
+    }
+
+
+def _high_conviction_from_scenario(scenario: dict, confidence: int) -> list[dict]:
+    """Top picks pulled from scenario.trade_lean.long; emit only when
+    overall confidence is meaningful (>=60). Otherwise empty list."""
+    if confidence < 60:
+        return []
+    longs = (scenario.get("trade_lean") or {}).get("long") or []
+    if not longs:
+        return []
+    tag = scenario.get("name", "").lower()
+    return [{"asset": a, "direction": "LONG", "rationale_tag": tag}
+            for a in longs[:3]]
+
+
+def _avoid_trades_from_scenario(scenario: dict) -> list[dict]:
+    """trade_lean.avoid → list of avoid_trades records with regime-derived reason."""
+    avoids = (scenario.get("trade_lean") or {}).get("avoid") or []
+    reason = scenario.get("name", "current regime").lower().replace("_", " ")
+    return [{"asset": a, "reason": f"{reason} regime"} for a in avoids[:8]]
+
+
+def generate_trades(stage4: dict) -> dict:
+    """Stage 5 — assemble the full trade-decision envelope.
+
+    Inputs: dict produced by ``analyze_stage4(snap)``.
+    Outputs: the user's spec schema. Pure function, deterministic.
+    """
+    from macro_scenarios import trade_template, PREFERRED_ASSETS, WEAK_ASSETS
+
+    scenario = stage4.get("scenario") or {}
+    scenario_name = scenario.get("name", "NO_CLEAN_SCENARIO")
+    syn = stage4.get("regime_synthesis") or {}
+    dominant_driver = syn.get("dominant_driver", "ambiguous")
+
+    conflicts = _detect_conflicts(stage4, scenario)
+    conf = _compute_confidence(scenario, conflicts, stage4)
+    final = conf["overall_confidence"]
+    contribs = _contribution_split(final)
+
+    scalp_tpl    = trade_template(scenario_name, "scalp")
+    intraday_tpl = trade_template(scenario_name, "intraday")
+    swing_tpl    = trade_template(scenario_name, "swing")
+
+    return {
+        "scalp":    _build_trade(scalp_tpl,    horizon="1-15m",
+                                  dominant_driver=dominant_driver,
+                                  confidence_contribution=contribs["scalp"]),
+        "intraday": _build_trade(intraday_tpl, horizon="1-4h",
+                                  dominant_driver=dominant_driver,
+                                  confidence_contribution=contribs["intraday"]),
+        "swing":    _build_trade(swing_tpl,    horizon="1-5d",
+                                  dominant_driver=dominant_driver,
+                                  confidence_contribution=contribs["swing"]),
+
+        "high_conviction_trades": _high_conviction_from_scenario(scenario, final),
+        "avoid_trades":           _avoid_trades_from_scenario(scenario),
+        "preferred_assets":       list(PREFERRED_ASSETS.get(scenario_name, [])),
+        "weak_assets":            list(WEAK_ASSETS.get(scenario_name, [])),
+
+        "volatility_warning":     _volatility_warning(stage4),
+        "catalyst_risk":          _catalyst_risk(stage4),
+
+        "conflicts":              conflicts,
+        "overall_confidence":     final,
+        "confidence_breakdown":   conf["breakdown"],
+
+        "scenario_name":          scenario_name,
+        "dominant_driver":        dominant_driver,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# STAGE 5 COMPOSER
+# ═══════════════════════════════════════════════════════════════════════════
+def analyze_stage5(snap: dict) -> dict:
+    """Run Stage 2 + 3 + 4 + 5: full deterministic pipeline.
+
+    Returns:
+      analyzers + regime_synthesis + scenario + trades  (one envelope).
+    Pure function. No LLM. No I/O. No execution logic.
+    """
+    s4 = analyze_stage4(snap)
+    trades = generate_trades(s4)
+    return {
+        **s4,
+        "trades":  trades,
+        "stage":   "5_trade_generation",
     }
