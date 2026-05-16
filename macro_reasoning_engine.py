@@ -394,3 +394,204 @@ def analyze_stage2(snap: dict) -> dict:
         "events":     analyze_events(snap),
         "stage":      "2_hierarchy_analysis",
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# STAGE 3 — REGIME SYNTHESIS with HIERARCHY OVERRIDE
+# ═══════════════════════════════════════════════════════════════════════════
+# Combines Stage-2 outputs into a single macro_regime + dominant_driver,
+# applying institutional priority rules:
+#
+#   1. YIELDS layer    — overrides everything when |Δ| ≥ 8bp on US10Y
+#   2. USD layer       — overrides risk narrative when STRONG or WEAK
+#   3. VOLATILITY      — overrides bullish bias when VIX ≥ 25
+#   4. SENTIMENT       — confirmatory only, never overrides
+#
+# This mirrors how a senior desk actually reads the tape: a yield spike
+# trumps an equity narrative; a DXY breakout trumps a sentiment read;
+# a VIX > 25 means stop calling risk-on regardless of the tape.
+#
+# Composite regime labels:
+#   CRISIS               vol EXTREME + risk-off direction
+#   TIGHTENING_PANIC     yields RISING + USD STRONG + vol HIGH
+#   STAGFLATION          yields RISING + sentiment BEARISH + vol HIGH
+#   INFLATIONARY         yields RISING + Fed HAWKISH (controlled)
+#   RISK_OFF             vol HIGH + sentiment BEARISH (no yield spike)
+#   GOLDILOCKS           vol COMPRESSED + Fed NEUTRAL/DOVISH + sentiment BULLISH
+#   RISK_ON              vol NORMAL/COMPRESSED + sentiment BULLISH
+#   MIXED                fallback when no rule fires
+
+REGIME_CRISIS            = "CRISIS"
+REGIME_TIGHTENING_PANIC  = "TIGHTENING_PANIC"
+REGIME_STAGFLATION       = "STAGFLATION"
+REGIME_INFLATIONARY      = "INFLATIONARY"
+REGIME_RISK_OFF          = "RISK_OFF"
+REGIME_GOLDILOCKS        = "GOLDILOCKS"
+REGIME_RISK_ON           = "RISK_ON"
+REGIME_MIXED             = "MIXED"
+
+LAYER_YIELDS    = "yields"
+LAYER_USD       = "usd"
+LAYER_VOL       = "volatility"
+LAYER_SENTIMENT = "sentiment"
+LAYER_NONE      = "none"
+
+
+def _driver_from_layer(layer: str, y: dict, u: dict, v: dict, s: dict, e: dict) -> str:
+    """Compact, machine-readable driver string for downstream stages."""
+    if layer == LAYER_YIELDS:
+        return f"yields_{y['direction'].lower()}"     # yields_rising / yields_falling
+    if layer == LAYER_USD:
+        return f"usd_{u['direction'].lower()}"
+    if layer == LAYER_VOL:
+        return f"vol_{v['regime'].lower()}"
+    if layer == LAYER_SENTIMENT:
+        return f"sentiment_{s['label'].lower()}"
+    # Fallback: dominant event category if no layer is loud
+    ev = e.get("dominant_event") if e else None
+    if ev:
+        return f"event_{(ev.get('category','unknown')).lower()}"
+    return "ambiguous"
+
+
+def _internal_consistency(y: dict, u: dict, v: dict, s: dict) -> float:
+    """How aligned are the 4 layers? 1.0 = all pointing the same way.
+
+    Risk-on direction signals: USD WEAK, vol COMPRESSED/NORMAL, sentiment BULLISH
+    Risk-off direction signals: USD STRONG, vol HIGH/EXTREME, sentiment BEARISH
+    Yields are bidirectional and don't cleanly map to "risk on/off" — we
+    weight them separately as a tilt-amplifier.
+    """
+    risk_on  = 0
+    risk_off = 0
+    if u.get("direction") == DIR_WEAK:   risk_on  += 1
+    if u.get("direction") == DIR_STRONG: risk_off += 1
+    if v.get("regime") in (VOL_COMPRESSED, VOL_NORMAL): risk_on  += 1
+    if v.get("regime") in (VOL_HIGH, VOL_EXTREME):      risk_off += 1
+    if s.get("label") == SENT_BULLISH: risk_on  += 1
+    if s.get("label") == SENT_BEARISH: risk_off += 1
+
+    total = risk_on + risk_off
+    if total == 0:
+        return 0.5   # all neutral — moderate consistency
+    return round(max(risk_on, risk_off) / total, 3)
+
+
+def synthesize_regime(y: dict, u: dict, v: dict, s: dict, e: dict) -> dict:
+    """Apply the hierarchy and return a single regime + driver + rationale.
+
+    Inputs are the outputs of analyze_yields/usd/volatility/sentiment/events.
+    Output is a small dict suitable for downstream stages or prompt rendering.
+    """
+    consistency = _internal_consistency(y, u, v, s)
+    rationale_parts: list[str] = []
+
+    # ── Layer 1: YIELDS override (|Δ| ≥ 8bp on US10Y triggers regime decision)
+    delta = y.get("us10y_delta_bp")
+    yields_loud = delta is not None and abs(delta) >= 8.0
+
+    # ── CRISIS — vol extreme + risk-off direction
+    if v.get("regime") == VOL_EXTREME and (
+        u.get("direction") == DIR_STRONG or s.get("label") == SENT_BEARISH
+    ):
+        regime = REGIME_CRISIS
+        layer  = LAYER_VOL
+        rationale_parts.append(f"VIX {v.get('vix_level','?')} in EXTREME band")
+        if u.get("direction") == DIR_STRONG:
+            rationale_parts.append(f"DXY {u.get('dxy_delta_pct',0):+.2f}% (flight-to-quality)")
+        return _assemble_regime(regime, layer, y, u, v, s, e, rationale_parts, consistency)
+
+    # ── TIGHTENING_PANIC — yields spike + USD strong + vol high
+    if yields_loud and y["direction"] == DIR_RISING and u.get("direction") == DIR_STRONG \
+            and v.get("regime") in (VOL_HIGH, VOL_EXTREME):
+        regime = REGIME_TIGHTENING_PANIC
+        layer  = LAYER_YIELDS
+        rationale_parts.append(f"US10Y +{delta:.0f}bp drove DXY {u.get('dxy_delta_pct',0):+.2f}%")
+        rationale_parts.append(f"VIX {v.get('vix_level','?')} confirms risk-off")
+        return _assemble_regime(regime, layer, y, u, v, s, e, rationale_parts, consistency)
+
+    # ── STAGFLATION — rising yields + bearish sentiment + elevated vol
+    if yields_loud and y["direction"] == DIR_RISING and s.get("label") == SENT_BEARISH \
+            and v.get("regime") in (VOL_HIGH, VOL_EXTREME):
+        regime = REGIME_STAGFLATION
+        layer  = LAYER_YIELDS
+        rationale_parts.append(f"US10Y +{delta:.0f}bp with bearish news tilt (n={s.get('sample_size',0)})")
+        rationale_parts.append(f"VIX {v.get('vix_level','?')} elevated — growth scare overlay")
+        return _assemble_regime(regime, layer, y, u, v, s, e, rationale_parts, consistency)
+
+    # ── INFLATIONARY — yields rising + Fed hawkish (controlled, vol not yet extreme)
+    if y["direction"] == DIR_RISING and y.get("fed_bias") == BIAS_HAWKISH \
+            and v.get("regime") not in (VOL_EXTREME,):
+        regime = REGIME_INFLATIONARY
+        layer  = LAYER_YIELDS
+        rationale_parts.append(f"US10Y {('+%.0fbp' % delta) if delta else 'rising'} + Fed HAWKISH tilt")
+        return _assemble_regime(regime, layer, y, u, v, s, e, rationale_parts, consistency)
+
+    # ── RISK_OFF — vol high + bearish sentiment (no yield spike)
+    if v.get("regime") in (VOL_HIGH, VOL_EXTREME) and s.get("label") == SENT_BEARISH:
+        regime = REGIME_RISK_OFF
+        layer  = LAYER_VOL
+        rationale_parts.append(f"VIX {v.get('vix_level','?')} + bearish tilt (no yield catalyst)")
+        return _assemble_regime(regime, layer, y, u, v, s, e, rationale_parts, consistency)
+
+    # ── USD-led override (next priority): strong USD + bearish sentiment = RISK_OFF
+    if u.get("direction") == DIR_STRONG and s.get("label") == SENT_BEARISH:
+        regime = REGIME_RISK_OFF
+        layer  = LAYER_USD
+        rationale_parts.append(f"DXY {u.get('dxy_delta_pct',0):+.2f}% tightening + bearish news")
+        return _assemble_regime(regime, layer, y, u, v, s, e, rationale_parts, consistency)
+
+    # ── GOLDILOCKS — vol compressed + Fed dovish/neutral + bullish sentiment
+    if v.get("regime") == VOL_COMPRESSED \
+            and y.get("fed_bias") in (BIAS_DOVISH, BIAS_NEUTRAL) \
+            and s.get("label") == SENT_BULLISH:
+        regime = REGIME_GOLDILOCKS
+        layer  = LAYER_VOL
+        rationale_parts.append(f"VIX compressed + Fed {y.get('fed_bias','?')} + bullish tilt")
+        return _assemble_regime(regime, layer, y, u, v, s, e, rationale_parts, consistency)
+
+    # ── RISK_ON — non-elevated vol + bullish sentiment
+    if v.get("regime") in (VOL_COMPRESSED, VOL_NORMAL) and s.get("label") == SENT_BULLISH:
+        regime = REGIME_RISK_ON
+        layer  = LAYER_SENTIMENT
+        rationale_parts.append(f"VIX {v.get('regime','?').lower()} + bullish news tilt")
+        return _assemble_regime(regime, layer, y, u, v, s, e, rationale_parts, consistency)
+
+    # ── Default: MIXED
+    rationale_parts.append("layers do not align on a single direction")
+    return _assemble_regime(REGIME_MIXED, LAYER_NONE, y, u, v, s, e, rationale_parts, consistency)
+
+
+def _assemble_regime(regime: str, layer: str, y: dict, u: dict, v: dict, s: dict, e: dict,
+                      rationale_parts: list[str], consistency: float) -> dict:
+    """Final assembly for synthesize_regime — keeps the public shape uniform."""
+    dominant_driver = _driver_from_layer(layer, y, u, v, s, e)
+    rationale = " · ".join(rationale_parts) if rationale_parts else "no dominant force"
+    return {
+        "regime":               regime,
+        "dominant_driver":      dominant_driver,
+        "override_layer":       layer,
+        "rationale":            rationale,
+        "internal_consistency": consistency,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# STAGE 3 COMPOSER
+# ═══════════════════════════════════════════════════════════════════════════
+def analyze_stage3(snap: dict) -> dict:
+    """Run Stage 2 + 3: returns analyzers AND the synthesized regime.
+
+    Same purity guarantees as analyze_stage2. Composes synthesize_regime
+    on top so callers don't have to wire layers themselves.
+    """
+    s2 = analyze_stage2(snap)
+    regime = synthesize_regime(
+        s2["yields"], s2["usd"], s2["volatility"],
+        s2["sentiment"], s2["events"],
+    )
+    return {
+        **s2,
+        "regime_synthesis": regime,
+        "stage":            "3_regime_synthesis",
+    }
