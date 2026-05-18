@@ -1,0 +1,32 @@
+# Sprint 1: permissive ruff config to avoid CI noise on day one.
+# Tightens up incrementally in Sprint 2 (line-length, unused-imports, etc.).
+
+target-version = "py311"  # matches Dockerfile
+line-length = 120
+
+# Don't lint generated, vendored, or runtime-state directories.
+exclude = [
+    "__pycache__",
+    "db",
+    "static",
+    "templates",
+    "reviews",
+    "tests/__pycache__",
+    "*.db",
+]
+
+[lint]
+# Sprint-1 ruleset: only catch truly broken code (syntax + undefined names).
+# F (pyflakes) catches unused/undefined imports and references.
+# E9 catches IO/syntax errors.
+select = ["F", "E9"]
+
+# Codebase uses print() heavily; not refactoring logging in Sprint 1.
+ignore = [
+    "F401",  # unused import — codebase has many lazy-import patterns
+    "F841",  # unused variable — common in WIP code
+]
+
+[format]
+quote-style = "double"
+indent-style = "space"

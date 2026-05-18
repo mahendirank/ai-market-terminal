@@ -1,0 +1,28 @@
+# Sprint 1: minimal pyproject.toml. Holds pytest config only.
+# Package metadata (name/version) deferred until Sprint 3 (when we adopt a proper layout).
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+]
+markers = [
+    "smoke: smoke tests that should always pass",
+    "slow: tests that hit the network or do heavy work",
+]
+# Sprint 1 carve-out: ignore the existing stage-tests (they need fixtures we don't have).
+# Sprint 2 will rehabilitate them.
+norecursedirs = [
+    ".git",
+    "__pycache__",
+    "db",
+    "reviews",
+    "static",
+    "templates",
+]
