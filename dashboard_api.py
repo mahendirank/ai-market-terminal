@@ -235,6 +235,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(RateLimitMiddleware)
 
+# Sprint 2 Phase A — Add RequestContextMiddleware LAST so it wraps
+# everything else. The last-added middleware is outermost in FastAPI's
+# stack, so request_id_var is set before Auth/RateLimit/CORS run.
+from logging_middleware import RequestContextMiddleware
+app.add_middleware(RequestContextMiddleware)
+
 # Serve static files (images, icons, etc.) from /static/
 _STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 os.makedirs(_STATIC_DIR, exist_ok=True)
