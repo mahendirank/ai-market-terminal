@@ -16,3 +16,6 @@ websocket-client
 redis>=5.0
 python-dotenv
 ta>=0.11.0
+
+# Sprint 1 — added 2026-05-18 (was implicit/missing)
+python-pptx
