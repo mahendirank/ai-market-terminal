@@ -103,9 +103,40 @@ async def lifespan(app: FastAPI):
             try:
                 app.state.event_bus = await build_event_bus()
                 app.state.orchestrator = await build_orchestrator()
+
+                # ── Sprint 4 Stage 4.3: NewsFetchAgent (shadow / dual-run) ──
+                # Default OFF. When AGENT_NEWS_FETCH_ENABLED=true:
+                #   - Agent ticks at NEWS_FETCH_TICK_INTERVAL (default 120s)
+                #   - Calls news.get_all_news() in a thread + emits news.raw event
+                #   - Legacy pipeline UNCHANGED — agent is observational only
+                #   - Failures swallowed by tick() → no cascade
+                registered_agents = 0
+                if os.environ.get("AGENT_NEWS_FETCH_ENABLED", "false").strip().lower() in (
+                    "1", "true", "yes", "on",
+                ):
+                    try:
+                        from orchestration.agents import NewsFetchAgent
+                        nf_agent = NewsFetchAgent()
+                        nf_agent.event_bus = app.state.event_bus
+                        app.state.orchestrator.register(nf_agent)
+                        await app.state.orchestrator.start_agent(nf_agent.name)
+                        registered_agents = 1
+                        _logging.getLogger("orchestration.lifespan").info(
+                            "agent_registered_and_started",
+                            extra={"agent": nf_agent.name, "version": nf_agent.version},
+                        )
+                    except Exception:
+                        _logging.getLogger("orchestration.lifespan").exception(
+                            "news_fetch_agent_registration_failed"
+                        )
+                        # Boot continues; orchestrator stays without this agent.
+
                 _logging.getLogger("orchestration.lifespan").info(
                     "orchestrator_lifespan_started",
-                    extra={"registered_agents": 0, "bus": type(app.state.event_bus).__name__},
+                    extra={
+                        "registered_agents": registered_agents,
+                        "bus": type(app.state.event_bus).__name__,
+                    },
                 )
             except Exception:
                 _logging.getLogger("orchestration.lifespan").exception(
