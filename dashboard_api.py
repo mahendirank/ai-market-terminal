@@ -83,7 +83,55 @@ async def lifespan(app: FastAPI):
         ws_task.add_done_callback(_bg_tasks.discard)
     except Exception as _e:
         print(f"[WS_PRICES] init error: {_e}", flush=True)
+
+    # ── Sprint 4 Stage 4.1: orchestrator lifecycle (feature-flagged) ──
+    # When AGENT_ORCHESTRATOR_ENABLED is unset/false (default), this
+    # block is a no-op: orchestrator + event_bus stay None and the
+    # /api/agents, /api/circuits, /api/streams/health endpoints return
+    # {"enabled": false, ...}. Zero behavior change in flags-off mode.
+    app.state.orchestrator = None
+    app.state.event_bus = None
+    try:
+        import logging as _logging  # local alias; avoid shadowing existing names
+        # Lazy import: orchestration package is NOT loaded unless the flag is on.
+        from orchestration.runtime import (
+            build_event_bus,
+            build_orchestrator,
+            orchestrator_enabled,
+        )
+        if orchestrator_enabled():
+            try:
+                app.state.event_bus = await build_event_bus()
+                app.state.orchestrator = await build_orchestrator()
+                _logging.getLogger("orchestration.lifespan").info(
+                    "orchestrator_lifespan_started",
+                    extra={"registered_agents": 0, "bus": type(app.state.event_bus).__name__},
+                )
+            except Exception:
+                _logging.getLogger("orchestration.lifespan").exception(
+                    "orchestrator_init_failed_falling_back_to_disabled"
+                )
+                # Reset state so endpoints report disabled cleanly.
+                app.state.event_bus = None
+                app.state.orchestrator = None
+    except Exception:
+        # Even the IMPORT of orchestration shouldn't crash boot.
+        print("[ORCHESTRATOR] import failed; running without orchestration", flush=True)
+
     yield
+
+    # ── Sprint 4 Stage 4.1: orchestrator shutdown ──
+    _orch = getattr(app.state, "orchestrator", None)
+    if _orch is not None:
+        try:
+            await _orch.stop_all(timeout=30.0)
+            import logging as _logging
+            _logging.getLogger("orchestration.lifespan").info("orchestrator_lifespan_stopped")
+        except Exception:
+            import logging as _logging
+            _logging.getLogger("orchestration.lifespan").exception(
+                "orchestrator_stop_failed"
+            )
 
 
 async def _signal_verify_loop():
@@ -963,6 +1011,36 @@ async def admin_change_my_password(request: Request):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+# ── Sprint 4 Stage 4.1: orchestrator admin endpoints ──
+# Read-only. Always available (handlers return {"enabled": false, ...}
+# when AGENT_ORCHESTRATOR_ENABLED is off, which is the default).
+#
+# Auth: gated by the existing AuthMiddleware that protects /api/*.
+@app.get("/api/agents")
+async def api_agents():
+    """List registered agents + their health. Sprint 4.1: orchestrator
+    enabled but agents=0. Sprint 4.3+ will start to register real agents."""
+    from orchestration.admin import agents_snapshot
+    return await agents_snapshot(app)
+
+
+@app.get("/api/circuits")
+async def api_circuits():
+    """Snapshot of every circuit breaker in the default_registry.
+    Empty list until Sprint 4.5 wraps external calls."""
+    from orchestration.admin import circuits_snapshot
+    return await circuits_snapshot()
+
+
+@app.get("/api/streams/health")
+async def api_streams_health():
+    """Length of each known Redis Stream. Reports -1 if the stream
+    can't be queried (e.g. Redis unreachable). Sprint 4.1: streams
+    return length=0 because no producers exist yet."""
+    from orchestration.admin import streams_health_snapshot
+    return await streams_health_snapshot(app)
 
 
 @app.get("/api/regime")
