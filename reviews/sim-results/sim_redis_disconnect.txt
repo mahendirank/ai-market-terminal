@@ -1,0 +1,19 @@
+xlen_failed
+=== sim_redis_disconnect ===
+
+  Scenario 1: publish() surfaces ConnectionError to caller
+    OK — ConnectionError surfaced, caller can react
+
+  Scenario 2: try_consume_one() surfaces ConnectionError
+    OK — ConnectionError surfaced
+
+  Scenario 3: ensure_group() surfaces ConnectionError when NOT BUSYGROUP
+    OK — ConnectionError surfaced
+
+  Scenario 4: ensure_group() treats BUSYGROUP as no-op (idempotent)
+    OK — BUSYGROUP swallowed, ensure_group is idempotent
+
+  Scenario 5: stream_length() returns -1 instead of raising
+    OK — degraded to -1 (sentinel; safe for health endpoints)
+
+=== VERDICT: PASS (5/5) ===

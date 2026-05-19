@@ -1,0 +1,16 @@
+agent_disabled
+=== sim_failed_consumer ===
+
+  Scenario 1: handle_event raises → event is still ACKed
+    OK — tick recorded failure; pending = [] (acked)
+
+  Scenario 2: failed event is NOT redelivered
+    OK — both unique events seen exactly once: [0, 1]
+
+  Scenario 3: orchestrator DISABLES the agent after max consecutive failures
+    OK — agent DISABLED after 3 consecutive failures
+
+  Scenario 4: one group's failure doesn't affect another group
+    OK — fail_g1 records failure; ok_g2 unaffected (failures=1 vs 0)
+
+=== VERDICT: PASS (4/4) ===

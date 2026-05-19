@@ -1,0 +1,30 @@
+=== sim_retry ===
+
+  Scenario 1: 2 transient fails → 3rd attempt succeeds
+    attempts: 3; result: 'got it'; elapsed: 32.3ms
+    OK
+
+  Scenario 2: persistent failure → RetryExhausted
+    attempts: 3; raised: RetryExhausted(3 tries); cause: ConnectionError
+    OK
+
+  Scenario 3: non-retryable category → no retry
+    attempts: 1; aborted on non-retryable category
+    OK
+
+  Scenario 4: backoff delays are bounded and monotonic (no jitter)
+    delays per attempt: ['0.000s', '0.050s', '0.100s', '0.200s', '0.400s']
+    OK
+
+  Scenario 5: on_attempt callback records each failed attempt
+    on_attempt fired: 3 times
+      attempt #1 → RuntimeError: attempt #1
+      attempt #2 → RuntimeError: attempt #2
+      attempt #3 → RuntimeError: attempt #3
+    OK
+
+  Scenario 6: with_retry decorator preserves __wrapped__
+    result: 70; attempts: 2; __wrapped__: fetch
+    OK
+
+=== VERDICT: PASS (6/6) ===

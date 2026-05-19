@@ -1,0 +1,14 @@
+=== sim_logging_load: firing 200 concurrent requests ===
+  → completed in 403.0 ms
+
+  Unique request_ids seen in handler: 200 / 200
+  Unique X-Request-ID in responses:   200 / 200
+  Caller-supplied IDs preserved:      100 / 100
+  request_complete log lines:         200 / 200
+  Unique request_ids in logs:         200
+  Latency p-min..p-max (ms):          2.16 .. 19.7
+
+
+  Throughput: 496.3 req/s (sync TestClient threadpool)
+
+=== VERDICT: PASS ===

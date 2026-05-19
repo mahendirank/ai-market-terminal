@@ -1,0 +1,10 @@
+=== sim_retry_storm ===
+
+  Firing 50 concurrent retry chains
+  Each: max_attempts=3, base_delay=0.01s
+
+  Total operations: 150 (expected 150)
+  Wall-clock: 33.2ms
+  Single-chain wall-clock (reference): ~20ms
+
+=== VERDICT: PASS ===

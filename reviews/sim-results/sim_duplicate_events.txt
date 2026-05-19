@@ -1,0 +1,15 @@
+=== sim_duplicate_events ===
+
+  Scenario 1: same envelope published 2× → consumer sees 2 events
+    OK — 2 deliveries with matching idempotency_key (consumer decides)
+
+  Scenario 2: idempotency_key survives JSON serialization
+    OK — idempotency_key preserved through ser/deser
+
+  Scenario 3: explicit consumer-side dedup using a SET (the recommended pattern)
+    OK — consumer-side dedup deduplicated 3 events → 1 processed
+
+  Scenario 4: events WITHOUT idempotency_key are processed each time
+    OK — without idempotency_key, all 3 events processed (dedup correctly opted-out)
+
+=== VERDICT: PASS (4/4) ===

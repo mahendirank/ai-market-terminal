@@ -1,0 +1,12 @@
+=== sim_timeout_cascade ===
+
+  Scenario 1: tick honors timeout; run_once cancelled at deadline
+    OK — failure recorded; tick wall-clock 60.5ms (≈ timeout)
+
+  Scenario 2: slow agent A doesn't slow agent B running concurrently
+    OK — A failed (timeout), B succeeded, total 51.1ms (no cascade)
+
+  Scenario 3: event loop schedules other tasks during agent timeout
+    OK — background made 5/5 progress during agent timeout (loop responsive)
+
+=== VERDICT: PASS (3/3) ===

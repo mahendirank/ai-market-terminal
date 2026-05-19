@@ -1,0 +1,20 @@
+circuit_breaker_transition
+circuit_breaker_transition
+circuit_breaker_transition
+circuit_breaker_transition
+circuit_breaker_transition
+=== sim_graceful_degradation ===
+
+  Pattern A: Serve stale cached value when circuit is OPEN
+    OK — served stale: 'stale-but-valid-narrative'
+
+  Pattern B: Fall back to deterministic logic when AI is down
+    OK — fell back to rules; decision=BUY
+
+  Pattern C: Queue non-critical work (e.g. Telegram notifications)
+    OK — 3 alerts queued for retry when circuit closes
+
+  Recovery: circuit allows probe after recovery_timeout, then closes on success
+    OK — circuit recovered after timeout (probe succeeded, state=CLOSED)
+
+=== VERDICT: PASS (4/4) ===
