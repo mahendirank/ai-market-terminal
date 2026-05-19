@@ -1,139 +1,264 @@
-# LOGGING_STANDARD.md — Proposal
+# LOGGING_STANDARD.md
 
-> Sprint 1 artifact — task #7. **Audit only.** No code rewritten.
-> Migration work is scheduled for Sprint 2.
-
----
-
-## What's there today
-
-| Pattern | Count | Where | Notes |
-|---|---|---|---|
-| `print(...)` | **328 calls** | 40+ modules | Dominant pattern. `dashboard_api.py` alone has 66. |
-| `print(f"[MODULE] msg", flush=True)` | ≥30 sites | dashboard_api, alert_engine, signal_memory, etc. | Pseudo-structured: a `[TAG]` prefix and `flush=True`. Migration-friendly. |
-| `logging.getLogger(__name__)` + `log.debug(...)` | 8 modules | ai_router, ai_persona, correlation_engine, market_memory, indicators, sentiment_weighting, market_intel, regime_engine | Calls .debug() only. **Effectively silent** in prod — no handler attached, root logger sits at WARNING. |
-| `sys.stderr.write` | 0 | — | Not used. |
-| `structlog` / `loguru` | 0 | — | Not used. |
-| `logging.dictConfig` / `basicConfig` | 0 | — | **No centralized config exists.** |
-| Uvicorn logger | 1 site | `run.py:31` | `log_level="info", access_log=True` |
-| Domain logger (`logger.py`) | 1 file, orphan consumer | imported only by orphan `mt5_bot.py` | Not a general logging module — it's a trade-log writer. |
-
-**Symptoms of the current state:**
-- The 8 modules already using stdlib `logging` produce **zero output in production** — their `.debug` calls are below the active log level.
-- The 328 `print()` calls all hit stdout. They show up in `docker logs market-terminal` and Caddy access logs in the same stream — no severity filtering.
-- No structured fields (timestamp, level, request_id, tenant_id) — debugging multi-tenant issues from logs alone is hard.
-- `flush=True` on every print → guaranteed delivery but extra syscalls.
+> **Phase A: shipped in Sprint 2 (2026-05-18). Phase B: deferred to Sprint 3+.**
+>
+> This document supersedes the Sprint 1 proposal version. Sections marked
+> "As shipped" describe what currently exists in the codebase. Sections
+> marked "Future" describe what's not yet implemented.
 
 ---
 
-## Proposed standard
-
-A two-phase migration. Phase A is the **config-only** change; Phase B is the gradual `print` → `log.*` migration that lets the system improve incrementally.
-
-### Phase A — Centralized config (Sprint 2, ~1 day)
-
-Add `core/logging_config.py`:
+## 0. TL;DR — how to use this today
 
 ```python
+# In any module:
 import logging
-import logging.config
-import os
-import sys
+log = logging.getLogger(__name__)
 
-def setup(level: str | None = None) -> None:
-    """Idempotent. Call once at startup before any FastAPI / uvicorn import."""
-    level = (level or os.environ.get("LOG_LEVEL", "INFO")).upper()
-    logging.config.dictConfig({
-        "version": 1,
-        "disable_existing_loggers": False,
-        "formatters": {
-            "json": {
-                "()": "logging_config.JsonFormatter",
-            },
-            "console": {
-                "format": "%(asctime)s %(levelname)-7s [%(name)s] %(message)s",
-                "datefmt": "%Y-%m-%d %H:%M:%S",
-            },
-        },
-        "handlers": {
-            "stdout": {
-                "class": "logging.StreamHandler",
-                "stream": sys.stdout,
-                "formatter": "json" if os.environ.get("LOG_FORMAT") == "json" else "console",
-            },
-        },
-        "root": {"level": level, "handlers": ["stdout"]},
-        "loggers": {
-            "uvicorn":        {"level": level, "propagate": True},
-            "uvicorn.access": {"level": level, "propagate": True},
-            "uvicorn.error":  {"level": level, "propagate": True},
-        },
-    })
-
-class JsonFormatter(logging.Formatter):
-    """One-line JSON per record. Minimal — no extras until we need them."""
-    def format(self, record):
-        import json, time
-        return json.dumps({
-            "ts":      time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(record.created)),
-            "level":   record.levelname,
-            "logger":  record.name,
-            "msg":     record.getMessage(),
-        })
+log.info("clean_string_message")                          # plain
+log.info("with_fields", extra={"asset": "NQ", "price": 18234.5})  # structured
+log.exception("external_api_failed", extra={"service": "groq",
+                                            "error_category": ErrorCategory.EXTERNAL_API})
 ```
-
-Call from `run.py` **before** importing dashboard_api:
-
-```python
-# run.py — top of __main__
-from logging_config import setup
-setup()
-```
-
-**Effect of Phase A alone:**
-- Existing `log.debug(...)` calls start producing output (controllable via `LOG_LEVEL` env var)
-- All logs share one timestamp/level format
-- Set `LOG_FORMAT=json` in prod for structured logs; leave unset for dev
-- Existing `print()` calls are unaffected — no breakage
-
-**Rollback**: `git revert` the commit; remove `logging_config.py` + the `setup()` call. Behavior reverts to today's.
-
-### Phase B — Incremental `print` → `log.*` migration (Sprint 3+, multiple PRs)
-
-Convert `print(f"[TAG] msg", flush=True)` to `log.info("msg")` one module at a time. Use a script:
 
 ```bash
-# tools/migrate_prints.py  (write in Sprint 2)
-# For each *.py:
-#   1. If "import logging" absent, add: import logging; log = logging.getLogger(__name__)
-#   2. Replace print(f"[TAG] msg", flush=True) → log.info("msg")
-#   3. Replace print(f"[TAG] err: {e}", flush=True) inside `except` → log.exception("err: %s", e)
-#   4. Leave bare print() in CLI tools (terminal.py, claude_bridge.py) alone.
+# Production env (.env or container env):
+LOG_LEVEL=INFO                   # DEBUG / INFO / WARNING / ERROR
+LOG_FORMAT=console               # console (text+ctx prefix) | json
+LOG_HTTP_REQUESTS=true           # emit per-request structured line
+UVICORN_ACCESS_LOG=off           # silence uvicorn's plain access log
 ```
 
-Order of modules (lowest risk first, prod-critical last):
-1. `regime.py`, `forex.py`, `econ.py` (data fetchers, low coupling) — 1 PR
-2. `signal_memory.py`, `alert_engine.py` (already use SQLite) — 1 PR each
-3. `dashboard_api.py` (66 prints — biggest payoff, biggest risk) — last
+Every HTTP response now carries `X-Request-ID`. Every log record carries
+`request_id` from the active ContextVar. JSON mode emits one JSON object
+per line — pipe `docker logs market-terminal` through `jq` for ad-hoc
+queries.
 
-**Rule per PR**:
-- Each PR converts ONE module.
-- Each PR adds a regression test that checks specific log lines appear (using `caplog`).
+---
+
+## 1. What's in place (as shipped, Sprint 2 Phase A)
+
+### Modules added
+
+| File | Role |
+|---|---|
+| `core/logging_config.py` | `setup_logging()`, `JsonFormatter`, `ContextFilter`, ContextVars (request_id, tenant_id, trace_id, agent_name), `ErrorCategory`, `new_request_id()` |
+| `core/logging_middleware.py` | `RequestContextMiddleware` — ASGI; sets request_id, tracks latency, logs `request_complete` |
+
+### Wiring
+
+| File | Change |
+|---|---|
+| `core/run.py` | Calls `setup_logging()` inside `__main__` block, before importing `dashboard_api` |
+| `core/dashboard_api.py` | `app.add_middleware(RequestContextMiddleware)` after existing CORS / Auth / RateLimit middleware |
+| `core/.env.production.example` | Adds `LOG_FORMAT`, `LOG_HTTP_REQUESTS`, `UVICORN_ACCESS_LOG`; clarifies `LOG_LEVEL` |
+
+### JSON envelope (stable contract)
+
+```json
+{
+  "ts": "2026-05-18T14:23:45.123Z",
+  "level": "INFO",
+  "logger": "http.request",
+  "msg": "request_complete",
+  "request_id": "a1b2c3d4e5f6",
+  "tenant_id": "-",
+  "trace_id": "-",
+  "agent": "-",
+  "method": "GET",
+  "path": "/api/health",
+  "status": 200,
+  "duration_ms": 12.34
+}
+```
+
+Field guarantees:
+- The 8 envelope fields (`ts` … `agent`) are **always present**, even if the underlying ContextVar is unset (then they emit `"-"`).
+- Any `extra={...}` keys are appended at the top level.
+- Unserializable extras fall back to `repr(v)` rather than failing the log call.
+- Exceptions add `exc_type`, `exc_msg`, `exc_traceback` fields.
+
+### Console envelope (default, human-readable)
+
+```
+2026-05-18 14:23:45 INFO    [http.request] [a1b2c3d4e5f6] request_complete
+```
+
+Equivalent context, less machine-friendly. The default for Sprint 2 to preserve familiar `docker logs` UX.
+
+### Tests
+
+- `tests/test_logging_config.py` — 10 tests
+- `tests/test_logging_middleware.py` — 7 tests
+
+All marked `@pytest.mark.smoke`. Run with `pytest -m smoke`.
+
+---
+
+## 2. Context variables (async-safe)
+
+Four declared in `logging_config.py`:
+
+| ContextVar | Set by | Default | Future consumer |
+|---|---|---|---|
+| `request_id_var` | `RequestContextMiddleware` per request | `"-"` | OTel span resource attribute |
+| `tenant_id_var` | route handlers after auth resolves | `"-"` | per-tenant log shipping |
+| `trace_id_var` | (reserved) | `"-"` | OpenTelemetry trace ID |
+| `agent_name_var` | (reserved — Sprint 3 `BaseAgent.run_once`) | `"-"` | per-agent metric labels |
+
+ContextVars propagate automatically across `await`. For `asyncio.create_task`, each task receives a copy at task-creation time — manual `request_id_var.set()` is needed inside long-lived background tasks if you want a fresh ID per tick. Sprint 3's `BaseAgent` will do this in `run_once`.
+
+**Anti-pattern (don't do this in async code):**
+```python
+# This works in single-threaded sync code only.
+threading.local().request_id = "..."     # ❌ not async-safe
+```
+
+**Correct pattern:**
+```python
+token = request_id_var.set("...")
+try:
+    await some_async_work()
+finally:
+    request_id_var.reset(token)
+```
+
+The middleware uses exactly this pattern.
+
+---
+
+## 3. Error classification (constants only — no enforcement yet)
+
+`ErrorCategory` in `logging_config.py` provides string constants:
+
+```
+EXTERNAL_API   "external_api"     yfinance, NSE, Groq, Anthropic, Telegram
+DATABASE       "database"         SQLite locked / Redis OOM
+VALIDATION     "validation"       bad caller input
+INTERNAL       "internal"         unexpected exceptions / our bugs
+TIMEOUT        "timeout"          deadline hit
+RATE_LIMIT     "rate_limit"       external rate limit
+AUTH           "auth"             session / token errors
+CIRCUIT_OPEN   "circuit_open"     skipped due to open circuit (Sprint 3+)
+```
+
+Usage convention:
+
+```python
+try:
+    response = httpx.get("https://api.groq.com/...")
+except httpx.TimeoutException as e:
+    log.exception("groq_call_timeout",
+                  extra={"error_category": ErrorCategory.TIMEOUT,
+                         "service": "groq"})
+    raise
+except httpx.HTTPError as e:
+    log.exception("groq_call_failed",
+                  extra={"error_category": ErrorCategory.EXTERNAL_API,
+                         "service": "groq",
+                         "status": getattr(e.response, "status_code", None)})
+    raise
+```
+
+Sprint 3+ ties these to Prometheus counters: `errors_total{category="external_api", service="groq"}`.
+
+---
+
+## 4. Phase B — migration path for the 328 `print()` calls
+
+**Not done in Sprint 2.** Phase A only adds the infrastructure; existing prints continue working unchanged.
+
+Migration plan (Sprint 3+):
+
+### Module ordering (lowest risk first)
+1. `regime.py`, `forex.py`, `econ.py` — data fetchers, low coupling
+2. `news.py`, `news_deduper.py`, `news_fetch.py` — ingest family
+3. `signal_memory.py`, `alert_engine.py` — durable consumers
+4. `dashboard_api.py` — last (66 prints, biggest payoff + risk)
+
+### Per-module mechanical translation
+
+| Before | After |
+|---|---|
+| `print(f"[REGIME] entered defensive")` | `log.info("regime_entered_defensive")` |
+| `print(f"[REGIME] score={s}", flush=True)` | `log.info("regime_score", extra={"score": s})` |
+| `print(f"[REGIME] error: {e}")` *(inside except)* | `log.exception("regime_error", extra={"error_category": ErrorCategory.INTERNAL})` |
+| `print(f"[X] {datetime.now()}: ...")` | drop the timestamp — `ts` is in the envelope already |
+
+### Rule per PR
+
+- One module per PR.
+- Each PR adds a regression test that the expected log lines appear (`caplog` fixture).
 - No PR mixes a `print → log` migration with a logic change.
+- Old `flush=True` is dropped — `StreamHandler` flushes automatically.
+
+### CLI tools are exempt
+
+`terminal.py` and `claude_bridge.py` are CLI scripts whose stdout IS the UX. Leave their `print()` calls alone.
 
 ---
 
-## What this proposal does NOT cover
+## 5. Operational notes
 
-- **Tracing / OpenTelemetry**: separate Sprint 4 concern. Logs alone won't give per-request tracing.
-- **Log shipping**: where logs go after stdout (Loki? CloudWatch? File rotation?) is a deploy concern, not a code concern. Today `docker logs` is the truth.
-- **Sentry / error tracking**: also Sprint 4. Logs are the prerequisite.
-- **Per-tenant log enrichment**: needs request-scoped context (FastAPI middleware) — proposal to come after the `dashboard_api.py` split (Sprint 3).
+### Toggling formats
+
+```bash
+# Read structured logs locally during dev:
+LOG_FORMAT=json docker compose -f docker-compose.prod.yml up market-terminal
+docker logs market-terminal | jq 'select(.level=="ERROR")'
+
+# Back to human-readable:
+unset LOG_FORMAT  # or set LOG_FORMAT=console
+```
+
+### Common queries (jq)
+
+```bash
+# Failed requests in last container run:
+docker logs market-terminal | jq 'select(.msg=="request_complete" and .status >= 500)'
+
+# All errors for one request:
+docker logs market-terminal | jq 'select(.request_id=="a1b2c3d4e5f6")'
+
+# Slowest 20 requests:
+docker logs market-terminal | jq -s 'map(select(.msg=="request_complete")) | sort_by(.duration_ms) | reverse | .[:20]'
+
+# All log lines for a tenant (Sprint 3+ when tenant_id_var is populated):
+docker logs market-terminal | jq 'select(.tenant_id=="acme-corp")'
+```
+
+### When to switch to JSON
+
+Switch `LOG_FORMAT=json` in production when **any of**:
+1. You set up a log shipper (Loki, CloudWatch, Datadog).
+2. You start running `jq` queries more than once a week.
+3. You exceed ~10 req/s and `grep` over `docker logs` becomes too slow.
+
+Until then, `console` is fine.
 
 ---
 
-## Recommendation
+## 6. Log retention
 
-**Do Phase A in Sprint 2** (~1 day). It's a config-only change that immediately turns on the 8 modules' silent `log.debug` calls and unifies output format. Zero risk to production behavior (text output goes to the same stdout, just with a different formatter).
+Currently relies on Docker's default `json-file` driver — see `OBSERVABILITY_PLAN.md` §3 for the recommended `logging.options` block to add to `docker-compose.prod.yml`. Not part of Phase A because it requires a container restart that the user controls.
 
-**Defer Phase B to Sprint 3** — and only start it after the test coverage from Sprint 1 has stabilized, since `print → log` migrations can subtly change behavior (e.g. uncaught exceptions in format strings).
+---
+
+## 7. Backward compatibility
+
+| Pattern | Status |
+|---|---|
+| Existing `print()` calls | Continue to work; bypass logging entirely. Migrated incrementally in Phase B. |
+| `logging.getLogger().debug()` in 8 modules | Now produce output when `LOG_LEVEL=DEBUG`. Silent at default INFO — preserves current behavior. |
+| Uvicorn's plain access log | Silenced by default; re-enable with `UVICORN_ACCESS_LOG=on`. |
+| WebSocket connections | Not yet correlated. Sprint 3 work — WebSocket has different lifecycle. |
+
+---
+
+## 8. Things this standard intentionally does NOT do
+
+- **Force migration**: 328 prints stay until each is migrated in a code PR.
+- **Block on unparseable input**: if a log record can't be serialized, we fall back to repr or a minimal error envelope — never raise.
+- **Add structlog or loguru**: stdlib `logging` is enough; one less dep to audit.
+- **Configure log shipping**: that's a deploy concern, covered in OBSERVABILITY_PLAN.md.
+- **Auto-redact secrets**: the existing `.env`-secret discipline is sufficient at current scale. A redaction filter can be added later as a `ContextFilter` subclass if needed.
