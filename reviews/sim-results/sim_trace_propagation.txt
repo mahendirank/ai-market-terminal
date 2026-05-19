@@ -1,0 +1,15 @@
+=== sim_trace_propagation ===
+
+  Scenario 1: producer's trace_id appears on emitted envelope
+    OK — envelope carries a trace_id (9551ff7a...)
+
+  Scenario 2: consumer can set ContextVar from envelope.trace_id
+    OK — consumer's ContextVar was set to envelope.trace_id (cbe92987...)
+
+  Scenario 3: log line during handler carries the propagated trace_id
+    OK — log line carries trace_id=e92b72b9...
+
+  Scenario 4: when trace_id_var is unset, new_envelope mints a fresh trace
+    OK — fresh trace minted: 2d50ac41...
+
+=== VERDICT: PASS (4/4) ===

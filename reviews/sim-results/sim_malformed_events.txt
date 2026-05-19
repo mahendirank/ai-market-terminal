@@ -1,0 +1,26 @@
+schema_critic_predicate_raised
+Traceback (most recent call last):
+  File "/Users/mahendiran/ai-system/core/orchestration/critic.py", line 129, in evaluate
+    ok, reason = self._predicate(envelope.payload)
+                 ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "/Users/mahendiran/ai-system/core/scripts/sim/sim_malformed_events.py", line 82, in boom
+    raise RuntimeError("predicate buggy")
+RuntimeError: predicate buggy
+=== sim_malformed_events ===
+
+  Scenario 1: from_json on garbage raises ValueError (clear, not silent)
+    OK — clear exception, caller can DLQ
+
+  Scenario 2: from_dict missing 'trace_id' raises TypeError
+    OK — TypeError on missing required field
+
+  Scenario 3: unknown future fields ignored (forward compat)
+    OK — built envelope; unknown 'future_field_v9' silently ignored
+
+  Scenario 4: SchemaCritic rejects payload missing required key
+    OK — rejected with reason='missing_asset'
+
+  Scenario 5: predicate that RAISES → critic returns critic_internal_error
+    OK — handled cleanly: reason='critic_internal_error', confidence=0.0
+
+=== VERDICT: PASS (5/5) ===
