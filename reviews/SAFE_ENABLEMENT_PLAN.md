@@ -265,3 +265,90 @@ hook + admin endpoints) as one PR. Merge to main. Deploy to VPS. Flip
 
 Total elapsed time from "now" to "first agent running in prod":
 ~3 working days + ~3 days of soak time = ~1 calendar week.
+
+---
+
+# ADDENDUM — Post-Stage-4.4 enablement state (2026-05-20)
+
+> The sections above were the forward-looking plan written at Stage A.
+> Stages 4.1, 4.3, and 4.4 have since been implemented and deployed.
+> A thread-leak incident during the Stage 4.4 deploy (see
+> `THREAD_LEAK_INCIDENT.md`) changes the enablement picture. This
+> addendum is now the authoritative enablement state.
+
+## A1. Flag state on the VPS RIGHT NOW
+
+```
+AGENT_ORCHESTRATOR_ENABLED=true     ← orchestrator running, 0 agents
+AGENT_NEWS_FETCH_ENABLED=false      ← DISABLED in the incident (was true)
+AGENT_SIGNAL_CRITIC_ENABLED         ← unset (false) — never enabled
+```
+
+Production = orchestrator idle + legacy authoritative. This is the
+proven-stable "Stage A" baseline.
+
+## A2. Per-agent enablement verdict
+
+| Agent | Enable now? | Reason |
+|---|---|---|
+| `news.fetch` (NewsFetchAgent) | **NO — BLOCKED** | The `asyncio.to_thread` + timeout pattern orphans OS threads when a feed hangs (Stage 4.4 incident). Must NOT be re-enabled until Stage 4.3.1 fix lands. See A3. |
+| `signal.critic` (SignalCriticAgent) | **TECHNICALLY SAFE, but pointless now** | No exposure to the thread bug (pure async, no `to_thread`). But there is NO producer for `events:signal:candidate` until Sprint 5 — enabling it just ticks an empty stream. Enable in Sprint 5 alongside the producer. |
+
+## A3. Stage 4.3.1 — the gate before `news.fetch` can return
+
+`AGENT_NEWS_FETCH_ENABLED` must stay `false` until BOTH:
+
+1. **Fix A — NewsFetchAgent no longer orphans threads.** Recommended:
+   change `run_once` to a **cache-read-only observer** — it reads the
+   already-warm `news` cache and NEVER triggers a fanning fetch. The
+   legacy digest remains the only fetch trigger. This makes the agent a
+   true zero-risk shadow.
+2. **Fix B (optional but recommended) — `news.py` feed hardening.**
+   Bound `get_rss_news`'s `ThreadPoolExecutor` so a hung feed cannot
+   orphan a worker. Scope as an explicit legacy-change task.
+3. New simulations (`sim_to_thread_timeout_orphan`, `sim_hung_feed`,
+   `sim_cold_cache_boot`) added and passing — see
+   `FAILURE_SIMULATION_REPORT.md Part 2`.
+
+Only then: re-deploy, flip `AGENT_NEWS_FETCH_ENABLED=true`, re-run the
+48h dual-run soak.
+
+## A4. Stage A is the safe resting state
+
+The system can sit indefinitely in the current state:
+- Orchestrator on, 0 agents
+- Legacy news pipeline authoritative
+- Zero new risk
+
+There is no pressure to re-enable anything. The orchestration runtime
+(Sprint 4.1) is validated. The SignalCriticAgent (Sprint 4.4) is built
+and deployed. The only outstanding item is the Stage 4.3.1 fix for the
+news agent — and that is a code task, not an operational one.
+
+## A5. 24h soak checklist — applies to ANY future agent enablement
+
+Before flipping ANY agent flag to true (after a fix lands):
+
+- [ ] Fix landed, merged, CI green
+- [ ] New simulations for the specific failure mode pass
+- [ ] Fresh DB snapshot taken on the VPS
+- [ ] Rollback tag created
+- [ ] Pre-flip thread count + memory baseline recorded
+- [ ] After flip: thread count watched for 30 min — must NOT exceed
+      ~1.5× the pre-flip baseline
+- [ ] After flip: 1h, 6h, 24h checkpoints — memory plateau, 0 restarts,
+      0 new ERROR lines
+- [ ] `do_poll` thread count specifically watched — a climbing count
+      means a hung-feed orphan is recurring
+- [ ] Legacy `/health` + `zyvoratech.co/health` stay 200 throughout
+
+Stop conditions + the 30s env-var rollback are unchanged from the
+sections above.
+
+## A6. Enforcement is FAR away
+
+For the avoidance of doubt: **critic enforcement** (rejecting /
+DLQ-routing bad signals) is NOT in Sprint 4, NOT in Sprint 5's first
+half, and requires its own flag + its own sprint + its own 24h
+observe-soak with a real producer (per `CRITIC_OBSERVATION_PLAYBOOK §4`).
+Sprint 4.4 ships the critic in permanent observe-only mode.
