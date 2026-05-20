@@ -120,7 +120,7 @@ async def lifespan(app: FastAPI):
                         nf_agent.event_bus = app.state.event_bus
                         app.state.orchestrator.register(nf_agent)
                         await app.state.orchestrator.start_agent(nf_agent.name)
-                        registered_agents = 1
+                        registered_agents += 1
                         _logging.getLogger("orchestration.lifespan").info(
                             "agent_registered_and_started",
                             extra={"agent": nf_agent.name, "version": nf_agent.version},
@@ -130,6 +130,35 @@ async def lifespan(app: FastAPI):
                             "news_fetch_agent_registration_failed"
                         )
                         # Boot continues; orchestrator stays without this agent.
+
+                # ── Sprint 4 Stage 4.4: SignalCriticAgent (OBSERVE-ONLY) ──
+                # Default OFF. When AGENT_SIGNAL_CRITIC_ENABLED=true:
+                #   - Agent consumes events:signal:candidate
+                #   - Evaluates Schema + ConfidenceFloor + RecentBar critics
+                #   - Logs verdict + emits signal.critique event (metadata only)
+                #   - NEVER blocks or DLQs the original signal
+                #   - Fail-open on chain exceptions
+                #   - No producer for the candidate stream yet — agent ticks
+                #     but processes 0 events in Sprint 4.4
+                if os.environ.get("AGENT_SIGNAL_CRITIC_ENABLED", "false").strip().lower() in (
+                    "1", "true", "yes", "on",
+                ):
+                    try:
+                        from orchestration.agents import SignalCriticAgent
+                        sc_agent = SignalCriticAgent()
+                        sc_agent.event_bus = app.state.event_bus
+                        app.state.orchestrator.register(sc_agent)
+                        await app.state.orchestrator.start_agent(sc_agent.name)
+                        registered_agents += 1
+                        _logging.getLogger("orchestration.lifespan").info(
+                            "agent_registered_and_started",
+                            extra={"agent": sc_agent.name, "version": sc_agent.version},
+                        )
+                    except Exception:
+                        _logging.getLogger("orchestration.lifespan").exception(
+                            "signal_critic_agent_registration_failed"
+                        )
+                        # Boot continues; legacy + news.fetch unaffected.
 
                 _logging.getLogger("orchestration.lifespan").info(
                     "orchestrator_lifespan_started",
