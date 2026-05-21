@@ -762,6 +762,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
       <div class="ctab" data-cat="SIGNALS" data-module="signals" onclick="showSignals(this)" id="signals-tab" style="color:#f59e0b;border-left:2px solid #d97706;">📊 SIGNALS</div>
       <div class="ctab" data-cat="HNI_AI" data-module="hni_ai" onclick="showHniInsights(this)" id="hni-ai-tab" style="color:#22d3ee;border-left:2px solid #0891b2;">🧠 HNI AI</div>
       <div class="ctab" data-cat="MORNING" data-module="morning_note" onclick="showMorningNote(this)" id="morning-tab" style="color:#fbbf24;border-left:2px solid #d97706;">🌅 MORNING NOTE</div>
+      <div class="ctab" data-cat="GLOBALREPORT" data-module="global_report" onclick="showGlobalReport(this)" id="global-report-tab" style="color:#60a5fa;border-left:2px solid #1d4ed8;">🌍 GLOBAL REPORT</div>
       <div class="ctab" data-cat="CALENDAR" data-module="cb_calendar" onclick="showCatalyst(this)" id="calendar-tab" style="color:#34d399;border-left:2px solid #059669;">📅 CALENDAR</div>
       <div class="ctab" data-cat="SECTORS" data-module="sectors" onclick="showSectorRotation(this)" id="sectors-tab" style="color:#f472b6;border-left:2px solid #db2777;">📡 SECTORS</div>
       <div class="ctab" data-cat="RISKTOOLS" data-module="risk_tools" onclick="showRiskTools(this)" id="risktools-tab" style="color:#22d3ee;border-left:2px solid #0891b2;">⚖ RISK TOOLS</div>
@@ -2035,6 +2036,24 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
       <div style="text-align:center;color:#1f2937;font-size:9px;letter-spacing:1px;padding-top:8px;border-top:1px solid #0e1a24;">
         POWERED BY GROQ AI · AUTO-RUNS 9:15 AM IST WEEKDAYS · FOR REFERENCE ONLY
       </div>
+    </div>
+
+    <!-- GLOBAL MORNING REPORT PANEL -->
+    <div id="global-report-panel" style="display:none;flex:1;overflow-y:auto;padding:14px;background:#070b10;flex-direction:column;gap:12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #16243a;padding-bottom:10px;">
+        <div>
+          <div style="color:#60a5fa;font-size:13px;font-weight:bold;letter-spacing:1.5px;">🌍 GLOBAL PRE-MARKET REPORT</div>
+          <div style="color:#4b5563;font-size:9px;letter-spacing:1px;margin-top:2px;">DETERMINISTIC BIAS · INDICATORS + MACRO + REGIME + EVENTS + SENTIMENT · 8 MARKETS</div>
+        </div>
+        <button onclick="loadGlobalReport(true)" style="background:#0a1420;border:1px solid #1d4ed8;color:#60a5fa;padding:5px 14px;cursor:pointer;font-family:inherit;font-size:10px;border-radius:3px;letter-spacing:1px;">↺ REFRESH</button>
+      </div>
+      <div id="gr-loading" style="display:none;text-align:center;padding:40px 0;">
+        <div style="color:#60a5fa;font-size:22px;animation:spin 1s linear infinite;display:inline-block;">◌</div>
+        <div style="color:#e2e8f0;font-size:12px;font-weight:bold;margin-top:12px;letter-spacing:1px;">COMPUTING GLOBAL REPORT...</div>
+        <div style="color:#6b7280;font-size:10px;margin-top:6px;">Deterministic engines across China · Japan · India · Germany · UK · Italy · France · USA</div>
+      </div>
+      <div id="gr-content" style="display:none;flex-direction:column;gap:12px;"></div>
+      <div id="gr-error" style="display:none;background:#1a0a0a;border:1px solid #7f1d1d;border-radius:5px;padding:14px;color:#f87171;font-size:11px;"></div>
     </div>
 
     <!-- CATALYST CALENDAR PANEL -->
@@ -7159,7 +7178,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal()
 // ── SHARED HELPER: hide all special panels, restore news feed ────────────────
 function _hideAllSpecialPanels() {
   ['ai-research-panel','signals-panel','hni-insights-panel',
-   'morning-note-panel','catalyst-panel','sector-panel','risktools-panel',
+   'morning-note-panel','global-report-panel','catalyst-panel','sector-panel','risktools-panel',
    'aiperformance-panel','regime-panel','analyst-panel','whymove-panel','charts-panel',
    'indicators-panel'].forEach(function(id) {
     var el = document.getElementById(id);
@@ -7344,6 +7363,121 @@ async function loadMorningNote(force) {
     document.getElementById('morning-error').style.display   = 'block';
     document.getElementById('morning-error').innerText       = 'Error: ' + err.message;
   }
+}
+
+// ── GLOBAL MORNING REPORT ─────────────────────────────────────────────────────
+function showGlobalReport(tab) {
+  _showSpecialPanel('global-report-panel', tab);
+  loadGlobalReport(false);
+}
+
+function _grBiasStyle(bias) {
+  bias = (bias || '').toUpperCase();
+  if (bias === 'BUY')  return { c:'#4ade80', bg:'#0d2a16', bd:'#16a34a' };
+  if (bias === 'SELL') return { c:'#f87171', bg:'#2a0d0d', bd:'#dc2626' };
+  return { c:'#9ca3af', bg:'#161a22', bd:'#374151' };
+}
+
+function _grTierColor(tier) {
+  tier = (tier || '').toUpperCase();
+  if (tier === 'HIGH')   return '#4ade80';
+  if (tier === 'MEDIUM') return '#fbbf24';
+  return '#f87171';
+}
+
+async function loadGlobalReport(force) {
+  var content = document.getElementById('gr-content');
+  if (!force && content && content.style.display === 'flex') return;
+  document.getElementById('gr-loading').style.display = 'block';
+  content.style.display = 'none';
+  document.getElementById('gr-error').style.display = 'none';
+  const r = await _aiTabFetch(`${BASE}/api/morning-report${force ? '?force=1' : ''}`, { timeoutMs: 90000 });
+  document.getElementById('gr-loading').style.display = 'none';
+  if (!r.ok) {
+    const e = document.getElementById('gr-error');
+    e.style.display = 'block';
+    e.innerText = 'Error: ' + (r.error || 'failed to load global report');
+    return;
+  }
+  _renderGlobalReport(r.data);
+  content.style.display = 'flex';
+}
+
+function _renderGlobalReport(data) {
+  const ov = data.global_overview || {};
+  const toneC = ov.tone === 'RISK-ON' ? '#4ade80' : ov.tone === 'RISK-OFF' ? '#f87171' : '#9ca3af';
+  let html = '';
+  // Global overview strip
+  html += `<div style="background:#0a1018;border:1px solid #1c2a3a;border-radius:5px;padding:12px;display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
+    <div><div style="color:#6b7280;font-size:9px;letter-spacing:1px;">GLOBAL TONE</div>
+      <div style="color:${toneC};font-size:15px;font-weight:bold;">${ov.tone || '—'}</div></div>
+    <div><div style="color:#6b7280;font-size:9px;letter-spacing:1px;">BREADTH</div>
+      <div style="font-size:12px;margin-top:2px;"><span style="color:#4ade80;">${ov.bullish_markets || 0} ▲</span> · <span style="color:#f87171;">${ov.bearish_markets || 0} ▼</span> · <span style="color:#9ca3af;">${ov.neutral_markets || 0} ◆</span></div></div>
+    <div><div style="color:#6b7280;font-size:9px;letter-spacing:1px;">REGIME</div>
+      <div style="color:#60a5fa;font-size:12px;margin-top:2px;">${ov.regime || '—'}</div></div>
+    <div><div style="color:#6b7280;font-size:9px;letter-spacing:1px;">MACRO SCENARIO</div>
+      <div style="color:#a78bfa;font-size:12px;margin-top:2px;">${ov.macro_scenario || '—'}</div></div>
+    <div style="margin-left:auto;color:#374151;font-size:9px;">${_aiStamp(data.generated_at)} · ${data.computed_in_ms || 0}ms</div>
+  </div>`;
+  // Market cards grid
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">';
+  (data.markets || []).forEach(function(m) { html += _grMarketCard(m); });
+  html += '</div>';
+  // Disclaimer
+  html += `<div style="background:#0d0a04;border:1px solid #3a2a0a;border-radius:5px;padding:10px;color:#9a8456;font-size:9px;line-height:1.6;">⚠️ ${(data.disclaimer || '').replace(/</g,'&lt;')}</div>`;
+  document.getElementById('gr-content').innerHTML = html;
+}
+
+function _grMarketCard(m) {
+  const bs = _grBiasStyle(m.computed_bias);
+  const tierC = _grTierColor(m.confidence_tier);
+  const conf = Math.round(m.confidence || 0);
+  const dr = m.macro_drivers || {};
+  // Overnight catalysts
+  let cats = '';
+  (m.overnight_catalysts || []).slice(0, 3).forEach(function(c) {
+    cats += `<div style="color:#9ca3af;font-size:9px;line-height:1.5;">• ${(c.topic || '').replace(/</g,'&lt;')}</div>`;
+  });
+  if (!cats) cats = '<div style="color:#4b5563;font-size:9px;">No market-specific overnight catalysts</div>';
+  // Risk warnings
+  let warns = '';
+  (m.risk_warnings || []).forEach(function(w) {
+    warns += `<div style="color:#fdba74;font-size:9px;line-height:1.5;">⚠ ${(w || '').replace(/</g,'&lt;')}</div>`;
+  });
+  // Deterministic engine votes
+  let votes = '';
+  (m.votes || []).forEach(function(v) {
+    const vc = _grBiasStyle(v.bias).c;
+    const sc = (v.score > 0 ? '+' : '') + v.score;
+    votes += `<span style="color:#4b5563;font-size:8px;">${v.source} <span style="color:${vc};">${sc}</span></span>`;
+  });
+  return `<div style="background:#0d1117;border:1px solid ${bs.bd};border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:8px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;">
+      <div><span style="color:#e2e8f0;font-size:13px;font-weight:bold;">${m.market || '—'}</span>
+        <span style="color:#4b5563;font-size:9px;margin-left:6px;">${m.index || ''}</span></div>
+      <span style="background:${bs.bg};color:${bs.c};border:1px solid ${bs.bd};font-size:11px;font-weight:bold;padding:2px 12px;border-radius:3px;letter-spacing:1px;">${m.computed_bias || '—'}</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span style="color:#6b7280;font-size:9px;letter-spacing:1px;">CONF</span>
+      <div style="flex:1;height:6px;background:#161a22;border-radius:3px;overflow:hidden;">
+        <div style="width:${conf}%;height:100%;background:${tierC};"></div></div>
+      <span style="color:${tierC};font-size:10px;font-weight:bold;">${conf} ${m.confidence_tier || ''}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:10px;border-top:1px solid #161a22;padding-top:6px;">
+      <span style="color:#6b7280;">Last <span style="color:#e2e8f0;">${m.last_price != null ? m.last_price : '—'}</span></span>
+      <span style="color:#6b7280;">S <span style="color:#4ade80;">${m.support != null ? m.support : '—'}</span></span>
+      <span style="color:#6b7280;">R <span style="color:#f87171;">${m.resistance != null ? m.resistance : '—'}</span></span>
+    </div>
+    <div style="display:flex;gap:14px;font-size:9px;color:#6b7280;">
+      <span>VIX <span style="color:#e2e8f0;">${dr.vix != null ? dr.vix : '—'}</span></span>
+      <span>DXY <span style="color:#e2e8f0;">${dr.dxy != null ? dr.dxy : '—'}</span></span>
+      <span>F&amp;G <span style="color:#e2e8f0;">${dr.fear_greed != null ? dr.fear_greed : '—'}</span></span>
+    </div>
+    <div><div style="color:#6b7280;font-size:8px;letter-spacing:1px;margin-bottom:3px;">OVERNIGHT CATALYSTS</div>${cats}</div>
+    ${warns ? `<div>${warns}</div>` : ''}
+    ${m.narrative ? `<div style="color:#c9d1d9;font-size:10px;line-height:1.5;border-top:1px solid #161a22;padding-top:6px;">${m.narrative.replace(/</g,'&lt;')}</div>` : ''}
+    <div style="display:flex;flex-wrap:wrap;gap:8px;border-top:1px solid #161a22;padding-top:6px;">${votes}</div>
+  </div>`;
 }
 
 // ── CATALYST CALENDAR ─────────────────────────────────────────────────────────
