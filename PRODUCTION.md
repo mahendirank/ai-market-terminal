@@ -56,9 +56,14 @@ a few seconds, then `healthy` once the loops warm the caches. The `redis` and
 **Test coverage:** full suite **411 passing** (was 395 before this work) — adds
 `event_graph` cache/fail-soft/async tests and `tests/test_health_probes.py`.
 
-**Known follow-ups (optional, not done):** add explicit timeouts to the
-`yfinance`/`requests` calls so a hung upstream fails fast (it already cannot
-block the loop); audit `_build_morning_note_data` for any sync I/O on the loop.
+**Follow-up — done (`417a7dd`):** audited every `yfinance`/`requests` call
+site. yfinance 1.2.0 already bounds every HTTP call internally
+(`download`/`history` 10 s, metadata 30 s); 100/102 `requests` calls already
+passed `timeout=`. Added explicit timeouts to the two that didn't —
+`loader.py` (ollama) and `econ.py` (Forex Factory scrape).
+
+**Still open (optional):** audit `_build_morning_note_data` for any sync I/O
+on the event loop.
 
 ---
 
