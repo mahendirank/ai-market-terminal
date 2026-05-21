@@ -87,7 +87,9 @@ SCHEMA_MORNING_NOTE = """\
     "banknifty": {"support":"str","resistance":"str","bias":"BUY|SELL|WAIT"}
   },
   "top_3_ideas": [
-    {"instrument":"str","direction":"BUY|SELL","rationale":"str·≤20w","entry":"str","sl":"str","target":"str"}
+    {"instrument":"str·idea 1, highest conviction","direction":"BUY|SELL","rationale":"str·≤20w","entry":"str","sl":"str","target":"str"},
+    {"instrument":"str·idea 2","direction":"BUY|SELL","rationale":"str·≤20w","entry":"str","sl":"str","target":"str"},
+    {"instrument":"str·idea 3","direction":"BUY|SELL","rationale":"str·≤20w","entry":"str","sl":"str","target":"str"}
   ],
   "watch_out_for":     "str·1sent·specific event with time",
   "overall_bias":      "BULLISH|BEARISH|NEUTRAL",

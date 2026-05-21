@@ -2618,7 +2618,9 @@ def _build_morning_note_data() -> dict:
             json={
                 "model": "llama-3.3-70b-versatile",
                 "messages": messages,
-                "max_tokens": 1000, "temperature": 0.2,
+                # 1500 (was 1000) — headroom for 3 full trade ideas so the
+                # JSON can't truncate mid-object.
+                "max_tokens": 1500, "temperature": 0.2,
                 # JSON mode — Groq then guarantees a parseable object, so the
                 # response can't come back as prose/markdown (which caused
                 # intermittent "Expecting value" json.loads failures). The
