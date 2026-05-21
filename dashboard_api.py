@@ -2674,15 +2674,19 @@ async def _morning_note_scheduler():
 
 
 @app.get("/api/morning-note")
-async def api_morning_note():
-    """Today's pre-generated morning market note (auto-generated at 9:15 AM IST)."""
+async def api_morning_note(force: int = 0):
+    """Today's pre-generated morning market note (auto-generated at 9:15 AM IST).
+
+    Query params:
+      force=1 — bypass the cache and regenerate the note now.
+    """
     today = datetime.now(IST).strftime("%Y-%m-%d")
-    # Serve from memory if today's note exists
-    if _morning_note.get("date") == today and _morning_note.get("data"):
+    # Serve from memory if today's note exists (force=1 skips the cache)
+    if not force and _morning_note.get("date") == today and _morning_note.get("data"):
         return JSONResponse(_morning_note["data"])
     # On-demand generation
     async with _morning_note_lock:
-        if _morning_note.get("date") == today and _morning_note.get("data"):
+        if not force and _morning_note.get("date") == today and _morning_note.get("data"):
             return JSONResponse(_morning_note["data"])
         data = await asyncio.to_thread(_build_morning_note_data)
         err = data.get("error")
