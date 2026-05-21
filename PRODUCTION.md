@@ -68,9 +68,16 @@ directly on the event loop (freezing it for the LLM round-trip once a day at
 09:15 IST and on-demand via `/api/morning-note`). Converted to a plain `def`,
 now invoked via `asyncio.to_thread` at both call sites.
 
+**Verified end-to-end (2026-05-21):** drove `GET /api/morning-note` on the
+live container through a forced cache-miss generation. The note generated
+correctly (HTTP 200, 1.85 s, well-formed structured note) and — the key
+check — `/health` served **49 requests during that 1.85 s window**, proving
+the event loop stayed responsive throughout (a loop blocked by the old sync
+path would have served ~1). A re-hit served the cached note in 3.8 ms.
+
 No reliability follow-ups remain open — every known sync-I/O-on-the-event-loop
 path (price publisher, SSE stream, health probes, morning-note builder) is
-fixed.
+fixed and, for the morning-note builder, verified live.
 
 ---
 
