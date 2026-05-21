@@ -2630,7 +2630,20 @@ def _build_morning_note_data() -> dict:
             timeout=30,
         )
         if resp.status_code != 200:
-            return {"error": "groq_error"}
+            # Distinguish WHY — a 429 rate-limit, a 401 bad key, and a 5xx
+            # outage need very different operator responses. Capture Groq's
+            # own message and log it so the cause shows in the container
+            # logs instead of collapsing to an opaque 503.
+            try:
+                groq_msg = ((resp.json() or {}).get("error") or {}).get("message", "")
+            except Exception:
+                groq_msg = (resp.text or "")[:300]
+            kind = "groq_rate_limited" if resp.status_code == 429 else "groq_error"
+            print(f"[MORNING] groq {resp.status_code} ({kind}): {groq_msg[:240]}",
+                  flush=True)
+            return {"error": kind, "groq_status": resp.status_code,
+                    "groq_detail": groq_msg[:300],
+                    "retry_after": resp.headers.get("retry-after")}
         raw = resp.json()["choices"][0]["message"]["content"].strip()
         if raw.startswith("```"):
             raw = raw.split("```")[1]
@@ -2698,9 +2711,25 @@ async def api_morning_note(force: int = 0):
         data = await asyncio.to_thread(_build_morning_note_data)
         err = data.get("error")
         if err:
-            msg = ("GROQ_API_KEY not configured on Railway — add it in Railway Variables"
-                   if err == "no_groq_key" else f"AI generation failed: {err}")
-            return JSONResponse({"error": msg}, status_code=503)
+            if err == "no_groq_key":
+                return JSONResponse(
+                    {"error": "GROQ_API_KEY not configured — set it in core/.env"},
+                    status_code=503)
+            if err == "groq_rate_limited":
+                # Rate limit is a distinct, self-resolving condition — say so,
+                # return 429 (not 503), and pass Groq's Retry-After through.
+                retry = data.get("retry_after")
+                return JSONResponse(
+                    {"error": "Groq rate limit reached — try again later",
+                     "detail": data.get("groq_detail"),
+                     "retry_after": retry},
+                    status_code=429,
+                    headers={"Retry-After": str(retry)} if retry else None)
+            return JSONResponse(
+                {"error": "AI generation failed",
+                 "detail": data.get("groq_detail") or err,
+                 "groq_status": data.get("groq_status")},
+                status_code=503)
         _morning_note["date"] = today
         _morning_note["data"] = data
         _disk_save("morning_note", {"date": today, "data": data})
