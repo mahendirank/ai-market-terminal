@@ -2619,6 +2619,11 @@ def _build_morning_note_data() -> dict:
                 "model": "llama-3.3-70b-versatile",
                 "messages": messages,
                 "max_tokens": 1000, "temperature": 0.2,
+                # JSON mode — Groq then guarantees a parseable object, so the
+                # response can't come back as prose/markdown (which caused
+                # intermittent "Expecting value" json.loads failures). The
+                # prompt already says "Return JSON" (prompt_builder.py).
+                "response_format": {"type": "json_object"},
             },
             timeout=30,
         )
