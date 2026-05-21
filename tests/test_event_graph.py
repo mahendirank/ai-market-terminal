@@ -4,7 +4,8 @@ test_event_graph.py — Unit tests for the causal event graph.
 Covers node/edge integrity, change-% parsing, bounded propagation,
 impact chains and contradiction detection (including the two spec
 examples: bullish equities + rising VIX, bullish gold + rising real
-yields).
+yields), plus the analyze() output cache, the fail-soft degraded
+path and the analyze_async() entry point.
 
 Runs without pytest:
     docker exec market-terminal python /app/tests/test_event_graph.py
@@ -250,6 +251,84 @@ def test_analyze_deterministic():
            and a["pressures"] == b["pressures"], "non-deterministic!")
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# analyze() — caching, fail-soft, async entry point
+# ═══════════════════════════════════════════════════════════════════════════
+def test_analyze_degraded_flag():
+    print("\n═══ analyze: degraded flag on happy path ═══")
+    out = eg.analyze({"vix": {"change_pct": 9.0}})
+    _check("degraded_key_present", "degraded" in out, f"got {set(out)}")
+    _check("degraded_false_when_ok", out["degraded"] is False,
+           f"got {out['degraded']}")
+
+
+def test_analyze_fail_soft():
+    print("\n═══ analyze: fail-soft never raises on bad input ═══")
+    # A non-dict, non-None macro forces an internal error — analyze() must
+    # swallow it and return a neutral, correctly-shaped result.
+    out = eg.analyze(["not", "a", "dict"])
+    _check("fail_soft_returns_dict", isinstance(out, dict), f"got {type(out)}")
+    _check("fail_soft_marked_degraded", out.get("degraded") is True,
+           f"got {out.get('degraded')}")
+    required = {"observed", "pressures", "equity_pressure",
+                "liquidity_pressure", "impact_chain", "contradictions"}
+    _check("fail_soft_keeps_full_shape", required.issubset(out),
+           f"missing={required - set(out)}")
+    _check("fail_soft_neutral_pressure", out["equity_pressure"] == 0.0,
+           f"got {out['equity_pressure']}")
+
+
+def test_analyze_cache_hit():
+    print("\n═══ analyze: identical inputs hit the cache ═══")
+    eg.clear_cache()
+    macro = {"us10y": {"change_pct": 4.0}, "vix": {"change_pct": 11.0}}
+    first  = eg.analyze(macro, events_tilt=0.2)
+    second = eg.analyze(macro, events_tilt=0.2)
+    _check("cache_hit_result_equal", first == second, "cached result differs")
+    stats = eg.cache_stats()
+    _check("cache_recorded_one_miss", stats["misses"] == 1, f"got {stats}")
+    _check("cache_recorded_one_hit", stats["hits"] == 1, f"got {stats}")
+
+
+def test_analyze_cache_isolation():
+    print("\n═══ analyze: cached copy is isolated from caller mutation ═══")
+    eg.clear_cache()
+    macro = {"gold": {"change_pct": 1.5}}
+    a = eg.analyze(macro)
+    a["pressures"]["equities"] = 999.0      # tamper with the caller's copy
+    a["contradictions"].append("tamper")
+    b = eg.analyze(macro)                   # served from cache
+    _check("scalar_mutation_did_not_leak", b["pressures"]["equities"] != 999.0,
+           f"got {b['pressures']['equities']}")
+    _check("list_mutation_did_not_leak", "tamper" not in b["contradictions"],
+           f"got {b['contradictions']}")
+
+
+def test_analyze_no_cache_flag():
+    print("\n═══ analyze: use_cache=False bypasses the cache ═══")
+    eg.clear_cache()
+    macro = {"oil": {"change_pct": 2.0}}
+    eg.analyze(macro, use_cache=False)
+    eg.analyze(macro, use_cache=False)
+    stats = eg.cache_stats()
+    _check("no_cache_no_hits", stats["hits"] == 0, f"got {stats}")
+    _check("no_cache_no_store", stats["size"] == 0, f"got {stats}")
+
+
+def test_analyze_async_matches_sync():
+    print("\n═══ analyze_async: matches the sync analyze() ═══")
+    import asyncio as _aio
+    eg.clear_cache()
+    macro = {"us10y": {"change_pct": 3.0}, "dxy": {"change_pct": 0.4},
+             "vix": {"change_pct": 8.0}}
+    sync_out  = eg.analyze(macro, events_tilt=-0.2, equities_observed=0.3)
+    async_out = _aio.run(
+        eg.analyze_async(macro, events_tilt=-0.2, equities_observed=0.3))
+    _check("async_equals_sync", sync_out == async_out, "async result differs")
+    _check("async_not_degraded", async_out["degraded"] is False,
+           f"got {async_out['degraded']}")
+
+
 # ─── Runner ────────────────────────────────────────────────────────────────
 def main() -> int:
     print("═" * 60)
@@ -266,6 +345,9 @@ def main() -> int:
         test_no_contradiction_when_consistent, test_contradiction_threshold,
         test_contradiction_skips_absent_equities,
         test_analyze_shape, test_analyze_deterministic,
+        test_analyze_degraded_flag, test_analyze_fail_soft,
+        test_analyze_cache_hit, test_analyze_cache_isolation,
+        test_analyze_no_cache_flag, test_analyze_async_matches_sync,
     )
     for test in tests:
         try:

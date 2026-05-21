@@ -16,6 +16,12 @@ turns an observed set of market readings into:
 Design constraints (per spec):
   - Lightweight + deterministic: pure Python, 8 nodes, ~18 edges, no
     numpy, no I/O. Same input → same output.
+  - Async-safe: analyze_async() offloads the (sub-millisecond, pure-CPU)
+    propagation to a worker thread so the event loop is never touched.
+  - Fail-soft: analyze() never raises — a malformed macro feed logs once
+    and yields a neutral result flagged `degraded=True`.
+  - Cached: analyze() memoises on input content (TTL + bounded; see
+    _CACHE_TTL) so a repeated macro snapshot returns an instant copy.
   - No autonomous agents, no LLM.
   - No recursive loops: propagation is an ITERATIVE bounded sweep
     (fixed MAX_HOPS with per-hop decay). The graph contains cycles
@@ -28,6 +34,11 @@ finished conclusions surfaced by morning_report.
 """
 from __future__ import annotations
 
+import asyncio
+import copy
+import os
+import threading
+import time
 from typing import Optional
 
 
@@ -257,10 +268,96 @@ def detect_contradictions(node_states: dict,
     return hits
 
 
+# ─── Output cache + fail-soft scaffolding ────────────────────────────────────
+# analyze() is a pure deterministic function of its inputs, so its result is
+# safely memoisable. The cache is keyed on the CONTENT of the derived node
+# states (not object identity), TTL-guarded and bounded — so repeated calls
+# with the same macro snapshot (e.g. the 8-market morning report all reading
+# one global macro reading) return an instant copy instead of re-propagating.
+_CACHE_TTL  = max(1, int(os.environ.get("EVENT_GRAPH_CACHE_TTL", "300")))
+_CACHE_MAX  = 64                       # bounded — VPS memory hygiene
+_cache: dict = {}                      # key → (stored_at_ts, result)
+_cache_lock = threading.Lock()         # analyze() runs inside worker threads
+_cache_stats = {"hits": 0, "misses": 0}
+
+
+def _cache_key(observed: dict, equities_observed: Optional[float]) -> tuple:
+    """Content-derived hashable key. Rounded so floating-point noise in the
+    macro feed doesn't needlessly miss an otherwise-identical reading."""
+    obs = tuple(round(float(observed.get(n, 0.0)), 4) for n in OBSERVED_NODES)
+    eq  = None if equities_observed is None else round(float(equities_observed), 4)
+    return (obs, eq)
+
+
+def _cache_get(key: tuple) -> Optional[dict]:
+    """Return a private deep copy of a fresh cached result, or None."""
+    now = time.time()
+    with _cache_lock:
+        entry = _cache.get(key)
+        if entry is None:
+            _cache_stats["misses"] += 1
+            return None
+        stored_at, value = entry
+        if now - stored_at > _CACHE_TTL:
+            _cache.pop(key, None)
+            _cache_stats["misses"] += 1
+            return None
+        _cache_stats["hits"] += 1
+        return copy.deepcopy(value)
+
+
+def _cache_put(key: tuple, value: dict) -> None:
+    """Store a deep copy so a caller mutating its result cannot corrupt the
+    cache. Evicts the oldest entry when full — cheap and deterministic."""
+    with _cache_lock:
+        if key not in _cache and len(_cache) >= _CACHE_MAX:
+            oldest = min(_cache, key=lambda k: _cache[k][0])
+            _cache.pop(oldest, None)
+        _cache[key] = (time.time(), copy.deepcopy(value))
+
+
+def clear_cache() -> None:
+    """Drop every memoised result. For tests and explicit invalidation."""
+    with _cache_lock:
+        _cache.clear()
+        _cache_stats["hits"] = 0
+        _cache_stats["misses"] = 0
+
+
+def cache_stats() -> dict:
+    """Hit/miss counters + current size — handy to surface on a health probe."""
+    with _cache_lock:
+        return {**_cache_stats, "size": len(_cache), "ttl_secs": _CACHE_TTL}
+
+
+def _safe_default() -> dict:
+    """Neutral, correctly-shaped analyze() result for the fail-soft path — the
+    same keys as the happy path so consumers never need a second code path."""
+    return {
+        "observed":           {n: 0.0 for n in OBSERVED_NODES},
+        "pressures":          {n: 0.0 for n in NODES},
+        "equity_pressure":    0.0,
+        "liquidity_pressure": 0.0,
+        "impact_chain":       [],
+        "contradictions":     [],
+        "degraded":           True,
+    }
+
+
 # ─── One-shot entry point ────────────────────────────────────────────────────
 def analyze(macro: Optional[dict], events_tilt: float = 0.0,
-            *, equities_observed: Optional[float] = None) -> dict:
+            *, equities_observed: Optional[float] = None,
+            use_cache: bool = True) -> dict:
     """Full pass: derive → propagate → contradictions → impact chain.
+
+    Fail-soft: this function NEVER raises. On any internal error (e.g. a
+    malformed macro feed) it logs once and returns a neutral, correctly-shaped
+    result with ``degraded=True`` — the causal layer degrades rather than
+    breaking the morning report.
+
+    Memoised: the result is a pure function of the inputs, so identical inputs
+    return a cached deep copy within _CACHE_TTL seconds. Pass
+    ``use_cache=False`` to force a recompute (still stored for later callers).
 
     Parameters
     ----------
@@ -273,34 +370,78 @@ def analyze(macro: Optional[dict], events_tilt: float = 0.0,
         rules involving `equities` are evaluated (e.g. the per-market call
         passes that market's indicator composite). When omitted, only the
         macro-internal contradictions are checked.
+    use_cache : bool
+        When False, skip the cache lookup and recompute from scratch.
 
     Returns
     -------
     dict
         {
-          observed:        {node: state},
-          pressures:       {node: propagated pressure},
-          equity_pressure: float,   # headline cross-asset pressure on risk
+          observed:           {node: state},
+          pressures:          {node: propagated pressure},
+          equity_pressure:    float,   # headline cross-asset pressure on risk
           liquidity_pressure: float,
-          impact_chain:    [{path, contribution}, ...],
-          contradictions:  [{pair, label, severity, states}, ...],
+          impact_chain:       [{path, contribution}, ...],
+          contradictions:     [{pair, label, severity, states}, ...],
+          degraded:           bool,    # True only on the fail-soft path
         }
     """
-    observed = derive_node_states(macro, events_tilt)
-    pressures = propagate(observed)
+    try:
+        observed = derive_node_states(macro, events_tilt)
 
-    contra_input = dict(observed)
-    if equities_observed is not None:
-        contra_input["equities"] = _clamp(equities_observed)
-    # liquidity is never observed directly — expose its propagated value so
-    # the equities|liquidity contradiction rule has something to test.
-    contra_input["liquidity"] = pressures["liquidity"]
+        key = _cache_key(observed, equities_observed) if use_cache else None
+        if key is not None:
+            hit = _cache_get(key)
+            if hit is not None:
+                return hit
 
-    return {
-        "observed":           observed,
-        "pressures":          pressures,
-        "equity_pressure":    pressures["equities"],
-        "liquidity_pressure": pressures["liquidity"],
-        "impact_chain":       impact_chain(observed, "equities"),
-        "contradictions":     detect_contradictions(contra_input),
-    }
+        pressures = propagate(observed)
+
+        contra_input = dict(observed)
+        if equities_observed is not None:
+            contra_input["equities"] = _clamp(equities_observed)
+        # liquidity is never observed directly — expose its propagated value so
+        # the equities|liquidity contradiction rule has something to test.
+        contra_input["liquidity"] = pressures["liquidity"]
+
+        result = {
+            "observed":           observed,
+            "pressures":          pressures,
+            "equity_pressure":    pressures["equities"],
+            "liquidity_pressure": pressures["liquidity"],
+            "impact_chain":       impact_chain(observed, "equities"),
+            "contradictions":     detect_contradictions(contra_input),
+            "degraded":           False,
+        }
+        if key is not None:
+            _cache_put(key, result)
+        return result
+
+    except Exception as e:   # fail-soft — the causal layer must never break a report
+        try:
+            from production import log
+            log("ERROR", "event_graph",
+                "analyze failed — returning neutral degraded result",
+                err=type(e).__name__, msg=str(e)[:140])
+        except Exception:
+            pass
+        return _safe_default()
+
+
+# ─── Async-safe entry point ──────────────────────────────────────────────────
+async def analyze_async(macro: Optional[dict], events_tilt: float = 0.0,
+                        *, equities_observed: Optional[float] = None,
+                        use_cache: bool = True) -> dict:
+    """Async-safe wrapper around analyze() — call this from async code
+    (FastAPI handlers, background loops) rather than analyze() directly.
+
+    The propagation is pure-CPU and sub-millisecond, so it never meaningfully
+    blocks the loop — but it is still offloaded to a worker thread so the
+    event loop is guaranteed untouched regardless of input or future graph
+    growth. Cheap insurance, consistent with how the rest of the system
+    handles off-loop work. Same fail-soft + caching semantics as analyze().
+    """
+    return await asyncio.to_thread(
+        analyze, macro, events_tilt,
+        equities_observed=equities_observed, use_cache=use_cache,
+    )
