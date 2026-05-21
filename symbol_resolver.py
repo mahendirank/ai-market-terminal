@@ -156,6 +156,18 @@ SYNONYMS: dict[str, str] = {
     "NIFTYBANKINDEX":"BANKNIFTY",
     "BSESENSEX":     "SENSEX",
     "NIFTYITINDEX":  "NIFTYIT",
+    # Bare yfinance index roots (without the ^) — users often type these.
+    # Without this they fall through to the over-eager us_guess and 404.
+    "NSEI":          "NIFTY",
+    "NSEBANK":       "BANKNIFTY",
+    "BSESN":         "SENSEX",
+    "CNXIT":         "NIFTYIT",
+    "GSPC":          "SPX",
+    "IXIC":          "NASDAQ",
+    "DJI":           "DOW",
+    "RUT":           "RUSSELL",
+    "GDAXI":         "DAX",
+    "N225":          "NIKKEI",
     # Crypto
     "BITCOINUSD":    "BTC",
     "ETHEREUMUSD":   "ETH",
@@ -225,7 +237,11 @@ US_STOCKS: dict[str, str] = {
 }
 
 
-_YF_PATTERN = re.compile(r"^[\^A-Z0-9]+([.=\-][A-Z0-9]+)+$")
+# Matches valid yfinance tickers. Two shapes:
+#   1. caret-prefixed index symbols — ^NSEI, ^GSPC, ^DJI, ^VIX, ^BSESN …
+#      (no separator; the old pattern rejected these → indices wouldn't resolve)
+#   2. separator tickers — RELIANCE.NS, BTC-USD, EURUSD=X, GC=F …
+_YF_PATTERN = re.compile(r"^\^[A-Z0-9]{2,}$|^[\^A-Z0-9]+([.=\-][A-Z0-9]+)+$")
 
 
 def _looks_like_yf_ticker(s: str) -> bool:
