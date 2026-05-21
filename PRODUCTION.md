@@ -75,9 +75,27 @@ check — `/health` served **49 requests during that 1.85 s window**, proving
 the event loop stayed responsive throughout (a loop blocked by the old sync
 path would have served ~1). A re-hit served the cached note in 3.8 ms.
 
+**`?force=` param + JSON-mode fix (`167ffad`, `bd26923`):** added `?force=1`
+to `/api/morning-note` for on-demand regeneration (the verification above
+had to clear the disk cache and restart for lack of it). `force=1` bypasses
+both cache checks and regenerates via the same `asyncio.to_thread` path;
+`force=0`/absent is unchanged. Verifying `?force=1` then surfaced a separate
+pre-existing bug — the morning-note Groq call omitted
+`response_format: {"type": "json_object"}`, so the model intermittently
+returned non-JSON and `json.loads` failed → HTTP 503. Added JSON mode
+(matching `explainer.py`; the prompt already says "Return JSON").
+**Re-verified live:** `?force=1` → HTTP 200 with a valid note, regenerated
+off the loop — `/health` served **107 requests during the 1.7 s regen**
+(max latency 22 ms), and a no-force re-hit served the cached result in
+4.3 ms.
+
 No reliability follow-ups remain open — every known sync-I/O-on-the-event-loop
 path (price publisher, SSE stream, health probes, morning-note builder) is
 fixed and, for the morning-note builder, verified live.
+
+Known minor issue (not reliability): `/api/morning-note` returns
+`top_3_ideas` with a single idea rather than three — a prompt/schema or
+`max_tokens` quirk in the morning-note generation, unrelated to the above.
 
 ---
 
