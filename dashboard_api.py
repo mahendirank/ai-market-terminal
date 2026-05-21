@@ -210,6 +210,10 @@ async def _signal_verify_loop():
             await asyncio.to_thread(_sm.run_verification_pass)
         except Exception as _e:
             print(f"[SIGNAL_MEM] verify error: {_e}", flush=True)
+        try:
+            from production import heartbeat
+            heartbeat("signal_verify")
+        except Exception: pass
         await asyncio.sleep(3600)
 
 
@@ -486,6 +490,10 @@ def _continuous_refresh():
         _time.sleep(5)
         try: _cached("macro",   30, lambda: _lazy("macro", "get_macro_data"))
         except: pass
+        try:
+            from production import heartbeat
+            heartbeat("continuous_refresh")
+        except Exception: pass
         _time.sleep(10)  # total loop ~20s — news is always < 20s old
 
 
@@ -764,6 +772,10 @@ async def _async_digest_loop():
     while True:
         t0 = _time.time()
         await asyncio.to_thread(_run_one_digest_cycle)
+        try:
+            from production import heartbeat
+            heartbeat("digest")
+        except Exception: pass
         elapsed  = _time.time() - t0
         sleep_for = max(10, 300 - int(elapsed))
         print(f"[DIGEST] next in {sleep_for}s", flush=True)
@@ -2649,6 +2661,10 @@ async def _morning_note_scheduler():
                             _morning_note["data"] = data
                             _disk_save("morning_note", {"date": today, "data": data})
                             print(f"[MORNING] note ready: {data.get('headline','')}", flush=True)
+        try:
+            from production import heartbeat
+            heartbeat("morning_note")
+        except Exception: pass
         await asyncio.sleep(60)   # check every minute
 
 
@@ -2697,6 +2713,10 @@ async def _morning_report_scheduler():
                   f"in {rep.get('computed_in_ms')}ms", flush=True)
         except Exception as e:
             print(f"[MORNING_REPORT] refresh error: {e}", flush=True)
+        try:
+            from production import heartbeat
+            heartbeat("morning_report")
+        except Exception: pass
         await asyncio.sleep(20 * 60)   # staggered TTLs decide what recomputes
 
 
@@ -2919,7 +2939,9 @@ async def api_stream():
         while True:
             try:
                 from live_prices import get_live_prices
-                data = get_live_prices()
+                # get_live_prices() is synchronous (yfinance). Offload it so a
+                # slow fetch can't freeze the event loop for every SSE client.
+                data = await asyncio.to_thread(get_live_prices)
                 ts   = data.get("ts_epoch", 0)
                 if ts != last_ts:
                     last_ts = ts

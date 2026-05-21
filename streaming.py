@@ -173,7 +173,11 @@ class PricePublisher:
 
         while True:
             try:
-                cur = self._gather()
+                # _gather() does synchronous yfinance/forex HTTP. Offload it to
+                # a worker thread so a slow or hung upstream can never freeze
+                # the event loop — an inline fetch here used to stall /health
+                # (and every other request) for the duration of the call.
+                cur = await asyncio.to_thread(self._gather)
                 # Build a delta — only assets that changed since last publish
                 delta = {}
                 for asset, data in cur.items():

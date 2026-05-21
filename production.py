@@ -127,18 +127,29 @@ def heartbeat(name: str) -> None:
 
 
 def _get_bg_loop_status() -> dict:
-    """How fresh is each background loop?"""
+    """How fresh is each background loop?
+
+    Lists every RECURRING background loop and the max age (seconds) of its
+    last heartbeat before it is considered stale (a loop stays "healthy"
+    while its last heartbeat is within 2× this value). Every loop here must
+    call heartbeat("<name>") once per iteration — a name with no heartbeat
+    reports "no-heartbeat", which means the loop is unmonitored, not dead.
+
+    The one-shot boot warm-up (`_warm`) is intentionally excluded: it runs
+    once and exits, so staleness detection does not apply to it.
+    """
     now = time.time()
     out = {}
     expected = {
-        "warm":             60,
-        "continuous_refresh": 30,
-        "digest":           300,
-        "morning_note":     900,
-        "signal_verify":    7200,
-        "macro_desk_snap":  900,
-        "explainer_scan":   420,
-        "alert_engine":     180,
+        "continuous_refresh":  60,
+        "price_publisher":     30,
+        "alert_engine":       180,
+        "morning_note":       180,
+        "digest":             300,
+        "explainer_scan":     420,
+        "macro_desk_snap":    900,
+        "morning_report":    1500,
+        "signal_verify":     7200,
     }
     for name, max_age in expected.items():
         last = _BG_LAST_RUN.get(name)
