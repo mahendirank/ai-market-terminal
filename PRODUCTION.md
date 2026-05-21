@@ -101,6 +101,20 @@ objects, and `max_tokens` was raised 1000 → 1500 so three full ideas can't
 truncate the JSON. The 3-idea schema is confirmed in the morning-note prompt;
 live output confirms on the next successful generation.
 
+**Groq error handling — typed failures (`d9bae80`):**
+`_build_morning_note_data` collapsed every Groq non-200 into an opaque
+`groq_error` → HTTP 503 with no logging, so a rate-limit, a bad key, and an
+outage were indistinguishable. It now captures Groq's own error message,
+logs the status (`[MORNING] groq <code> ...`), and returns a typed error.
+`/api/morning-note` maps a rate-limit to **HTTP 429 + `Retry-After`** (not
+503) and surfaces the status/detail for every other failure. Verified live
+against a real Groq 429: `?force=1` returned 429 with `Retry-After: 1468`
+and Groq's "tokens per day" message in the body.
+
+> Note: the morning note depends on the Groq free tier's **100k tokens/day**
+> (per-org) budget. When it's exhausted, generation 429s until the daily
+> reset — `/api/morning-note` now reports this clearly rather than as a 503.
+
 ---
 
 ## ✅ Shipped in Step 8 (live now, no breaking changes)
