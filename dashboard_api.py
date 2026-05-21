@@ -2543,8 +2543,13 @@ async def hni_summary_standalone(request: Request):
 
 # ── Morning Market Note ───────────────────────────────────────
 
-async def _build_morning_note_data() -> dict:
-    """Call Groq to generate morning market note. Returns structured dict."""
+def _build_morning_note_data() -> dict:
+    """Call Groq to generate morning market note. Returns structured dict.
+
+    Synchronous on purpose — the body does a blocking Groq HTTP call plus a
+    few local reads and never awaits. Callers run it via asyncio.to_thread so
+    it cannot freeze the event loop.
+    """
     import requests as _rq
     groq_key = os.environ.get("GROQ_API_KEY", "")
     if not groq_key:
@@ -2655,7 +2660,7 @@ async def _morning_note_scheduler():
                 async with _morning_note_lock:
                     if _morning_note.get("date") != today:
                         print("[MORNING] generating morning note...", flush=True)
-                        data = await _build_morning_note_data()
+                        data = await asyncio.to_thread(_build_morning_note_data)
                         if "error" not in data:
                             _morning_note["date"] = today
                             _morning_note["data"] = data
@@ -2679,7 +2684,7 @@ async def api_morning_note():
     async with _morning_note_lock:
         if _morning_note.get("date") == today and _morning_note.get("data"):
             return JSONResponse(_morning_note["data"])
-        data = await _build_morning_note_data()
+        data = await asyncio.to_thread(_build_morning_note_data)
         err = data.get("error")
         if err:
             msg = ("GROQ_API_KEY not configured on Railway — add it in Railway Variables"
