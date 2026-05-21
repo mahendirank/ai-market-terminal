@@ -243,49 +243,103 @@ def _probe_telegram():
     return {"ok": bool(token and chat), "token_set": bool(token), "chat_set": bool(chat)}
 
 
-def _probe_live_data():
+# ── Cache-only data probes ───────────────────────────────────────────────────
+# These probes must NEVER call the synchronous, network-bound getters
+# (get_live_prices / get_all_news / detect_market_regime / get_forex_intel):
+# on a cold cache those fetch over the network and block — exactly what made
+# /api/health take ~13 s right after a restart. Instead they peek the in-memory
+# caches the background loops keep warm (the price publisher refreshes prices +
+# FX every ~2 s, continuous_refresh refreshes news every ~20 s), so every probe
+# is a dict lookup. A cold or stale cache is reported, never waited on.
+
+def _peek_cache(module: str, attr: str, sub: str = "") -> tuple:
+    """Read a data module's in-memory cache WITHOUT triggering a fetch.
+
+    Returns (data, age_seconds). data is None when the module isn't loaded,
+    the cache attribute is missing, or the cache is still cold; age is None
+    in that case. Fully defensive — a probe must never raise from here.
+    """
     try:
-        from live_prices import get_live_prices
-        lp = get_live_prices() or {}
-        dxy_ok    = bool(lp.get("fx", {}).get("DXY"))
-        gold_ok   = bool(lp.get("commodities", {}).get("GOLD"))
-        ndx_ok    = bool(lp.get("global", {}).get("NASDAQ"))
-        us10y_ok  = bool(lp.get("bonds", {}).get("US_10Y"))
-        return {
-            "ok": dxy_ok and gold_ok and ndx_ok and us10y_ok,
-            "DXY":   dxy_ok, "GOLD": gold_ok, "NASDAQ": ndx_ok, "US10Y": us10y_ok,
-            "source_count": sum(len(v) for v in lp.values() if isinstance(v, dict)),
-        }
-    except Exception as e:
-        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+        mod = sys.modules.get(module)
+        if mod is None:
+            return None, None
+        cache = getattr(mod, attr, None)
+        if not isinstance(cache, dict):
+            return None, None
+        entry = cache.get(sub) if sub else cache
+        if not isinstance(entry, dict):
+            return None, None
+        data = entry.get("data")
+        if not data:
+            return None, None
+        return data, max(0.0, time.time() - float(entry.get("ts") or 0.0))
+    except Exception:
+        return None, None
+
+
+def _cache_verdict(data, age, stale_after: float, what: str) -> dict:
+    """Shared cache-only verdict: ok when the cache holds data and that data
+    is fresh; not-ok when the cache is cold or has gone stale (a stale cache
+    also flags a background refresh loop that has stopped)."""
+    if data is None:
+        return {"ok": False, "cache": "cold", "note": f"no cached {what} yet"}
+    stale = age is not None and age > stale_after
+    return {
+        "ok":          not stale,
+        "cache":       "stale" if stale else "warm",
+        "cache_age_s": round(age or 0.0, 1),
+    }
+
+
+def _probe_live_data():
+    """Cache-only — peeks the live_prices cache the price publisher refreshes
+    every ~2 s. Never fetches."""
+    data, age = _peek_cache("live_prices", "_lp_cache")
+    verdict = _cache_verdict(data, age, stale_after=180, what="price snapshot")
+    if data is not None:
+        verdict["DXY"]    = bool(data.get("fx", {}).get("DXY"))
+        verdict["GOLD"]   = bool(data.get("commodities", {}).get("GOLD"))
+        verdict["NASDAQ"] = bool(data.get("global", {}).get("NASDAQ"))
+        verdict["US10Y"]  = bool(data.get("bonds", {}).get("US_10Y"))
+        verdict["source_count"] = sum(
+            len(v) for v in data.values() if isinstance(v, dict))
+        verdict["ok"] = verdict["ok"] and all(
+            verdict[k] for k in ("DXY", "GOLD", "NASDAQ", "US10Y"))
+    return verdict
 
 
 def _probe_news():
-    try:
-        from news import get_all_news
-        items = get_all_news() or []
-        return {"ok": len(items) > 0, "headline_count": len(items)}
-    except Exception as e:
-        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    """Cache-only — peeks the news cache continuous_refresh warms every ~20 s."""
+    data, age = _peek_cache("news", "_all_news_cache")
+    verdict = _cache_verdict(data, age, stale_after=600, what="news")
+    if data is not None:
+        verdict["headline_count"] = len(data)
+        verdict["ok"] = verdict["ok"] and len(data) > 0
+    return verdict
 
 
 def _probe_regime():
-    try:
-        from regime import detect_market_regime
-        r = detect_market_regime() or {}
-        return {"ok": True, "label": r.get("label"), "confidence": r.get("confidence"), "fallback_mode": r.get("fallback", False)}
-    except Exception as e:
-        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    """Cache-only — peeks the last regime classification (computed by
+    macro_desk / morning_report). Never recomputes."""
+    data, age = _peek_cache("regime", "_cache", sub="regime")
+    verdict = _cache_verdict(data, age, stale_after=1800,
+                             what="regime classification")
+    if data is not None:
+        verdict["label"]         = data.get("label")
+        verdict["confidence"]    = data.get("confidence")
+        verdict["fallback_mode"] = data.get("fallback", False)
+    return verdict
 
 
 def _probe_fx():
-    try:
-        from forex import get_forex_intel
-        d = get_forex_intel() or {}
-        pairs = (d.get("pairs") or {})
-        return {"ok": len(pairs) >= 6, "pair_count": len(pairs)}
-    except Exception as e:
-        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    """Cache-only — peeks the forex price cache the price publisher refreshes
+    every ~2 s (via get_forex_intel). Never fetches."""
+    data, age = _peek_cache("forex", "_cache")
+    verdict = _cache_verdict(data, age, stale_after=180, what="FX prices")
+    if data is not None:
+        verdict["pair_count"] = len(data)
+        verdict["ok"] = verdict["ok"] and len(data) >= 6
+    return verdict
 
 
 # Register built-ins
