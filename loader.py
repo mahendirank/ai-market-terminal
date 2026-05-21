@@ -15,7 +15,8 @@ def run_qwen(prompt):
             "model": "qwen2.5:7b",
             "prompt": prompt,
             "stream": False
-        }
+        },
+        timeout=120,   # local ollama generate — bounded so a hung call fails fast
     )
     return response.json()["response"]
 

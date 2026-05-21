@@ -112,7 +112,7 @@ def get_economic_data():
     url = "https://www.forexfactory.com/calendar"
     headers = {"User-Agent": "Mozilla/5.0"}
 
-    res = requests.get(url, headers=headers)
+    res = requests.get(url, headers=headers, timeout=20)
     soup = BeautifulSoup(res.text, "html.parser")
 
     events = []
