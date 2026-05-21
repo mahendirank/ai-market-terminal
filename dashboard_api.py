@@ -41,6 +41,13 @@ async def lifespan(app: FastAPI):
     note_task = asyncio.create_task(_morning_note_scheduler())
     _bg_tasks.add(note_task)
     note_task.add_done_callback(_bg_tasks.discard)
+    # Grounded global morning report: warm caches + staggered refresh
+    try:
+        mreport_task = asyncio.create_task(_morning_report_scheduler())
+        _bg_tasks.add(mreport_task)
+        mreport_task.add_done_callback(_bg_tasks.discard)
+    except Exception as _e:
+        print(f"[MORNING_REPORT] init error: {_e}", flush=True)
     try:
         from notify import start_watchdog
         start_watchdog()
@@ -2666,6 +2673,69 @@ async def api_morning_note():
         _morning_note["data"] = data
         _disk_save("morning_note", {"date": today, "data": data})
         return JSONResponse(data)
+
+
+# ── Grounded Global Morning Report (8 markets, deterministic bias) ──────────
+
+async def _morning_report_scheduler():
+    """Keep the 8-market grounded report warm.
+
+    build_global_report() reads per-market caches with staggered TTLs, so a
+    plain (non-force) call only recomputes markets whose TTL lapsed. Running
+    it every 20 min therefore gives a naturally staggered refresh without an
+    8-index yfinance burst — and the endpoint always serves warm cache.
+    """
+    print("[MORNING_REPORT] scheduler started", flush=True)
+    await asyncio.sleep(90)   # let the server warm up first
+    while True:
+        try:
+            from morning_report import build_global_report
+            rep = await asyncio.to_thread(build_global_report)
+            ov = rep.get("global_overview", {})
+            print(f"[MORNING_REPORT] warmed — tone={ov.get('tone')} "
+                  f"{ov.get('bullish_markets')}B/{ov.get('bearish_markets')}S "
+                  f"in {rep.get('computed_in_ms')}ms", flush=True)
+        except Exception as e:
+            print(f"[MORNING_REPORT] refresh error: {e}", flush=True)
+        await asyncio.sleep(20 * 60)   # staggered TTLs decide what recomputes
+
+
+@app.get("/api/morning-report")
+async def api_morning_report(force: int = 0, market: str = "", narrate: int = 0):
+    """Grounded global pre-market report for 8 markets.
+
+    Directional bias is computed ONLY by deterministic engines; the LLM (if
+    narrate=1 and ENABLE_MORNING_NARRATION is set) may explain but never
+    reverse it. Serves from staggered Redis cache — warm calls are instant.
+
+    Query params:
+      force=1     — bypass cache, recompute everything
+      market=XXX  — return a single market brief (CHINA/JAPAN/INDIA/...)
+      narrate=1   — request LLM narration (still gated server-side)
+    """
+    try:
+        import morning_report as _mr
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": f"morning_report module unavailable: {e}"},
+                            status_code=503)
+
+    if market:
+        mk = market.strip().upper()
+        if mk not in _mr.MARKETS:
+            return JSONResponse(
+                {"error": f"unknown market {mk!r}",
+                 "valid": _mr.list_markets()}, status_code=400)
+        brief = await asyncio.to_thread(_mr.build_market_brief, mk, force=bool(force))
+        if narrate:
+            try:
+                brief["narrative"] = await asyncio.to_thread(_mr.narrate_brief, brief)
+            except Exception:
+                pass
+        return JSONResponse(brief)
+
+    report = await asyncio.to_thread(
+        _mr.build_global_report, force=bool(force), narrate=bool(narrate))
+    return JSONResponse(report)
 
 
 # ── Catalyst Calendar ─────────────────────────────────────────
