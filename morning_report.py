@@ -144,10 +144,39 @@ def _cache_put(key: str, value: dict, ttl: int) -> None:
     _INPROC[key] = (time.time() + ttl, value)
 
 
+# Macro tickers for the event_graph causal nodes — change% drives node states.
+_MACRO_NODE_TICKERS = {
+    "us10y": "^TNX", "dxy": "DX-Y.NYB", "gold": "GC=F",
+    "oil": "CL=F", "vix": "^VIX",
+}
+
+
+def _macro_change_snapshot() -> dict:
+    """Pull 1-day change% for the macro nodes event_graph propagates.
+
+    macro_snapshot carries only price levels, but the causal graph needs
+    directional moves — so change% is read via indicators.compute_indicators
+    (each call is itself Redis-cached). Runs once per global-signals build.
+    """
+    out: dict = {}
+    try:
+        from indicators import compute_indicators
+    except Exception:  # noqa: BLE001
+        return out
+    for node_key, ticker in _MACRO_NODE_TICKERS.items():
+        try:
+            r = compute_indicators(ticker, "1d")
+            out[node_key] = {"change_pct": (r or {}).get("change_pct", 0.0)}
+        except Exception:  # noqa: BLE001
+            out[node_key] = {"change_pct": 0.0}
+    return out
+
+
 # ─── Global deterministic signal bundle (computed once per report) ──────────
 def _build_global_signals() -> dict:
     """Compute the engines that are market-WIDE (same backdrop for all 8
-    markets): macro_reasoning, regime, events, sentiment, correlation.
+    markets): macro_reasoning, regime, events, sentiment, correlation,
+    plus event_graph causal propagation and regime-transition scoring.
 
     Returns a dict the per-market builder folds into each consensus.
     Cached for _GLOBAL_TTL so a full report build only does this once.
@@ -163,6 +192,10 @@ def _build_global_signals() -> dict:
         "correlation_score": 0.0, "correlation_anomalies": 0,
         "snapshot": None, "fng": None, "vix": None,
         "dxy": None, "us10y": None,
+        # event_graph + regime_transition (filled when a snapshot is available)
+        "event_graph_pressure": 0.0, "event_graph_liquidity": 0.0,
+        "event_graph_observed": {}, "event_graph_pressures": {},
+        "impact_chain": [], "contradictions": [], "regime_transition": None,
     }
 
     try:
@@ -202,6 +235,30 @@ def _build_global_signals() -> dict:
         out["dxy"]   = _lvl("dxy")
         out["us10y"] = _lvl("us10y")
         out["fng"]   = (snap.get("fear_greed") or {}).get("local") or {}
+
+        # ── event_graph: causal propagation across the macro nodes ──────
+        try:
+            import event_graph as _eg
+            eg_result = _eg.analyze(_macro_change_snapshot(),
+                                    events_tilt=out["events_tilt"])
+            out["event_graph_pressure"]   = eg_result["equity_pressure"]
+            out["event_graph_liquidity"]  = eg_result["liquidity_pressure"]
+            out["event_graph_observed"]   = eg_result["observed"]
+            out["event_graph_pressures"]  = eg_result["pressures"]
+            out["impact_chain"]           = eg_result["impact_chain"]
+            out["contradictions"]         = eg_result["contradictions"]
+        except Exception as e:  # noqa: BLE001
+            log.debug("[morning_report] event_graph failed: %s", e)
+
+        # ── regime_transition: is the prevailing regime changing? ───────
+        try:
+            import regime_transition_engine as _rt
+            out["regime_transition"] = _rt.compute_transition(
+                out.get("event_graph_observed") or {},
+                out.get("event_graph_pressures") or {},
+                regime_engine_hint=out["regime_label"])
+        except Exception as e:  # noqa: BLE001
+            log.debug("[morning_report] regime_transition failed: %s", e)
 
     # macro_reasoning scenario (deterministic regime synthesis)
     try:
@@ -360,6 +417,25 @@ def build_market_brief(market_key: str, *, force: bool = False,
     # ── Per-market technical signal (the differentiator) ────────────────
     indicator_result, ind_signal = _indicator_signal(cfg["primary"])
 
+    # ── event_graph causal pressure (global) + per-market contradictions ─
+    eg_pressure = _clamp01(g.get("event_graph_pressure", 0.0))
+    contradictions = list(g.get("contradictions") or [])
+    if ind_signal is not None:
+        # Fold THIS market's equity reading in so equities-side contradictions
+        # (e.g. this market bullish while VIX rises) can surface per-market.
+        try:
+            import event_graph as _eg
+            mkt_states = dict(g.get("event_graph_observed") or {})
+            mkt_states["equities"]  = ind_signal.score
+            mkt_states["liquidity"] = g.get("event_graph_liquidity", 0.0)
+            seen = {c["pair"] for c in contradictions}
+            for c in _eg.detect_contradictions(mkt_states):
+                if c["pair"] not in seen:
+                    contradictions.append(c)
+                    seen.add(c["pair"])
+        except Exception:  # noqa: BLE001
+            pass
+
     # ── Assemble the deterministic signal set ───────────────────────────
     signals: list[Signal] = []
     if ind_signal:
@@ -368,6 +444,8 @@ def build_market_brief(market_key: str, *, force: bool = False,
                           detail=f"scenario {g.get('macro_scenario','?')}"))
     signals.append(Signal("regime", g.get("regime_score", 0.0),
                           detail=f"{g.get('regime_label','?')} ({g.get('regime_conf',0)}%)"))
+    signals.append(Signal("event_graph", eg_pressure,
+                          detail=f"causal equity pressure {eg_pressure:+.2f}"))
     signals.append(Signal("events", _clamp01(g.get("events_tilt", 0.0)),
                           detail=f"news tilt {g.get('events_tilt',0):+.2f}"))
     signals.append(Signal("sentiment", _clamp01(g.get("sentiment_tilt", 0.0)),
@@ -375,12 +453,25 @@ def build_market_brief(market_key: str, *, force: bool = False,
     signals.append(Signal("correlation", g.get("correlation_score", 0.0),
                           detail=f"{g.get('correlation_anomalies',0)} anomalies"))
 
-    consensus  = compute_consensus(signals)
-    confidence = compute_confidence(consensus, freshness=1.0)
+    consensus = compute_consensus(signals)
+
+    # ── Stability: regime-transition + contradiction count → confidence ─
+    transition = g.get("regime_transition") or {}
+    base_stability = float(transition.get("stability", 1.0))
+    contra_penalty = min(0.45, 0.15 * len(contradictions))
+    stability = max(0.0, round(base_stability - contra_penalty, 4))
+
+    confidence = compute_confidence(consensus, freshness=1.0, stability=stability)
     levels     = _extract_levels(indicator_result)
     catalysts  = _overnight_catalysts(cfg, snap)
     drivers    = _macro_drivers(g)
     warnings   = _risk_warnings(g, indicator_result, confidence)
+
+    # Causal contradictions + regime transition become explicit risk flags.
+    for c in contradictions[:3]:
+        warnings.append("Causal contradiction — " + c["label"])
+    if transition.get("transitioning"):
+        warnings.append("Regime shift — " + transition.get("note", "regime transitioning"))
 
     brief = {
         "market":         cfg["name"],
@@ -392,11 +483,26 @@ def build_market_brief(market_key: str, *, force: bool = False,
         "confidence":     confidence["score"],
         "confidence_tier": confidence["tier"],
         "confidence_note": confidence["note"],
+        "stability":      stability,
         "support":        levels.get("support"),
         "resistance":     levels.get("resistance"),
         "overnight_catalysts": catalysts,
         "macro_drivers":  drivers,
         "risk_warnings":  warnings,
+        "causal_pressures": {
+            "equities":  g.get("event_graph_pressure", 0.0),
+            "liquidity": g.get("event_graph_liquidity", 0.0),
+        },
+        "impact_chain":   g.get("impact_chain", []),
+        "contradictions": contradictions,
+        "regime_transition": {
+            "current":          transition.get("current_regime"),
+            "projected":        transition.get("projected_regime"),
+            "transitioning":    transition.get("transitioning", False),
+            "transition_score": transition.get("transition_score", 0.0),
+            "direction":        transition.get("direction", "stable"),
+            "note":             transition.get("note", ""),
+        } if transition else None,
         "votes":          consensus["votes"],
         "dissent":        consensus["dissent"],
         "agreement":      consensus["agreement"],
@@ -444,6 +550,9 @@ def build_global_report(*, force: bool = False, narrate: bool = False) -> dict:
     elif bear > bull and bear >= 3: global_tone = "RISK-OFF"
     else:                           global_tone = "MIXED"
 
+    transition = g.get("regime_transition") or {}
+    contradictions = g.get("contradictions") or []
+
     return {
         "report_type": "grounded_global_premarket",
         "generated_at": int(time.time()),
@@ -455,14 +564,25 @@ def build_global_report(*, force: bool = False, narrate: bool = False) -> dict:
             "neutral_markets": neut,
             "regime": g.get("regime_label"),
             "macro_scenario": g.get("macro_scenario"),
+            "regime_transition": {
+                "current":          transition.get("current_regime"),
+                "projected":        transition.get("projected_regime"),
+                "transitioning":    transition.get("transitioning", False),
+                "transition_score": transition.get("transition_score", 0.0),
+                "direction":        transition.get("direction", "stable"),
+                "note":             transition.get("note", ""),
+            } if transition else None,
+            "causal_equity_pressure": g.get("event_graph_pressure", 0.0),
+            "causal_liquidity_pressure": g.get("event_graph_liquidity", 0.0),
+            "contradiction_count": len(contradictions),
         },
         "markets": briefs,
         "disclaimer": (
             "Directional bias and levels are computed by deterministic "
-            "engines (indicators, macro reasoning, regime, events, "
-            "sentiment, correlation). This is market intelligence for "
-            "human review — NOT trade orders, NOT entry signals, NOT "
-            "financial advice. No autonomous execution."
+            "engines (indicators, macro reasoning, regime, event graph, "
+            "regime transition, events, sentiment, correlation). This is "
+            "market intelligence for human review — NOT trade orders, NOT "
+            "entry signals, NOT financial advice. No autonomous execution."
         ),
     }
 

@@ -380,6 +380,46 @@ def test_narration_gated_off_by_default():
             os.environ["ENABLE_MORNING_NARRATION"] = saved
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# event_graph + regime_transition integration into the consensus stack
+# ═══════════════════════════════════════════════════════════════════════════
+def test_event_graph_is_consensus_source():
+    print("\n═══ integration: event_graph is a consensus source ═══")
+    _check("event_graph_in_weights", "event_graph" in bce.SOURCE_WEIGHTS,
+           f"got {list(bce.SOURCE_WEIGHTS)}")
+    _check("event_graph_weight_positive",
+           bce.SOURCE_WEIGHTS.get("event_graph", 0) > 0, "")
+    _check("seven_sources", len(bce.SOURCE_WEIGHTS) == 7,
+           f"got {len(bce.SOURCE_WEIGHTS)}")
+    # An event_graph Signal must actually carry weight in the consensus.
+    c = bce.compute_consensus([Signal("event_graph", -0.8)])
+    _check("event_graph_signal_counts", c["bias"] == bce.BIAS_SELL,
+           f"got {c['bias']}")
+
+
+def test_confidence_stability_factor():
+    print("\n═══ integration: low stability cuts confidence ═══")
+    c = bce.compute_consensus([
+        Signal("indicators", -0.8), Signal("regime", -0.7),
+        Signal("event_graph", -0.75), Signal("macro_reasoning", -0.7),
+    ])
+    stable   = ce.compute_confidence(c, freshness=1.0, stability=1.0)["score"]
+    unstable = ce.compute_confidence(c, freshness=1.0, stability=0.1)["score"]
+    _check("low_stability_lowers_score", unstable < stable,
+           f"stable={stable} unstable={unstable}")
+    _check("stability_in_components",
+           "stability" in ce.compute_confidence(c)["components"], "")
+
+
+def test_confidence_default_stability_full():
+    print("\n═══ integration: stability defaults to 1.0 ═══")
+    c = bce.compute_consensus([Signal("indicators", -0.6), Signal("regime", -0.6)])
+    # Omitting stability must equal passing stability=1.0 (back-compatible).
+    _check("default_equals_full",
+           ce.compute_confidence(c)["score"]
+           == ce.compute_confidence(c, stability=1.0)["score"], "")
+
+
 # ─── Runner ────────────────────────────────────────────────────────────────
 def main() -> int:
     print("═" * 60)
@@ -400,6 +440,8 @@ def main() -> int:
         test_extract_levels_normal, test_extract_levels_atr_fallback,
         test_extract_levels_none, test_regime_direction_map, test_clamp01,
         test_risk_warnings, test_narration_gated_off_by_default,
+        test_event_graph_is_consensus_source, test_confidence_stability_factor,
+        test_confidence_default_stability_full,
     )
     for test in tests:
         try:

@@ -7,10 +7,11 @@ full component breakdown so the morning report can explain WHY confidence
 is what it is.
 
 Confidence formula (each component 0..1, then weighted):
-  agreement        0.45  — how aligned the deterministic sources are
-  signal_strength  0.30  — mean absolute score across sources
-  source_coverage  0.15  — how many of the 6 sources actually reported
-  freshness        0.10  — how recent the underlying data is
+  agreement        0.40  — how aligned the deterministic sources are
+  signal_strength  0.27  — mean absolute score across sources
+  source_coverage  0.13  — how many of the 7 sources actually reported
+  stability        0.12  — regime stability (1 - transition/contradiction)
+  freshness        0.08  — how recent the underlying data is
 
 Tiers:
   >= 70  HIGH
@@ -19,23 +20,27 @@ Tiers:
 
 Pure Python, no I/O, deterministic. When confidence is LOW the morning
 report downgrades the brief — no high-conviction language is allowed.
+The `stability` factor lets a regime transition or a causal contradiction
+(from event_graph / regime_transition_engine) cut conviction even when
+the static sources happen to agree.
 """
 from __future__ import annotations
 
 from typing import Optional
 
 
-WEIGHT_AGREEMENT       = 0.45
-WEIGHT_SIGNAL_STRENGTH = 0.30
-WEIGHT_SOURCE_COVERAGE = 0.15
-WEIGHT_FRESHNESS       = 0.10
+WEIGHT_AGREEMENT       = 0.40
+WEIGHT_SIGNAL_STRENGTH = 0.27
+WEIGHT_SOURCE_COVERAGE = 0.13
+WEIGHT_STABILITY       = 0.12
+WEIGHT_FRESHNESS       = 0.08
 
 TIER_HIGH   = "HIGH"
 TIER_MEDIUM = "MEDIUM"
 TIER_LOW    = "LOW"
 
 # Total deterministic sources the consensus engine can draw on.
-_MAX_SOURCES = 6
+_MAX_SOURCES = 7
 
 
 def _tier(score: float) -> str:
@@ -48,7 +53,8 @@ def _tier(score: float) -> str:
 
 def compute_confidence(consensus: dict,
                        *,
-                       freshness: float = 1.0) -> dict:
+                       freshness: float = 1.0,
+                       stability: float = 1.0) -> dict:
     """Compute a confidence score for a consensus result.
 
     Parameters
@@ -59,6 +65,13 @@ def compute_confidence(consensus: dict,
         0..1 — how fresh the underlying data is. 1.0 = just computed,
         decays toward 0 as the cached brief ages. morning_report passes
         a decayed value for stale cache hits.
+    stability : float
+        0..1 — regime stability. morning_report derives this from
+        regime_transition_engine (1 - transition_score) and the
+        event_graph contradiction count: a regime mid-transition or a
+        market full of causal contradictions is inherently less
+        trustworthy, so conviction is cut even if the static sources
+        agree. Defaults to 1.0 (fully stable) when not supplied.
 
     Returns
     -------
@@ -78,7 +91,8 @@ def compute_confidence(consensus: dict,
     if source_count <= 0:
         return {"score": 0, "tier": TIER_LOW,
                 "components": {"agreement": 0.0, "signal_strength": 0.0,
-                               "source_coverage": 0.0, "freshness": 0.0},
+                               "source_coverage": 0.0, "stability": 0.0,
+                               "freshness": 0.0},
                 "note": "LOW confidence — no deterministic sources reported"}
 
     # ── Component 1: agreement (already computed by the consensus engine)
@@ -91,16 +105,20 @@ def compute_confidence(consensus: dict,
         strength = 0.0
     strength = max(0.0, min(1.0, strength))
 
-    # ── Component 3: source coverage — how many of 6 engines reported
+    # ── Component 3: source coverage — how many of 7 engines reported
     coverage = max(0.0, min(1.0, source_count / _MAX_SOURCES))
 
-    # ── Component 4: freshness (passed in)
+    # ── Component 4: stability — regime not transitioning, no contradictions
+    stab = max(0.0, min(1.0, float(stability)))
+
+    # ── Component 5: freshness (passed in)
     fresh = max(0.0, min(1.0, float(freshness)))
 
     raw = (
         WEIGHT_AGREEMENT       * agreement +
         WEIGHT_SIGNAL_STRENGTH * strength +
         WEIGHT_SOURCE_COVERAGE * coverage +
+        WEIGHT_STABILITY       * stab +
         WEIGHT_FRESHNESS       * fresh
     )
     score = round(raw * 100, 1)
@@ -111,6 +129,7 @@ def compute_confidence(consensus: dict,
         "agreement":       round(agreement, 3),
         "signal_strength": round(strength, 3),
         "source_coverage": round(coverage, 3),
+        "stability":       round(stab, 3),
         "freshness":       round(fresh, 3),
     }
     weakest = min(components, key=components.get)
@@ -118,6 +137,7 @@ def compute_confidence(consensus: dict,
         "agreement":       "sources disagree on direction",
         "signal_strength": "individual signals are weak/mixed",
         "source_coverage": "some deterministic engines did not report",
+        "stability":       "regime is transitioning / causal contradictions present",
         "freshness":       "underlying data is ageing — refresh due",
     }
     note = (f"{tier} confidence — limited by: {note_map.get(weakest, weakest)}"

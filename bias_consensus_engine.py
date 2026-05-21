@@ -6,12 +6,13 @@ in morning_report.py is FORBIDDEN from contradicting this output — it may
 only narrate it.
 
 Signal sources (each contributes a normalised score in [-1, +1]):
-  indicators       — per-market technical composite  (weight 0.35, strongest)
-  macro_reasoning  — global regime/scenario lean     (weight 0.20)
-  regime           — regime_engine state vector       (weight 0.15)
-  events           — event_classifier directional tilt(weight 0.12)
-  sentiment        — sentiment_weighting per-asset     (weight 0.13)
-  correlation      — correlation_engine context        (weight 0.05, light)
+  indicators       — per-market technical composite   (weight 0.32, strongest)
+  macro_reasoning  — global regime/scenario lean       (weight 0.18)
+  regime           — regime_engine state vector        (weight 0.14)
+  event_graph      — causal cross-asset pressure       (weight 0.13)
+  sentiment        — sentiment_weighting per-asset      (weight 0.12)
+  events           — event_classifier news tilt         (weight 0.06)
+  correlation      — correlation_engine context         (weight 0.05, light)
 
 Output bias bands (on the weighted consensus score):
   score >= +0.15  → BUY
@@ -30,11 +31,12 @@ from typing import Optional
 
 # ─── Source weights (sum normalised at runtime, so partial sets are fine) ────
 SOURCE_WEIGHTS: dict[str, float] = {
-    "indicators":      0.35,   # per-market technicals — the dominant signal
-    "macro_reasoning": 0.20,   # global regime/scenario
-    "regime":          0.15,   # regime_engine composite
-    "sentiment":       0.13,   # sentiment_weighting
-    "events":          0.12,   # event_classifier directional tilt
+    "indicators":      0.32,   # per-market technicals — the dominant signal
+    "macro_reasoning": 0.18,   # global regime/scenario
+    "regime":          0.14,   # regime_engine composite
+    "event_graph":     0.13,   # causal cross-asset pressure on equities
+    "sentiment":       0.12,   # sentiment_weighting
+    "events":          0.06,   # event_classifier news tilt (causal slice now in event_graph)
     "correlation":     0.05,   # cross-asset context (light — informational)
 }
 
