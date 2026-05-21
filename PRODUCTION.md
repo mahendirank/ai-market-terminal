@@ -1,6 +1,64 @@
 # Production Architecture — Status & Roadmap
 
-This document tracks what's production-ready in the terminal as of **2026-05-12**.
+This document tracks what's production-ready in the terminal. **Last updated 2026-05-21** — reliability hardening (section below). Step 8 baseline: 2026-05-12.
+
+---
+
+## ✅ Shipped 2026-05-21 — Reliability hardening (live now)
+
+Three fixes — each committed, tested, and deployed to the `market-terminal`
+container (fast-forward merge to `main`, container restarted; code is
+bind-mounted so no image rebuild was needed).
+
+### 1. Event-loop blocking fix — `/health` 7–9 s → ~3 ms  (commit `2dad4ba`)
+
+`streaming.PricePublisher.run()` (every 2 s) and the `/api/stream` SSE generator
+(every 15 s) called **synchronous `yfinance`/forex HTTP directly on the asyncio
+event loop**. A slow upstream froze the loop, so every request — including the
+trivial `/health` — queued 7–9 s behind it and the 10 s Docker healthcheck
+flapped between healthy/unhealthy.
+
+- Both fetches offloaded to `asyncio.to_thread`; the loop can no longer be
+  blocked by data I/O.
+- The "5 of 8 background loops `no-heartbeat`" symptom was a **separate
+  instrumentation bug** — those 5 loops never called `heartbeat()`. Added the
+  missing calls (`continuous_refresh`, `digest`, `morning_note`,
+  `signal_verify`, `morning_report`) and reconciled
+  `production._get_bg_loop_status()` with the real loop set: dropped the
+  one-shot `warm`, added `price_publisher` and `morning_report` → **9 recurring
+  loops, all heartbeating**.
+
+### 2. `event_graph.py` hardening — caching, fail-soft + async  (commit `6db39b0`)
+
+The deterministic causal engine feeding `morning_report`, `confidence_engine`
+and `bias_consensus_engine` is now production-grade:
+
+- **Cached outputs** — TTL + size-bounded memo keyed on input content; a
+  repeated macro snapshot returns an instant deep copy. TTL via
+  `EVENT_GRAPH_CACHE_TTL` (default 300 s).
+- **Fail-soft** — `analyze()` never raises; a malformed macro feed logs once and
+  returns a neutral result flagged `degraded=True`.
+- **Async-safe** — new `analyze_async()` offloads to a worker thread.
+- Backward-compatible — no consumer changes required.
+
+### 3. Cache-only health probes — `/api/health` always fast  (commit `4d39c2f`)
+
+The `live_data` / `news` / `regime` / `fx` probes used to call the synchronous
+network getters, so `/api/health` took **~13 s on a cold cache** (right after a
+restart — exceeding the 10 s healthcheck timeout).
+
+They now **peek the in-memory caches** the background loops keep warm and report
+a cold/stale cache instead of fetching. `/api/health` now responds in
+**6–40 ms even immediately after a restart** — cold → `degraded` (HTTP 200) for
+a few seconds, then `healthy` once the loops warm the caches. The `redis` and
+`sqlite` probes are unchanged (genuine liveness checks, already fast).
+
+**Test coverage:** full suite **411 passing** (was 395 before this work) — adds
+`event_graph` cache/fail-soft/async tests and `tests/test_health_probes.py`.
+
+**Known follow-ups (optional, not done):** add explicit timeouts to the
+`yfinance`/`requests` calls so a hung upstream fails fast (it already cannot
+block the loop); audit `_build_morning_note_data` for any sync I/O on the loop.
 
 ---
 
@@ -21,7 +79,7 @@ Returns 200 (healthy/degraded) or 503 (unhealthy). Probes:
 - News feed (headline count)
 - Regime engine status (and whether it's in fallback mode)
 - Forex pair count
-- All 8 background loops with `last_run_secs_ago` heartbeats
+- All 9 recurring background loops with `last_run_secs_ago` heartbeats
 
 Use with any uptime monitor (UptimeRobot, BetterUptime, Pingdom, Datadog).
 
