@@ -62,8 +62,15 @@ site. yfinance 1.2.0 already bounds every HTTP call internally
 passed `timeout=`. Added explicit timeouts to the two that didn't —
 `loader.py` (ollama) and `econ.py` (Forex Factory scrape).
 
-**Still open (optional):** audit `_build_morning_note_data` for any sync I/O
-on the event loop.
+**Follow-up — done (`0adbd55`):** audited `_build_morning_note_data`. It was
+an `async def` with no `await` whose synchronous Groq `requests.post` ran
+directly on the event loop (freezing it for the LLM round-trip once a day at
+09:15 IST and on-demand via `/api/morning-note`). Converted to a plain `def`,
+now invoked via `asyncio.to_thread` at both call sites.
+
+No reliability follow-ups remain open — every known sync-I/O-on-the-event-loop
+path (price publisher, SSE stream, health probes, morning-note builder) is
+fixed.
 
 ---
 
