@@ -93,9 +93,13 @@ No reliability follow-ups remain open — every known sync-I/O-on-the-event-loop
 path (price publisher, SSE stream, health probes, morning-note builder) is
 fixed and, for the morning-note builder, verified live.
 
-Known minor issue (not reliability): `/api/morning-note` returns
-`top_3_ideas` with a single idea rather than three — a prompt/schema or
-`max_tokens` quirk in the morning-note generation, unrelated to the above.
+**`top_3_ideas` single-idea quirk — resolved (`8f54da1`):**
+`/api/morning-note` was returning `top_3_ideas` with one idea instead of
+three — `SCHEMA_MORNING_NOTE` showed the field as a one-element array
+template, so the model mirrored it. The schema now shows three ranked idea
+objects, and `max_tokens` was raised 1000 → 1500 so three full ideas can't
+truncate the JSON. The 3-idea schema is confirmed in the morning-note prompt;
+live output confirms on the next successful generation.
 
 ---
 
