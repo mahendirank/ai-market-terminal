@@ -1039,3 +1039,74 @@ def analyze_stage5(snap: dict) -> dict:
         "trades":  trades,
         "stage":   "5_trade_generation",
     }
+
+
+# ─── Causal-intelligence overlay ─────────────────────────────────────────────
+def causal_overlay(macro_change: Optional[dict], *, events_tilt: float = 0.0,
+                   cb_action: float = 0.0,
+                   regime_transition: Optional[dict] = None,
+                   equities_observed: Optional[float] = None) -> dict:
+    """Consolidate the causal-intelligence engines into one macro overlay.
+
+    macro_reasoning_engine reasons about the macro picture; this is its
+    causal layer. It consumes pressure_vector (directional pressure vector,
+    central-bank force, market contagion) and contradiction_engine
+    (cross-layer contradiction scoring) and folds them into a compact,
+    deterministic summary the morning report — and the LLM narration layer —
+    read as input. The LLM narrates these conclusions; it never recomputes
+    them.
+
+    Pure + fail-soft: never raises — on any error returns a neutral overlay
+    flagged degraded=True. The pressure_vector / contradiction_engine
+    imports are local so this module stays importable even if either is
+    absent.
+
+    Parameters
+    ----------
+    macro_change : dict
+        Per-node 1-day change-% snapshot (the basis event_graph propagates).
+    events_tilt : float
+        Risk-directional event tilt in [-1, +1].
+    cb_action : float
+        Central-bank action tilt in [-1, +1] (+ dovish, - hawkish).
+    regime_transition : dict, optional
+        regime_transition_engine output — enables the regime-vs-pressure
+        contradiction check.
+    equities_observed : float, optional
+        Direct equities reading in [-1, +1].
+
+    Returns
+    -------
+    dict
+        dominant_driver / net_risk / pressure_vector / contagion /
+        contradiction_score / consistency / contradictions /
+        dominant_contradiction / degraded.
+    """
+    try:
+        import pressure_vector as _pv
+        import contradiction_engine as _ce
+        pv = _pv.compute_pressure_vector(
+            macro_change, events_tilt, cb_action=cb_action,
+            equities_observed=equities_observed)
+        cx = _ce.assess_contradictions(
+            macro_change, events_tilt, cb_action=cb_action,
+            regime_transition=regime_transition, pressure_vector=pv,
+            equities_observed=equities_observed)
+        return {
+            "dominant_driver":        pv.get("dominant_driver"),
+            "net_risk":               pv.get("net_risk"),
+            "pressure_vector":        pv.get("vector"),
+            "contagion":              pv.get("contagion"),
+            "contradiction_score":    cx.get("contradiction_score", 0.0),
+            "consistency":            cx.get("consistency", 1.0),
+            "contradictions":         cx.get("contradictions", []),
+            "dominant_contradiction": cx.get("dominant_contradiction"),
+            "degraded":               bool(pv.get("degraded") or cx.get("degraded")),
+        }
+    except Exception:
+        return {
+            "dominant_driver": None, "net_risk": None, "pressure_vector": {},
+            "contagion": None, "contradiction_score": 0.0, "consistency": 1.0,
+            "contradictions": [], "dominant_contradiction": None,
+            "degraded": True,
+        }

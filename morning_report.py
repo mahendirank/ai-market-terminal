@@ -196,6 +196,7 @@ def _build_global_signals() -> dict:
         "event_graph_pressure": 0.0, "event_graph_liquidity": 0.0,
         "event_graph_observed": {}, "event_graph_pressures": {},
         "impact_chain": [], "contradictions": [], "regime_transition": None,
+        "causal_overlay": None,
     }
 
     try:
@@ -259,6 +260,15 @@ def _build_global_signals() -> dict:
                 regime_engine_hint=out["regime_label"])
         except Exception as e:  # noqa: BLE001
             log.debug("[morning_report] regime_transition failed: %s", e)
+
+        # ── causal_overlay: pressure vector + contradiction scoring ─────
+        try:
+            from macro_reasoning_engine import causal_overlay
+            out["causal_overlay"] = causal_overlay(
+                _macro_change_snapshot(), events_tilt=out["events_tilt"],
+                regime_transition=out.get("regime_transition"))
+        except Exception as e:  # noqa: BLE001
+            log.debug("[morning_report] causal_overlay failed: %s", e)
 
     # macro_reasoning scenario (deterministic regime synthesis)
     try:
@@ -444,8 +454,13 @@ def build_market_brief(market_key: str, *, force: bool = False,
                           detail=f"scenario {g.get('macro_scenario','?')}"))
     signals.append(Signal("regime", g.get("regime_score", 0.0),
                           detail=f"{g.get('regime_label','?')} ({g.get('regime_conf',0)}%)"))
-    signals.append(Signal("event_graph", eg_pressure,
-                          detail=f"causal equity pressure {eg_pressure:+.2f}"))
+    # event_graph signal — fed by the pressure-vector net-risk reading when
+    # available (a richer cross-asset causal signal than raw equity pressure);
+    # falls back to event_graph's equity pressure if the overlay is absent.
+    _net_risk = (g.get("causal_overlay") or {}).get("net_risk") or {}
+    causal_score = _clamp01(_net_risk.get("score", eg_pressure))
+    signals.append(Signal("event_graph", causal_score,
+                          detail=f"causal net-risk {causal_score:+.2f}"))
     signals.append(Signal("events", _clamp01(g.get("events_tilt", 0.0)),
                           detail=f"news tilt {g.get('events_tilt',0):+.2f}"))
     signals.append(Signal("sentiment", _clamp01(g.get("sentiment_tilt", 0.0)),
@@ -460,6 +475,12 @@ def build_market_brief(market_key: str, *, force: bool = False,
     base_stability = float(transition.get("stability", 1.0))
     contra_penalty = min(0.45, 0.15 * len(contradictions))
     stability = max(0.0, round(base_stability - contra_penalty, 4))
+    # contradiction_engine's cross-layer consistency can only TIGHTEN
+    # stability — never raise it — so existing behaviour is unchanged when
+    # the overlay finds nothing (consistency 1.0).
+    _consistency = (g.get("causal_overlay") or {}).get("consistency")
+    if _consistency is not None:
+        stability = round(min(stability, float(_consistency)), 4)
 
     confidence = compute_confidence(consensus, freshness=1.0, stability=stability)
     levels     = _extract_levels(indicator_result)
@@ -495,6 +516,7 @@ def build_market_brief(market_key: str, *, force: bool = False,
         },
         "impact_chain":   g.get("impact_chain", []),
         "contradictions": contradictions,
+        "causal_overlay": g.get("causal_overlay"),
         "regime_transition": {
             "current":          transition.get("current_regime"),
             "projected":        transition.get("projected_regime"),
