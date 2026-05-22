@@ -40,9 +40,12 @@ Verified live on `/api/morning-report?force=1`: every brief carries the
 causal overlay; the consensus vote and confidence stability route through
 it. Full suite **438 passed**.
 
-**Follow-up (not done):** no dedicated central-bank-action feed yet —
-`cb_action` is passed as 0.0, so the 9th force is modelled but neutral.
-Deriving a `cb_action` tilt from `cb_calendar` is a clean next step.
+**Central-bank feed — done (`a5c520c`):** `cb_calendar.get_action_tilt()`
+aggregates the news-inferred hawk/dove stance of all six central banks
+(Fed-weighted) into one `cb_action` tilt; `morning_report` feeds it into
+`causal_overlay`, so the 9th force is now live rather than a neutral 0.0.
+Verified: a hawkish-Fed news read surfaces as a `central_bank` pressure
+of −0.35 in the causal overlay.
 
 ---
 
