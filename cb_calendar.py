@@ -19,7 +19,7 @@ calendar API (free tier returns limited fields with 24h delay).
 import os
 import time
 from datetime import datetime, date, timezone, timedelta
-from typing import List
+from typing import List, Optional
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -230,3 +230,51 @@ def get_cb_calendar(days_ahead: int = 90, limit: int = 12) -> dict:
         "count":        len(upcoming),
         "events":       upcoming,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Central-bank action tilt — the cb_action feed for the causal layer
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Weight of each central bank in the aggregate action tilt. The Fed dominates
+# global risk transmission; the others are lighter satellites. Sums to 1.0.
+_ACTION_WEIGHTS = {
+    "FED": 0.50, "ECB": 0.20, "BOJ": 0.12, "BOE": 0.10, "RBA": 0.04, "SNB": 0.04,
+}
+
+
+def get_action_tilt(news_text: Optional[str] = None) -> dict:
+    """Aggregate the news-inferred per-CB stances into a single action tilt.
+
+    Returns a tilt in [-1, +1] — the `cb_action` input the pressure-vector
+    engine folds in as its ninth force:
+
+        +1 = fully dovish / easing       (risk-positive)
+        -1 = fully hawkish / tightening  (risk-negative)
+         0 = banks on hold / no clear stance
+
+    Each central bank's HAWKISH/DOVISH/HOLD read (from `_infer_bias`) is
+    signed (- hawkish, + dovish), scaled by its conviction, and combined on
+    `_ACTION_WEIGHTS`. Pure + fail-soft — returns a neutral tilt on error.
+
+    `news_text` is accepted for testability; when omitted the live cached
+    news feed is scanned (the same source the rest of this module uses).
+    """
+    try:
+        news = (news_text if news_text is not None else _gather_news_text()) or ""
+        news = news.lower()
+        tilt, total_w, per_cb = 0.0, 0.0, {}
+        for cb, w in _ACTION_WEIGHTS.items():
+            b = _infer_bias(cb, news)
+            sign = (1.0 if b["bias"] == "DOVISH"
+                    else -1.0 if b["bias"] == "HAWKISH" else 0.0)
+            tilt += w * sign * (b["conviction"] / 100.0)
+            total_w += w
+            per_cb[cb] = {"bias": b["bias"], "conviction": b["conviction"]}
+        tilt = round(max(-1.0, min(1.0, tilt / total_w if total_w else 0.0)), 4)
+        label = ("dovish"  if tilt >  0.12 else
+                 "hawkish" if tilt < -0.12 else "neutral")
+        return {"tilt": tilt, "label": label, "per_cb": per_cb}
+    except Exception:
+        return {"tilt": 0.0, "label": "neutral", "per_cb": {}}
+

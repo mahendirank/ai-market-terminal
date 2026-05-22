@@ -196,7 +196,7 @@ def _build_global_signals() -> dict:
         "event_graph_pressure": 0.0, "event_graph_liquidity": 0.0,
         "event_graph_observed": {}, "event_graph_pressures": {},
         "impact_chain": [], "contradictions": [], "regime_transition": None,
-        "causal_overlay": None,
+        "causal_overlay": None, "cb_action": None,
     }
 
     try:
@@ -261,11 +261,19 @@ def _build_global_signals() -> dict:
         except Exception as e:  # noqa: BLE001
             log.debug("[morning_report] regime_transition failed: %s", e)
 
+        # ── central-bank action tilt — feeds the causal layer's 9th force ─
+        try:
+            from cb_calendar import get_action_tilt
+            out["cb_action"] = get_action_tilt()
+        except Exception as e:  # noqa: BLE001
+            log.debug("[morning_report] cb_action failed: %s", e)
+
         # ── causal_overlay: pressure vector + contradiction scoring ─────
         try:
             from macro_reasoning_engine import causal_overlay
             out["causal_overlay"] = causal_overlay(
                 _macro_change_snapshot(), events_tilt=out["events_tilt"],
+                cb_action=(out.get("cb_action") or {}).get("tilt", 0.0),
                 regime_transition=out.get("regime_transition"))
         except Exception as e:  # noqa: BLE001
             log.debug("[morning_report] causal_overlay failed: %s", e)
@@ -517,6 +525,7 @@ def build_market_brief(market_key: str, *, force: bool = False,
         "impact_chain":   g.get("impact_chain", []),
         "contradictions": contradictions,
         "causal_overlay": g.get("causal_overlay"),
+        "cb_action":      g.get("cb_action"),
         "regime_transition": {
             "current":          transition.get("current_regime"),
             "projected":        transition.get("projected_regime"),
