@@ -1,6 +1,48 @@
 # Production Architecture — Status & Roadmap
 
-This document tracks what's production-ready in the terminal. **Last updated 2026-05-21** — reliability hardening (section below). Step 8 baseline: 2026-05-12.
+This document tracks what's production-ready in the terminal. **Last updated 2026-05-22** — deterministic causal intelligence (section below). Step 8 baseline: 2026-05-12.
+
+---
+
+## ✅ Shipped 2026-05-22 — Deterministic causal intelligence (live now)
+
+A causal-intelligence layer on top of `event_graph`, deterministic-first —
+the LLM narrates its conclusions, never computes them.
+
+### New modules (`1d545df`)
+
+- **`pressure_vector.py`** — layers on `event_graph`; folds **central-bank
+  actions** in as a 9th force (via the yields + DXY transmission channels,
+  no graph edit) and produces a directional **pressure vector** (9 forces),
+  the **dominant driver**, a **net-risk vector**, and a **market-contagion**
+  map (affected markets, breadth, 0-1 severity, transmission paths).
+- **`contradiction_engine.py`** — aggregates `event_graph`'s macro-internal
+  contradictions and adds cross-layer checks (regime-vs-pressure,
+  central-bank-vs-market, pressure-vs-observed), rolled into a
+  `contradiction_score` + `consistency`.
+
+Both are pure, deterministic, cached, fail-soft and async-safe — no agents,
+no recursion, no heavy frameworks. Standalone runners: 29 + 22 checks.
+
+### Wiring (`8953a69`)
+
+- `macro_reasoning_engine.causal_overlay()` — consolidates both engines into
+  a narration-ready macro causal summary; the 5-stage pipeline is untouched.
+- `morning_report` — computes the overlay, feeds the pressure-vector
+  **net-risk** into the `event_graph` consensus vote, tightens confidence
+  **stability** with the contradiction-engine `consistency`, and surfaces
+  the overlay in every market brief.
+- `confidence_engine` / `bias_consensus_engine` need no change — they
+  already expose the `stability` hook and the causal signal slot the wiring
+  feeds; `SOURCE_WEIGHTS` stays at 7 sources.
+
+Verified live on `/api/morning-report?force=1`: every brief carries the
+causal overlay; the consensus vote and confidence stability route through
+it. Full suite **438 passed**.
+
+**Follow-up (not done):** no dedicated central-bank-action feed yet —
+`cb_action` is passed as 0.0, so the 9th force is modelled but neutral.
+Deriving a `cb_action` tilt from `cb_calendar` is a clean next step.
 
 ---
 
