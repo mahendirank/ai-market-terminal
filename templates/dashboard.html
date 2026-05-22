@@ -4157,6 +4157,7 @@ async function loadAINews() {
 }
 
 // ── Load AI trade decisions ───────────────────────────────
+let _decisionsRetry = null;
 async function loadDecisions() {
   try {
     const d = await fetch(`${BASE}/api/decisions`).then(r=>r.json());
@@ -4166,7 +4167,10 @@ async function loadDecisions() {
     if (!el) return;
 
     if (!decisions.length) {
+      // Cold cache — backend still building. Keep the loading message but
+      // retry in 8s instead of waiting the full 300s poll interval.
       el.innerHTML = '<div style="padding:8px;color:var(--muted);font-size:9px;">Loading AI analysis...</div>';
+      if (!_decisionsRetry) _decisionsRetry = setTimeout(() => { _decisionsRetry = null; loadDecisions(); }, 8000);
       return;
     }
 

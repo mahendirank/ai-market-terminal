@@ -534,6 +534,15 @@ def _warm():
     _time.sleep(3)
     try: _cached("signal",   300,  _build_signal)
     except: pass
+    # Warm AI-news + trade-decisions caches so the "AI TRADE DECISIONS"
+    # panel doesn't sit on "Loading AI analysis..." after boot. decisions
+    # reads the ai_news cache, so warm ai_news first.
+    _time.sleep(3)
+    try: _cached("ai_news",   600,  _build_ai_news)
+    except: pass
+    _time.sleep(3)
+    try: _cached("decisions", 300,  _build_decisions)
+    except: pass
     try:
         from earnings_telegram import get_telegram_earnings
         get_telegram_earnings(force_refresh=True)
