@@ -519,6 +519,26 @@ def _warm():
         # On Railway skip heavy modules that push RAM over limit
         return
 
+    # Warm the AI sidebar caches FIRST — they feed the right-hand column
+    # the user watches, so prioritising them ahead of the heavier
+    # earnings/nse modules keeps the cold-start window short (panels show
+    # "—" / "Loading..." for a few seconds rather than ~40s+).
+    # Ordering: _build_signal is self-contained; _build_ai_news reads the
+    # already-warm "news" cache, and _build_decisions reads "ai_news" —
+    # so signal can go anywhere but ai_news must precede decisions.
+    _time.sleep(3)
+    try: _cached("signal",   300,  _build_signal)
+    except: pass
+    _time.sleep(3)
+    try: _cached("ai_news",   600,  _build_ai_news)
+    except: pass
+    _time.sleep(3)
+    try: _cached("decisions", 300,  _build_decisions)
+    except: pass
+
+    # Heavier panels (commodities/ETFs, earnings tables, NSE) warm after —
+    # they have long TTLs and their own frontend retry, so a later warm
+    # is fine.
     _time.sleep(3)
     try: _cached("stocks",   120,  _build_stocks)
     except: pass
@@ -527,21 +547,6 @@ def _warm():
     except: pass
     _time.sleep(3)
     try: _cached("nse",      300,  _build_nse)
-    except: pass
-    # Warm the AI trade-signal cache so the sidebar panel never shows a
-    # cold-start "undefined" — without this, /api/signal returns {} for the
-    # first ~30s after boot until the first request triggers a build.
-    _time.sleep(3)
-    try: _cached("signal",   300,  _build_signal)
-    except: pass
-    # Warm AI-news + trade-decisions caches so the "AI TRADE DECISIONS"
-    # panel doesn't sit on "Loading AI analysis..." after boot. decisions
-    # reads the ai_news cache, so warm ai_news first.
-    _time.sleep(3)
-    try: _cached("ai_news",   600,  _build_ai_news)
-    except: pass
-    _time.sleep(3)
-    try: _cached("decisions", 300,  _build_decisions)
     except: pass
     try:
         from earnings_telegram import get_telegram_earnings
