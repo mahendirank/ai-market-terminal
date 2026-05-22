@@ -528,6 +528,12 @@ def _warm():
     _time.sleep(3)
     try: _cached("nse",      300,  _build_nse)
     except: pass
+    # Warm the AI trade-signal cache so the sidebar panel never shows a
+    # cold-start "undefined" — without this, /api/signal returns {} for the
+    # first ~30s after boot until the first request triggers a build.
+    _time.sleep(3)
+    try: _cached("signal",   300,  _build_signal)
+    except: pass
     try:
         from earnings_telegram import get_telegram_earnings
         get_telegram_earnings(force_refresh=True)
@@ -813,7 +819,7 @@ def _build_nse():
 
 def _build_signal():
     try:
-        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FutTimeout
         from macro import get_macro_data, format_macro
         from news import get_all_news, format_news
         from stocks import format_stocks
@@ -845,9 +851,23 @@ def _build_signal():
             ("mtf",       "mtf",          "get_mtf_bias"),
             ("structure", "structure",    "get_structure"),
         ]
-        with ThreadPoolExecutor(max_workers=5) as pool:
+        # Run the 5 task functions concurrently with a hard 15s budget.
+        # NOTE: a plain `with ThreadPoolExecutor() as pool` would block forever
+        # on __exit__ — its shutdown(wait=True) waits on every submitted task,
+        # so a single hung upstream call would hang the whole signal build (and
+        # leave /api/signal returning {} indefinitely). Manage the pool manually
+        # and shut down WITHOUT waiting. _run() already records None for any
+        # task that doesn't finish, so partial results degrade gracefully.
+        pool = ThreadPoolExecutor(max_workers=5)
+        try:
             futs = [pool.submit(_run, t[0], t[1], t[2], *t[3:]) for t in tasks]
-            for f in as_completed(futs, timeout=15): pass
+            try:
+                for f in as_completed(futs, timeout=15):
+                    pass
+            except FutTimeout:
+                print("[_build_signal] task budget exceeded — using partial results", flush=True)
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
 
         signal    = results.get("signal")    or {}
         brain     = results.get("brain")     or {"insights": []}

@@ -3707,9 +3707,19 @@ async function loadStocks() {
 }
 
 // ── Load signal ───────────────────────────────────────────
+let _signalRetry = null;
 async function loadSignal() {
   try {
     const d   = await fetch(`${BASE}/api/signal`).then(r=>r.json());
+
+    // Cold cache / backend still building the signal → response is {} or
+    // {error:...}. Don't paint literal "undefined" into the panel — keep the
+    // loading state and retry shortly (instead of waiting the full 120s poll).
+    if (!d || d.error || (!d.signal && !d.structure)) {
+      if (!_signalRetry) _signalRetry = setTimeout(() => { _signalRetry = null; loadSignal(); }, 8000);
+      return;
+    }
+
     const sig = d.signal||{};
     const dec = sig.decision||'WAIT';
 
@@ -3720,7 +3730,8 @@ async function loadSignal() {
     const scls = dec==='BUY'?'up':dec==='SELL'?'dn':'fl';
     document.getElementById('sig-dec').className=`sig-big ${scls}`;
     document.getElementById('sig-dec').textContent=dec;
-    document.getElementById('sig-sub').textContent=`Score: ${sig.score} | ${sig.session} | Vol: ${sig.volatility}`;
+    const _fv = (x) => (x === undefined || x === null || x === '') ? '—' : x;
+    document.getElementById('sig-sub').textContent=`Score: ${_fv(sig.score)} | ${_fv(sig.session)} | Vol: ${_fv(sig.volatility)}`;
 
     let ins='';
     for (const i of d.insights||[]) ins+=`<div class="insight">${i}</div>`;
@@ -4038,6 +4049,7 @@ async function loadSocialEarnings() {
 
 // ── SMC row helper ────────────────────────────────────────
 function smcr(k,v,cls='') {
+  if (v === undefined || v === null || v === '' || v === 'undefined') v = '—';
   return `<div class="dr"><span class="dk">${k}</span><span class="dv ${cls}">${v}</span></div>`;
 }
 
