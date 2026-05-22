@@ -283,7 +283,14 @@ def build_messages(
     # Schema — single source from ai_schemas
     schema_text = schema_override if schema_override is not None else schema_for(task)
     if schema_text:
-        task_parts.append("Return JSON matching this schema (every required field filled):")
+        # Prose schemas (research, macro chat) declare "NOT JSON" — prefixing
+        # them with "Return JSON matching this schema" is a direct
+        # contradiction that makes the model emit JSON anyway. Only JSON
+        # schemas get the JSON instruction; prose schemas get a format cue.
+        if "NOT JSON" in schema_text:
+            task_parts.append("Produce the output in exactly this format:")
+        else:
+            task_parts.append("Return JSON matching this schema (every required field filled):")
         task_parts.append(schema_text)
 
     task_msg = "\n\n".join(p.strip() for p in task_parts if p)
