@@ -819,23 +819,39 @@ def _build_nse():
 
 def _build_signal():
     try:
-        from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FutTimeout
+        from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FutTimeout, wait as _fwait
         from macro import get_macro_data, format_macro
         from news import get_all_news, format_news
         from stocks import format_stocks
         from econ import get_economic_data
-        macro_txt  = format_macro(get_macro_data())
-        news_txt   = format_news(get_all_news())
-        stocks_txt = format_stocks()
-        econ       = get_economic_data()
-
-        # Fetch regime in parallel with other signal tasks
-        regime_data = {}
+        # Pre-fetch the four context inputs concurrently under a single hard
+        # 25s budget — a hung data provider must not stall the whole build.
+        # All four share the same 25s window (via futures.wait), so a slow
+        # source can't starve the others; whatever hasn't finished degrades
+        # to its fallback ("" / []). Pool is managed manually (never
+        # shutdown(wait=True)) for the same reason as the task pool below.
+        prefetch = ThreadPoolExecutor(max_workers=4)
         try:
-            from regime import detect_market_regime
-            regime_data = detect_market_regime() or {}
-        except Exception:
-            pass
+            f_macro  = prefetch.submit(lambda: format_macro(get_macro_data()))
+            f_news   = prefetch.submit(lambda: format_news(get_all_news()))
+            f_stocks = prefetch.submit(format_stocks)
+            f_econ   = prefetch.submit(get_economic_data)
+            _fwait([f_macro, f_news, f_stocks, f_econ], timeout=25)
+            def _grab(fut, label, fallback):
+                if not fut.done():
+                    print(f"[_build_signal] prefetch '{label}' timed out — using fallback", flush=True)
+                    return fallback
+                try:
+                    return fut.result()
+                except Exception as e:
+                    print(f"[_build_signal] prefetch '{label}' failed: {type(e).__name__}", flush=True)
+                    return fallback
+            macro_txt  = _grab(f_macro,  "macro",  "")
+            news_txt   = _grab(f_news,   "news",   "")
+            stocks_txt = _grab(f_stocks, "stocks", "")
+            econ       = _grab(f_econ,   "econ",   [])
+        finally:
+            prefetch.shutdown(wait=False, cancel_futures=True)
 
         results = {}
         def _run(key, mod, fn, *a):
@@ -844,21 +860,25 @@ def _build_signal():
                 results[key] = getattr(m, fn)(*a)
             except: results[key] = None
 
+        # detect_market_regime() runs as a pool task too — it does its own
+        # network I/O, so keeping it out of the pool (as a bare synchronous
+        # call) would leave it unbounded and able to hang the whole build.
         tasks = [
             ("signal",    "trade_signal", "generate_signal",  macro_txt, news_txt, stocks_txt, econ),
             ("brain",     "interpreter",  "interpret_macro",   macro_txt, news_txt, stocks_txt, econ),
             ("smc",       "smc",          "get_smc_analysis"),
             ("mtf",       "mtf",          "get_mtf_bias"),
             ("structure", "structure",    "get_structure"),
+            ("regime",    "regime",       "detect_market_regime"),
         ]
-        # Run the 5 task functions concurrently with a hard 15s budget.
+        # Run the 6 task functions concurrently with a hard 15s budget.
         # NOTE: a plain `with ThreadPoolExecutor() as pool` would block forever
         # on __exit__ — its shutdown(wait=True) waits on every submitted task,
         # so a single hung upstream call would hang the whole signal build (and
         # leave /api/signal returning {} indefinitely). Manage the pool manually
         # and shut down WITHOUT waiting. _run() already records None for any
         # task that doesn't finish, so partial results degrade gracefully.
-        pool = ThreadPoolExecutor(max_workers=5)
+        pool = ThreadPoolExecutor(max_workers=6)
         try:
             futs = [pool.submit(_run, t[0], t[1], t[2], *t[3:]) for t in tasks]
             try:
@@ -868,6 +888,8 @@ def _build_signal():
                 print("[_build_signal] task budget exceeded — using partial results", flush=True)
         finally:
             pool.shutdown(wait=False, cancel_futures=True)
+
+        regime_data = results.get("regime") or {}
 
         signal    = results.get("signal")    or {}
         brain     = results.get("brain")     or {"insights": []}
