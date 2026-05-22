@@ -1,6 +1,77 @@
 # Production Architecture — Status & Roadmap
 
-This document tracks what's production-ready in the terminal. **Last updated 2026-05-22** — deterministic causal intelligence (section below). Step 8 baseline: 2026-05-12.
+This document tracks what's production-ready in the terminal. **Last updated 2026-05-22** — AI sidebar cold-start fixes (section below). Step 8 baseline: 2026-05-12.
+
+---
+
+## ✅ Shipped 2026-05-22 — AI sidebar cold-start fixes (live now)
+
+The right-hand AI column (TRADE SIGNAL, FIBONACCI + STRUCTURE, AI TRADE
+DECISIONS) rendered the literal string `undefined` — or sat on
+"Loading AI analysis..." — for the first 1–5 minutes after every boot.
+Five commits, each committed, browser-verified (Playwright) on the live
+`market-terminal` container, and pushed to `main`.
+
+### 1. Signal panel "undefined" on cold start  (commit `54c5317`)
+
+`/api/signal` returns an empty `{}` while its `_bg_refresh` cache is
+cold (~30 s after boot). The frontend painted the missing fields
+straight in, so the panel read `Score: undefined | undefined | Vol:
+undefined` and `High/Low/Pivot/R1/S1 = undefined`, and only re-polled
+every 120 s — so the broken display stuck for up to 2 minutes.
+
+- `_warm()` now warms the `signal` cache at startup.
+- `loadSignal()` bails on an empty/error response — keeps the `—`
+  placeholders and retries in 8 s instead of 120 s; `smcr()` and the
+  score line coerce `undefined`/`null` to `—`.
+
+### 2. `_build_signal()` can no longer hang  (commit `9db581a`)
+
+Every blocking call in `_build_signal()` is now time-bounded:
+
+- The task pool used `with ThreadPoolExecutor()`, whose `__exit__` does
+  `shutdown(wait=True)` — one stuck task would hang the whole build
+  forever. Now a manually-managed pool: `shutdown(wait=False,
+  cancel_futures=True)` + a 15 s `as_completed` budget.
+- The four context pre-fetches (`macro`/`news`/`stocks`/`econ`) run
+  concurrently under a shared 25 s `futures.wait` budget; a hung source
+  degrades to its fallback (`""` / `[]`).
+- `detect_market_regime()` moved into the task pool to share the budget.
+
+Verified: with a permanently-hung news provider, `_build_signal()`
+returns in ~41 s with partial results instead of hanging forever.
+
+### 3. Decisions panel cold-start lag  (commit `fd4b384`)
+
+The "AI TRADE DECISIONS" panel sat on "Loading AI analysis..." for up
+to 5 minutes — the `decisions` cache wasn't warmed and `loadDecisions()`
+re-polled only every 300 s.
+
+- `_warm()` warms the `ai_news` + `decisions` caches at startup.
+- `loadDecisions()` retries in 8 s on a cold response.
+
+### 4. Warm-up reorder  (commit `e24335b`)
+
+The `signal`/`ai_news`/`decisions` warm-ups ran last in `_warm()`,
+behind `stocks`/`earnings`/`nse`. Moved to the front of the non-Railway
+sequence (right after the `news` cache they depend on) so the AI column
+warms first.
+
+### 5. Build-storm dedup  (commit `bfc584e`)
+
+`_bg_refresh()` spawned a fresh build thread on **every** cold-cache
+call. Combined with the new 8 s retry, a single page load piled up ~8
+concurrent `_build_signal()` runs that thrashed the shared upstream
+data sources and *lengthened* the cold window to ~64 s. Added an
+in-flight guard (`_refresh_inflight`) — if a build for a key is already
+running, further `_bg_refresh()` calls skip spawning and return the
+placeholder until it lands.
+
+**Verified in-browser (Playwright, post-restart):** the AI panels warm
+at **~33 s** (was ~64 s during the storm) — **2** `_build_signal` runs
+instead of 8, **0** prefetch timeouts. No `undefined` and no stuck
+"Loading..." at any sample across the cold window — the panels show
+clean `—` / "Loading AI analysis..." placeholders, then populate.
 
 ---
 
