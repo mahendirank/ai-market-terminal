@@ -368,6 +368,7 @@ app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 IST = timezone(timedelta(hours=5, minutes=30))
 _cache = {}
 _cache_lock = threading.Lock()
+_refresh_inflight: set = set()   # cache keys with a background build running
 _startup_done = False
 
 # ── File-based persistent cache (survives Railway restarts) ───
@@ -453,14 +454,33 @@ def _cached(key, ttl, fn):
     return data
 
 
+def _spawn_refresh(key, ttl, fn):
+    """Kick off a background _cached() build for `key` — but only if one
+    isn't already running. Without this guard a burst of cold-cache
+    requests (e.g. the dashboard's 8s cold-start retry on /api/signal)
+    each spawn their own build, piling up many concurrent heavy builds
+    that thrash shared upstream data sources and slow each other down."""
+    with _cache_lock:
+        if key in _refresh_inflight:
+            return
+        _refresh_inflight.add(key)
+    def _job():
+        try:
+            _cached(key, ttl, fn)
+        finally:
+            with _cache_lock:
+                _refresh_inflight.discard(key)
+    threading.Thread(target=_job, daemon=True).start()
+
+
 def _bg_refresh(key, ttl, fn, empty=None):
     with _cache_lock:
         entry = _cache.get(key)
     if entry:
         if (_time.time() - entry["ts"]) > ttl:
-            threading.Thread(target=_cached, args=(key, ttl, fn), daemon=True).start()
+            _spawn_refresh(key, ttl, fn)
         return entry["data"]
-    threading.Thread(target=_cached, args=(key, ttl, fn), daemon=True).start()
+    _spawn_refresh(key, ttl, fn)
     return empty if empty is not None else []
 
 
