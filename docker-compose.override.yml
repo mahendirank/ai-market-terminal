@@ -1,0 +1,19 @@
+# Local dev override — Compose merges this on top of docker-compose.yml
+# automatically when both files are in the same directory. The VPS does not
+# have this file, so it still uses the `image:` from docker-compose.prod.yml
+# without modification.
+#
+# This file re-enables build-from-source so editing files on your laptop and
+# restarting the container picks the changes up without going through GHCR.
+#
+# Local dev still runs via the existing docker-compose.market-terminal.yml
+# in the Bloomberg feed wrapper (which bind-mounts /Users/mahendiran/ai-system/core
+# into /app for instant reload). This override is just a safety net for
+# anyone who runs `docker compose up` from /Users/mahendiran/ai-system/core
+# directly without specifying -f docker-compose.prod.yml.
+
+services:
+  market-terminal:
+    build:
+      context: .
+      dockerfile: Dockerfile

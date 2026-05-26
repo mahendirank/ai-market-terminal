@@ -1,10 +1,112 @@
 # Production Architecture — Status & Roadmap
 
-This document tracks what's production-ready in the terminal. **Last updated 2026-05-26** — bonds/yields coverage, breaking-news event bus, data-quality hardening (section below). Step 8 baseline: 2026-05-12.
+This document tracks what's production-ready in the terminal. **Last updated 2026-05-26** — GHCR deploy migration (section directly below) and bonds/yields/data-truth (section after). Step 8 baseline: 2026-05-12.
 
 ---
 
-## 🛠 Pending commit 2026-05-26 — bonds, breaking-news bus, data-truth (in `market-terminal` container, not yet pushed)
+## ✅ Shipped 2026-05-26 (PM) — GHCR-pull deployment + env validation
+
+Builds moved from "on the VPS, every push, hope github.com stays up" to
+"in GitHub Actions once, VPS just pulls". The old build-on-VPS flow
+kept failing on a memory-constrained host with intermittent
+`git+https://github.com/rongardF/tvdatafeed` access during pip install
+— exactly the bug class that pushes early-stage paid products to look
+unreliable.
+
+### A. CI publishes the image to GHCR  (`.github/workflows/deploy.yml`)
+
+- Triggers on push to `main` + manual `workflow_dispatch`.
+- Uses `docker/build-push-action@v5` with `cache-from: type=gha` so
+  repeat builds finish in ~2 min instead of 8.
+- Publishes three tags per build:
+  - `:latest`        — current main HEAD
+  - `:sha-<7char>`   — immutable, used for rollback
+  - `:YYYYMMDD`      — daily snapshot (only on scheduled runs)
+- Auth via the built-in `GITHUB_TOKEN`; no PAT to manage as long as
+  the package stays public.
+- `linux/amd64` only — the VPS is x86, multi-arch costs build time for
+  no benefit until ARM hosts exist.
+
+### B. `docker-compose.prod.yml` switched from `build:` to `image:`
+
+```yaml
+services:
+  market-terminal:
+    image: ghcr.io/mahendirank/ai-market-terminal:${IMAGE_TAG:-latest}
+```
+
+The `${IMAGE_TAG:-latest}` interpolation is what makes rollback work
+without editing the compose file — `./deploy.sh sha-718bd77` sets
+`IMAGE_TAG=sha-718bd77` before `docker compose up`. New
+`docker-compose.override.yml` (auto-merged by compose on the laptop,
+absent on the VPS) restores `build:` for local development.
+
+### C. New `deploy.sh` for per-deploy update; old install logic moved to `bootstrap.sh`
+
+- `bootstrap.sh` — keeps the existing curl-pipe one-liner flow but now
+  pulls from GHCR instead of building. Run once per fresh VPS.
+- `deploy.sh` — used every time after that. Pulls, restarts, waits for
+  `/api/health`, prunes images older than 24h, prints summary.
+  Accepts an optional tag arg: `./deploy.sh sha-718bd77` for rollback.
+- `deploy.sh` exits non-zero if `/api/health` doesn't respond in 120s
+  and prints the last 50 log lines — failed deploys are immediately
+  visible instead of silently leaving an unhealthy container running.
+
+### D. Env validation at startup  (`env_validator.py` + `run.py`)
+
+Hard-fail on missing `GROQ_API_KEY` (every LLM call would 401 anyway —
+visible failure is better than silent degradation). Warn on missing
+recommended vars (REDIS_URL, TELEGRAM_*, FRED_API_KEY, TAVILY_API_KEY,
+TV_USERNAME/PASSWORD) with a one-line explanation of what specifically
+degrades. Validator is invoked in `run.py` right after `load_dotenv()`
+and before importing `dashboard_api` — so a config error surfaces as a
+clear `FATAL: missing required env` line rather than a `AttributeError`
+twelve imports deep.
+
+Wishlist envs the validator does NOT check (because nothing in the
+codebase reads them, audited 2026-05-26): `OPENAI_API_KEY`,
+`CLAUDE_API_KEY`, `ANTHROPIC_API_KEY`, `DATABASE_URL`. Adding them to
+the required list would create false-positive failures.
+
+### E. VPS_DEPLOYMENT.md
+
+Step-by-step doc covering: first-time install via `bootstrap.sh`,
+GHCR login (only needed if the package is made private), normal
+deploys via `./deploy.sh`, rollback via `./deploy.sh sha-XXX`, health
+verification, troubleshooting (the seven common failure modes I've
+hit during this session — pull access denied, health timeout,
+restart loop on exit 78, slow pulls, OOM, persistent degraded status,
+common log-line meanings).
+
+### Operational notes
+
+- `restart: unless-stopped` is unchanged on all three services
+  (market-terminal, redis, caddy) — auto-recovery on crashes preserved.
+- `depends_on: condition: service_healthy` chain is unchanged —
+  market-terminal still waits for redis to be healthy before starting.
+- One small honest caveat: `restart: unless-stopped` *will* restart a
+  container that exits 78 (EX_CONFIG). The validator's `FATAL` message
+  will appear in `docker logs market-terminal` on every loop, so the
+  config error stays visible. Real fix is to add a config-error
+  sentinel file + check at startup; deferred until it actually bites.
+
+### How to verify the migration on first use
+
+After this commit lands on `main`, the Actions tab will show a new
+"Build & publish to GHCR" run (~3 min). When it's green:
+
+```bash
+ssh root@72.61.173.89
+cd /opt/zyvora
+git pull origin main         # only needed once, to get the new deploy.sh
+./deploy.sh                  # pulls latest from GHCR, restarts, verifies
+```
+
+No more `--build` flag — that was the whole point.
+
+---
+
+## ✅ Shipped 2026-05-26 — bonds, breaking-news bus, data-truth (commit `718bd77`, pushed)
 
 A live incident exposed three classes of bug at once: (1) the BOND
 YIELDS column showed only US sovereigns, so a Japan-10Y-rising-overnight

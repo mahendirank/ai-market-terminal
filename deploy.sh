@@ -1,133 +1,90 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════════════════
-# Zyvora Terminal — one-command production deploy
-#
-# Run on a fresh Ubuntu VPS (Hostinger, DigitalOcean, AWS Lightsail, etc.)
-# Works from Hostinger's Browser Console — no SSH needed.
+# Zyvora Terminal — per-deploy script (GHCR-pull, no build)
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/mahendirank/ai-market-terminal/main/deploy.sh | bash
+#   ./deploy.sh                  # pull latest, restart, prune old images
+#   ./deploy.sh sha-718bd77      # roll back / pin to a specific image tag
+#
+# Built images live at ghcr.io/mahendirank/ai-market-terminal — see
+# .github/workflows/deploy.yml for what gets published per push to main.
+#
+# First-time install on a fresh VPS: use bootstrap.sh, then this script for
+# every subsequent update. See VPS_DEPLOYMENT.md for the full guide.
 # ═══════════════════════════════════════════════════════════════════════════
 
-set -e
+set -euo pipefail
 
-REPO_URL="https://github.com/mahendirank/ai-market-terminal.git"
-INSTALL_DIR="/opt/zyvora"
+INSTALL_DIR="${INSTALL_DIR:-/opt/zyvora}"
+COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
+SERVICE="${SERVICE:-market-terminal}"
+HEALTH_URL="${HEALTH_URL:-http://localhost:8001/api/health}"
+HEALTH_WAIT_SECS="${HEALTH_WAIT_SECS:-120}"
+TAG="${1:-latest}"
 
-step()   { echo; echo "════════════════════════════════════════════════════════════"; echo "▸ $1"; echo "════════════════════════════════════════════════════════════"; }
-ok()     { echo "  ✅ $1"; }
-warn()   { echo "  ⚠️  $1"; }
-err()    { echo "  ❌ $1"; exit 1; }
-
-if [[ $EUID -ne 0 ]]; then
-  err "Run as root.  sudo bash deploy.sh"
-fi
-
-# ─── 1. Update + essentials ─────────────────────────────────────
-step "Step 1/6 — Updating Ubuntu + installing essentials"
-apt-get update -y >/dev/null 2>&1
-DEBIAN_FRONTEND=noninteractive apt-get install -y git curl ca-certificates ufw nano htop >/dev/null 2>&1
-ok "System packages installed"
-
-# ─── 2. Docker ──────────────────────────────────────────────────
-step "Step 2/6 — Installing Docker"
-if command -v docker &>/dev/null; then
-  ok "Docker already installed ($(docker --version))"
-else
-  curl -fsSL https://get.docker.com | sh >/dev/null 2>&1
-  systemctl enable --now docker >/dev/null
-  ok "Docker installed: $(docker --version)"
-fi
-
-# ─── 3. Firewall ────────────────────────────────────────────────
-step "Step 3/6 — Configuring firewall (ports 22, 80, 443)"
-ufw allow 22/tcp >/dev/null 2>&1 || true
-ufw allow 80/tcp >/dev/null 2>&1 || true
-ufw allow 443/tcp >/dev/null 2>&1 || true
-echo "y" | ufw --force enable >/dev/null 2>&1 || true
-ok "Firewall enabled"
-
-# ─── 4. Clone / update repo ─────────────────────────────────────
-step "Step 4/6 — Downloading terminal code"
-if [ -d "$INSTALL_DIR/.git" ]; then
-  cd "$INSTALL_DIR" && git pull origin main >/dev/null 2>&1
-  ok "Code updated to latest version"
-else
-  rm -rf "$INSTALL_DIR" 2>/dev/null || true
-  mkdir -p "$(dirname "$INSTALL_DIR")"
-  git clone "$REPO_URL" "$INSTALL_DIR" >/dev/null 2>&1
-  ok "Code downloaded to $INSTALL_DIR"
-fi
 cd "$INSTALL_DIR"
 
-# ─── 5. .env setup ──────────────────────────────────────────────
-step "Step 5/6 — Environment configuration"
-if [ ! -f .env ]; then
-  cp .env.production.example .env
-  warn ".env created from template — you MUST add your real API keys NOW"
-  echo
-  echo "Opening .env editor in 5 seconds."
-  echo
-  echo "  Fill in these 4 values (replace the 'your-…-here' placeholders):"
-  echo "    GROQ_API_KEY        → your Groq API key"
-  echo "    TELEGRAM_BOT_TOKEN  → your Telegram bot token"
-  echo "    TELEGRAM_CHAT_ID    → your Telegram chat ID"
-  echo "    ADMIN_PASSWORD      → pick a strong random password"
-  echo
-  echo "  Move with arrow keys. Type to overwrite. Then:"
-  echo "    Ctrl+O   → press Enter to save"
-  echo "    Ctrl+X   → exit"
-  echo
-  sleep 5
-  nano .env
-  # Sanity check: did they actually edit it?
-  if grep -q "your-groq-api-key-here\|your-real-groq-key-here\|set-a-strong-random-password-here" .env 2>/dev/null; then
-    warn "⚠ .env still contains placeholder values — the AI features may fail."
-    warn "Re-run: nano $INSTALL_DIR/.env  then  bash $INSTALL_DIR/deploy.sh"
-  else
-    ok ".env saved"
+step()  { echo; echo "════ $1"; }
+ok()    { echo "  ✓ $1"; }
+fail()  { echo "  ✗ $1" >&2; exit 1; }
+
+# ─── 1. Sanity checks ───────────────────────────────────────────
+step "1/6 sanity checks"
+[ -f "$COMPOSE_FILE" ] || fail "$COMPOSE_FILE not found in $INSTALL_DIR"
+[ -f ".env" ]          || fail ".env not found — run bootstrap.sh first"
+command -v docker >/dev/null || fail "docker not installed"
+ok "running from $INSTALL_DIR with tag '$TAG'"
+
+# ─── 2. Pull the requested image tag ────────────────────────────
+step "2/6 pulling ghcr.io/mahendirank/ai-market-terminal:$TAG"
+# IMAGE_TAG is read by docker-compose.prod.yml's ${IMAGE_TAG:-latest}.
+# Exporting here lets the same compose file pin to any tag from CI.
+export IMAGE_TAG="$TAG"
+docker compose -f "$COMPOSE_FILE" pull "$SERVICE" 2>&1 | tail -8
+ok "pulled"
+
+# ─── 3. Bring the stack up (no rebuild) ─────────────────────────
+step "3/6 rolling stack to new image"
+docker compose -f "$COMPOSE_FILE" up -d --no-build --remove-orphans 2>&1 | tail -8
+ok "containers started"
+
+# ─── 4. Wait for healthy state ──────────────────────────────────
+step "4/6 waiting for /api/health (up to ${HEALTH_WAIT_SECS}s)"
+deadline=$(( $(date +%s) + HEALTH_WAIT_SECS ))
+last_status=""
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  if curl -fsS --max-time 5 "$HEALTH_URL" >/dev/null 2>&1; then
+    last_status="healthy"
+    break
   fi
+  sleep 5
+done
+if [ "$last_status" = "healthy" ]; then
+  ok "container reports healthy"
 else
-  ok ".env already exists — skipping editor"
+  echo "  ✗ /api/health did not respond in ${HEALTH_WAIT_SECS}s — last 50 log lines:" >&2
+  docker logs "$SERVICE" --tail 50 || true
+  echo
+  echo "  Container state:" >&2
+  docker compose -f "$COMPOSE_FILE" ps
+  echo
+  echo "  Rollback: ./deploy.sh <previous-sha-tag>" >&2
+  exit 1
 fi
 
-# ─── 6. Build + start ───────────────────────────────────────────
-step "Step 6/6 — Building and starting the terminal stack"
-echo "First build takes 5-8 min (Python deps + image build). Please wait..."
-docker compose -f docker-compose.prod.yml up -d --build 2>&1 | tail -20
+# ─── 5. Prune old images (free disk on small VPSes) ─────────────
+step "5/6 pruning old images"
+# --filter "until=24h" so a fresh rollback can still pull from cache for
+# the first 24h without re-downloading from GHCR.
+docker image prune -af --filter "until=24h" 2>&1 | tail -3 || true
+ok "prune complete"
 
-# Wait + status
-sleep 20
+# ─── 6. Summary ─────────────────────────────────────────────────
+step "6/6 deploy complete"
+docker compose -f "$COMPOSE_FILE" ps
 echo
-echo "Container status:"
-docker compose -f docker-compose.prod.yml ps
-
-# ─── Done ───────────────────────────────────────────────────────
-SERVER_IP=$(curl -s --max-time 5 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
-
-step "✅ DEPLOYMENT COMPLETE"
-cat <<EOF
-
-  Your terminal is running on this server.
-
-  ────────────────────────────────────────────────────────
-  📌 DNS — point zyvoratech.co at this server in GoDaddy
-  ────────────────────────────────────────────────────────
-    Type   Name   Value             TTL
-     A     @      $SERVER_IP   600
-     A     www    $SERVER_IP   600
-
-    (Delete any other A records for @ or www.)
-
-  ────────────────────────────────────────────────────────
-  🌐 Once DNS propagates (5-30 min), open:
-    → https://zyvoratech.co
-    → Login as admin / the ADMIN_PASSWORD you set
-  ────────────────────────────────────────────────────────
-
-  📋 Useful commands later (run from $INSTALL_DIR):
-    docker compose -f docker-compose.prod.yml logs -f       # tail logs
-    docker compose -f docker-compose.prod.yml restart       # restart stack
-    git pull && docker compose -f docker-compose.prod.yml up -d --build   # update
-
-EOF
+echo "  Image: ghcr.io/mahendirank/ai-market-terminal:$TAG"
+echo "  Health: $(curl -fsS --max-time 3 "$HEALTH_URL" 2>/dev/null | head -c 200 || echo 'unreachable')"
+echo
+echo "  Tail live logs:    docker logs -f $SERVICE"
+echo "  Rollback:          ./deploy.sh sha-XXXXXXX"

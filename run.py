@@ -22,13 +22,20 @@ if __name__ == "__main__":
     from logging_config import setup_logging
     setup_logging()
 
+    # Validate env BEFORE the heavy imports — a missing GROQ_API_KEY should
+    # surface as "FATAL: missing required env" in docker logs, not as an
+    # AttributeError twelve imports deep. validate_env() exits with code 78
+    # (EX_CONFIG) on required-var failures. Note: `restart: unless-stopped`
+    # will still restart the container, but the FATAL message in docker
+    # logs makes the misconfiguration immediately visible to the operator.
+    from env_validator import validate_env
+    validate_env(strict=True)
+
     port = int(os.environ.get("PORT", 8001))
 
     print(f"=== AI Market Terminal starting on port {port} ===")
     print(f"Python: {sys.version}")
     print(f"Railway env: {os.environ.get('RAILWAY_ENVIRONMENT', 'LOCAL')}")
-    print(f"GROQ key set: {'yes' if os.environ.get('GROQ_API_KEY') else 'NO'}")
-    print(f"Telegram token set: {'yes' if os.environ.get('TELEGRAM_BOT_TOKEN') else 'using default'}")
 
     # Uvicorn's access_log is silenced inside setup_logging when
     # UVICORN_ACCESS_LOG=off (default) because RequestContextMiddleware

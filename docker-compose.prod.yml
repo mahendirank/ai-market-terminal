@@ -1,18 +1,19 @@
 # Production compose for Hostinger VPS / any Linux host.
-# - market-terminal: FastAPI app (built from Dockerfile in this repo)
+# - market-terminal: FastAPI app (pulled from GHCR, NOT built on the VPS)
 # - redis: cache + cooldowns + chat memory
 # - caddy: reverse proxy with auto-HTTPS (Let's Encrypt) for zyvoratech.co
 #
-# Usage on server:
-#   git clone https://github.com/mahendirank/ai-market-terminal.git zyvora
-#   cd zyvora
-#   cp .env.production.example .env
-#   nano .env       # fill in real API keys
-#   docker compose -f docker-compose.prod.yml up -d --build
+# CI publishes the image to ghcr.io/mahendirank/ai-market-terminal:latest
+# on every push to main (.github/workflows/deploy.yml). The VPS just pulls:
+#
+#   ./deploy.sh                                  # current main
+#   ./deploy.sh sha-718bd77                      # rollback to a specific build
+#
+# First-time install on a fresh VPS: see bootstrap.sh and VPS_DEPLOYMENT.md.
 
 services:
   market-terminal:
-    build: .
+    image: ghcr.io/mahendirank/ai-market-terminal:${IMAGE_TAG:-latest}
     container_name: market-terminal
     restart: unless-stopped
     expose: ["8001"]
@@ -28,8 +29,8 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
       interval: 30s
       timeout: 10s
-      retries: 10           # was 3 — VPS boot warms ~9 caches before /api/health goes green
-      start_period: 120s    # was 90s — pip install tvdatafeed-from-git takes ~45-60s on first build
+      retries: 10
+      start_period: 90s     # image pull means no build wait — 90s covers cache warm-up only
     networks: [terminal]
     logging:
       driver: "json-file"
