@@ -72,6 +72,31 @@ MARKETS: dict[str, dict] = {
 MARKET_ORDER = ["CHINA", "JAPAN", "INDIA", "GERMANY", "UK", "ITALY", "FRANCE", "USA"]
 
 
+# ─── Global shocks ────────────────────────────────────────────────────────────
+# Geopolitical / commodity / rates-shock keywords that affect EVERY market,
+# not just the country named in the headline. Used by _overnight_catalysts to
+# inject "global catalyst" rows into each market brief in addition to the
+# per-market keyword matches above. Without this, a "US strikes Iran" headline
+# lands in the GEOPOLITICS bucket but never attaches to Nifty/DAX/Nikkei
+# briefs even though oil-importer indices reprice instantly.
+GLOBAL_SHOCK_KEYWORDS: list[str] = [
+    # Active conflicts / flashpoints
+    "iran", "israel", "gaza", "hamas", "hezbollah", "houthi", "yemen",
+    "russia", "ukraine", "putin", "kremlin", "moscow", "kyiv",
+    "north korea", "taiwan", "south china sea",
+    # Military / kinetic
+    "missile", "airstrike", "air strike", "strike on", "ceasefire",
+    "invasion", " war ", "wartime", "military",
+    # Commodity / rates shocks
+    "oil shock", "opec+", "crude spike", "sanction", "embargo",
+    "yields surge", "yield surge", "bond rout", "treasury sell-off",
+    # Central bank / FX shocks
+    "boj intervention", "currency intervention", "yen crisis", "fx crisis",
+    # Black-swan macro
+    "default risk", "credit event", "banking crisis", "flash crash",
+]
+
+
 # ─── Regime → directional score map (shared by macro_reasoning + regime) ─────
 _REGIME_DIRECTION: dict[str, float] = {
     "RISK_ON": 0.55, "MELT_UP": 0.70, "GOLDILOCKS": 0.60, "REFLATION": 0.40,
@@ -108,12 +133,73 @@ _init_redis()
 
 _INPROC: dict[str, tuple[float, dict]] = {}
 
+
+# ─── Event-bus subscriber: drop caches on a breaking news cluster ───────────
+def _on_breaking_event(ev: dict) -> None:
+    """Invalidate the global signal bundle AND every per-market brief so the
+    next read recomputes against the fresh snapshot. Called from the event
+    bus listener thread — keep it fast (no I/O beyond cache deletes)."""
+    try:
+        if _redis_ok and _redis_client:
+            # Use SCAN+DEL so a stuck key doesn't block; KEYS would be O(N).
+            try:
+                _redis_client.delete("morning:global_signals")
+                cursor = 0
+                while True:
+                    cursor, keys = _redis_client.scan(cursor, match="morning:brief:*", count=50)
+                    if keys:
+                        _redis_client.delete(*keys)
+                    if cursor == 0:
+                        break
+            except Exception as e:  # noqa: BLE001
+                log.warning("[morning_report] event-bus cache drop (redis): %s", e)
+        # Drop in-process mirror too
+        for k in list(_INPROC.keys()):
+            if k == "morning:global_signals" or k.startswith("morning:brief:"):
+                _INPROC.pop(k, None)
+        log.info("[morning_report] dropped caches on breaking event: sev=%s topic=%s",
+                 ev.get("severity"), str(ev.get("topic", ""))[:80])
+    except Exception as e:  # noqa: BLE001
+        log.warning("[morning_report] _on_breaking_event failed: %s", e)
+
+
+try:
+    from event_bus import subscribe as _bus_subscribe, start_listener as _bus_start
+    _bus_subscribe(_on_breaking_event)
+    _bus_start()
+except Exception as _e:  # noqa: BLE001
+    log.debug("[morning_report] event_bus wiring skipped: %s", _e)
+
 # Staggered TTLs — base 150 min, each market offset so they don't all expire
 # together (prevents an 8-index yfinance burst). Market i refreshes ~12 min
 # apart from market i-1.
 _BASE_TTL = 150 * 60
 _STAGGER_STEP = 12 * 60
 _GLOBAL_TTL = 90 * 60   # the shared global-signal bundle
+_BREAKING_TTL = 5 * 60  # adaptive: when a HIGH-severity event is in-snapshot,
+                         # drop both global + per-market TTLs to 5 min so the
+                         # brief recomputes before the catalyst goes stale.
+                         # Without this, a US/Iran headline that lands at 06:15
+                         # IST is invisible to the brief until ~07:30.
+
+# event_classifier severity is 1..10. Geopolitical military events (Iran/Israel
+# strike, sanctions, oil shock) score 7..9 in event_classifier.py:116-124.
+_BREAKING_SEVERITY = 7
+
+
+def _breaking_news_active(snap: Optional[dict]) -> bool:
+    """True if the news snapshot carries any cluster with severity >= 7."""
+    if not snap:
+        return False
+    clusters = ((snap.get("news") or {}).get("clusters")) or []
+    for c in clusters:
+        sev = ((c.get("event") or {}).get("severity") or 0)
+        try:
+            if int(sev) >= _BREAKING_SEVERITY:
+                return True
+        except (TypeError, ValueError):
+            pass
+    return False
 
 
 def _market_ttl(market_key: str) -> int:
@@ -237,6 +323,35 @@ def _build_global_signals() -> dict:
         out["us10y"] = _lvl("us10y")
         out["fng"]   = (snap.get("fear_greed") or {}).get("local") or {}
 
+        # ── Data-quality gate: read live_prices quality flags on key inputs.
+        # When sources disagree (yfinance vs Stooq divergence on prev_close)
+        # the entry is tagged DEGRADED. We surface that here so narrate_brief
+        # can refuse to fabricate confident prose on bad data.
+        try:
+            from live_prices import get_live_prices
+            _lp = get_live_prices() or {}
+            _watch = {
+                "US_10Y": ("bonds", "US_10Y"),
+                "CRUDE":  ("commodities", "CRUDE"),
+                "GOLD":   ("commodities", "GOLD"),
+                "DXY":    ("fx", "DXY"),
+                "SPX":    ("global", "SPX"),
+                "NASDAQ": ("global", "NASDAQ"),
+            }
+            degraded = []
+            for label, (cat, key) in _watch.items():
+                row = (_lp.get(cat) or {}).get(key) or {}
+                if row.get("quality") == "DEGRADED":
+                    degraded.append(label)
+            out["data_quality"] = {
+                "status":           "DEGRADED" if degraded else "OK",
+                "degraded_assets":  degraded,
+                "checked_at":       int(time.time()),
+            }
+        except Exception as e:  # noqa: BLE001
+            log.debug("[morning_report] data_quality check failed: %s", e)
+            out["data_quality"] = {"status": "OK", "degraded_assets": []}
+
         # ── event_graph: causal propagation across the macro nodes ──────
         try:
             import event_graph as _eg
@@ -289,7 +404,8 @@ def _build_global_signals() -> dict:
     except Exception as e:  # noqa: BLE001
         log.debug("[morning_report] macro_reasoning failed: %s", e)
 
-    _cache_put("morning:global_signals", out, _GLOBAL_TTL)
+    ttl = _BREAKING_TTL if _breaking_news_active(snap) else _GLOBAL_TTL
+    _cache_put("morning:global_signals", out, ttl)
     return out
 
 
@@ -349,31 +465,55 @@ def _extract_levels(indicator_result: Optional[dict]) -> dict:
 
 
 def _overnight_catalysts(market_cfg: dict, snap: Optional[dict]) -> list[dict]:
-    """Filter the snapshot's news clusters to ones mentioning this market.
-    Returns up to 3 compact catalyst records."""
+    """Filter the snapshot's news clusters to ones mentioning this market,
+    PLUS global shocks (geopolitics, oil shocks, rate shocks) that affect
+    every market regardless of country keyword match.
+
+    Returns up to 4 compact catalyst records (local + global), sorted by
+    severity. Global shocks get the ``scope: "GLOBAL"`` tag so the brief
+    can render them differently (e.g. with a globe icon).
+    """
     if not snap:
         return []
     clusters = ((snap.get("news") or {}).get("clusters")) or []
-    kws = [k.lower() for k in market_cfg.get("keywords", [])]
-    hits = []
+    local_kws  = [k.lower() for k in market_cfg.get("keywords", [])]
+    global_kws = [k.lower() for k in GLOBAL_SHOCK_KEYWORDS]
+
+    local_hits: list[dict]  = []
+    global_hits: list[dict] = []
     for c in clusters:
         topic = (c.get("topic") or "").lower()
-        if any(kw in topic for kw in kws):
-            ev = c.get("event") or {}
-            hits.append({
-                "topic":    c.get("topic", "")[:130],
-                "category": ev.get("category", "NEWS"),
-                "severity": ev.get("severity", 0),
-                "sources":  c.get("sources", [])[:2],
-            })
-    hits.sort(key=lambda h: h.get("severity", 0), reverse=True)
-    return hits[:3]
+        ev = c.get("event") or {}
+        record = {
+            "topic":    c.get("topic", "")[:130],
+            "category": ev.get("category", "NEWS"),
+            "severity": ev.get("severity", 0),
+            "sources":  c.get("sources", [])[:2],
+        }
+        if any(kw in topic for kw in local_kws):
+            local_hits.append({**record, "scope": "LOCAL"})
+        elif any(kw in topic for kw in global_kws):
+            # Global shocks only count when they're meaningful — drop low-severity
+            # routine news that happens to mention a flashpoint country.
+            if record["severity"] >= 5:
+                global_hits.append({**record, "scope": "GLOBAL"})
+
+    local_hits.sort(key=lambda h: h.get("severity", 0), reverse=True)
+    global_hits.sort(key=lambda h: h.get("severity", 0), reverse=True)
+    # Top 2 local + top 2 global, so a market always sees the global picture
+    # even when its local news desk is quiet.
+    return (local_hits[:2] + global_hits[:2])[:4]
 
 
 def _macro_drivers(g: dict) -> dict:
-    """Global macro context block — same for every market."""
+    """Global macro context block — same for every market.
+
+    Includes the yield_watch narrative when any sovereign 10Y has moved
+    >= 5bp — this is what turns "US10Y +8bp" from a number into the kind of
+    cross-asset paragraph competing products write by default.
+    """
     fng = g.get("fng") or {}
-    return {
+    out = {
         "regime":        g.get("regime_label"),
         "regime_conf":   g.get("regime_conf"),
         "macro_scenario": g.get("macro_scenario"),
@@ -382,6 +522,20 @@ def _macro_drivers(g: dict) -> dict:
         "dxy":           g.get("dxy"),
         "us10y":         g.get("us10y"),
     }
+    # yield_watch read — narrate only, never decide bias
+    try:
+        from yield_watch import get_yield_watch
+        yw = get_yield_watch()
+        if yw and yw.get("yields"):
+            out["yield_watch"] = {
+                "yields":     yw["yields"],
+                "narrative":  yw.get("narrative"),
+                "big_movers": yw.get("big_movers", []),
+                "any_breaking": yw.get("any_breaking", False),
+            }
+    except Exception as e:  # noqa: BLE001
+        log.debug("[morning_report] yield_watch fetch failed: %s", e)
+    return out
 
 
 def _risk_warnings(g: dict, indicator_result: Optional[dict],
@@ -502,6 +656,16 @@ def build_market_brief(market_key: str, *, force: bool = False,
     if transition.get("transitioning"):
         warnings.append("Regime shift — " + transition.get("note", "regime transitioning"))
 
+    # Propagate the global data-quality flag into each brief — narrate_brief
+    # uses it to suppress narration when key macro inputs are degraded.
+    data_quality = g.get("data_quality") or {"status": "OK", "degraded_assets": []}
+    if data_quality.get("status") == "DEGRADED":
+        warnings.append(
+            "DATA QUALITY DEGRADED — sources disagree on "
+            + ", ".join(data_quality.get("degraded_assets", [])[:3])
+            + " — treat directional read as LOW conviction"
+        )
+
     brief = {
         "market":         cfg["name"],
         "market_key":     market_key,
@@ -515,6 +679,7 @@ def build_market_brief(market_key: str, *, force: bool = False,
         "stability":      stability,
         "support":        levels.get("support"),
         "resistance":     levels.get("resistance"),
+        "data_quality":   data_quality,
         "overnight_catalysts": catalysts,
         "macro_drivers":  drivers,
         "risk_warnings":  warnings,
@@ -543,7 +708,8 @@ def build_market_brief(market_key: str, *, force: bool = False,
         "_cache_hit":     False,
     }
 
-    _cache_put(cache_key, brief, _market_ttl(market_key))
+    ttl = _BREAKING_TTL if _breaking_news_active(snap) else _market_ttl(market_key)
+    _cache_put(cache_key, brief, ttl)
     return brief
 
 
@@ -643,6 +809,16 @@ def narrate_brief(brief: dict) -> Optional[str]:
     zero LLM tokens, lowest latency.
     """
     if os.environ.get("ENABLE_MORNING_NARRATION", "").strip().lower() not in {"1", "true", "yes", "on"}:
+        return None
+
+    # Data-quality gate: if key macro inputs are DEGRADED, refuse to narrate.
+    # Better to render the deterministic bias alone than to write confident
+    # prose grounded in conflicting source data. The bias engine itself is
+    # robust to a single bad input; the LLM is not — it confabulates evidence.
+    dq = brief.get("data_quality") or {}
+    if dq.get("status") == "DEGRADED":
+        log.info("[morning_report] narration suppressed — data quality degraded: %s",
+                 dq.get("degraded_assets"))
         return None
 
     bias = brief.get("computed_bias", "NEUTRAL")

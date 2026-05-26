@@ -476,6 +476,47 @@ def _norm(text):
     return re.sub(r"\s+", " ", t).strip()
 
 
+# ─── Content-based category tags ────────────────────────────────────────────
+# Source-based SOURCE_CATEGORY misses headlines whose CONTENT is about
+# bonds/yields but came from a markets/world-news source (a Reuters story
+# saying "Japan 10Y rises, Nikkei falls" lands in MARKETS, never BONDS).
+# These keyword sets tag items by content so the BONDS/RATES tab actually
+# fills up. ``tags`` is a multi-category list — primary category stays.
+
+_BOND_NEWS_KEYWORDS = (
+    # Yields + curve
+    "yield curve", "yields", "yield ", "10-year", "10 year", "10y ",
+    "2-year", "2 year", "2y ", "30-year", "30y ", "5-year",
+    "basis points", " bps ", " bp ",
+    # Bonds + treasury
+    "treasury", "treasuries", "bond market", "bond rout", "bond sell",
+    "sovereign debt", "auction tail", "issuance",
+    # Non-US sovereigns
+    " jgb", "japan 10", "bund", "gilt", "btp", "oat", "boj",
+    # Rates policy
+    "rate hike", "rate cut", "rate decision", "rate path",
+    "fed funds", "dot plot", "fomc", "ecb policy", "rbi repo",
+    "monetary policy", "tightening", "easing cycle",
+)
+
+
+def _tag_content_categories(items: list) -> None:
+    """Add content-based category tags. Currently tags BONDS by keyword
+    match. ``tags`` is a list so other content categories can be added
+    later without touching the source-based ``category`` field."""
+    for n in items:
+        if not isinstance(n, dict):
+            continue
+        text = (n.get("text") or n.get("headline") or "").lower()
+        if not text:
+            continue
+        tags = n.get("tags") or []
+        if "BONDS" not in tags and any(kw in text for kw in _BOND_NEWS_KEYWORDS):
+            tags.append("BONDS")
+        if tags:
+            n["tags"] = tags
+
+
 # Module-level cache for get_all_news — 16 callers across the codebase hit this
 # function. Without this, each call does ~28s of RSS fetches (79 feeds × 7s timeout
 # / 20 workers). Cache TTL matches the dashboard's _cached("news", 15) refresh.
@@ -558,7 +599,9 @@ def _get_all_news_uncached():
             norm_map[key] = len(unique)
             unique.append(n)
 
-    return unique[:MAX_TOTAL]
+    unique = unique[:MAX_TOTAL]
+    _tag_content_categories(unique)
+    return unique
 
 
 def format_news(news_list):

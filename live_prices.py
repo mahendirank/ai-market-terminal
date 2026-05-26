@@ -18,10 +18,32 @@ from datetime import datetime, timezone, timedelta
 IST = timezone(timedelta(hours=5, minutes=30))
 
 # ── Rate-limit state ──────────────────────────────────────────────────────────
-_stooq_blocked  = False          # True when daily limit hit
-_stooq_lock     = threading.Lock()
+# Stooq's "Exceeded" daily-limit response used to flip _stooq_blocked permanently
+# for the process lifetime, leaving the terminal on yfinance-fallback (which has
+# the futures-rollover prev_close bug) for hours. Now the block carries a
+# timestamp and expires after _STOOQ_COOLDOWN_SECS, so a transient rate-limit
+# stops being a half-day data-quality outage.
+_stooq_blocked      = False
+_stooq_blocked_at   = 0.0        # epoch when the block was set
+_STOOQ_COOLDOWN_SECS = 30 * 60   # 30 min — long enough to honour the limit,
+                                  # short enough that the block doesn't span a session
+_stooq_lock         = threading.Lock()
 STOOQ_HEADERS   = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 SQ_HEADERS      = {"User-Agent": "Mozilla/5.0"}
+
+
+def _stooq_check_unblock() -> None:
+    """Clear the Stooq block if the cooldown has elapsed. Cheap O(1)."""
+    global _stooq_blocked, _stooq_blocked_at
+    if not _stooq_blocked:
+        return
+    if (time.time() - _stooq_blocked_at) < _STOOQ_COOLDOWN_SECS:
+        return
+    with _stooq_lock:
+        if _stooq_blocked and (time.time() - _stooq_blocked_at) >= _STOOQ_COOLDOWN_SECS:
+            _stooq_blocked = False
+            _stooq_blocked_at = 0.0
+            print("[live_prices] Stooq cooldown elapsed — re-enabling Stooq fetches", flush=True)
 
 # ── Symbol tables ─────────────────────────────────────────────────────────────
 
@@ -73,6 +95,15 @@ YF_MAP = {
     "NIFTY50":  "^NSEI",  "BANKNIFTY": "^NSEBANK","SENSEX": "^BSESN",
 }
 
+# Non-US sovereign 10Y yields via TradingView (tvdata.py).
+# Exchange "TVC" hosts standard government bond yield symbols.
+TV_BOND_MAP = {
+    "JP_10Y": ("JP10Y", "TVC"),
+    "DE_10Y": ("DE10Y", "TVC"),   # Bund
+    "UK_10Y": ("GB10Y", "TVC"),   # Gilt
+    "IN_10Y": ("IN10Y", "TVC"),
+}
+
 # Valid ranges to reject garbage
 _VALID = {
     "GOLD":   (2000,9000),"SILVER":(10,200),"CRUDE":(20,200),"NATGAS":(0.5,20),"COPPER":(1,15),
@@ -82,6 +113,7 @@ _VALID = {
     "FTSE":(5000,12000),"NIKKEI":(10000,80000),"HSI":(10000,40000),
     "NIFTY50":(10000,35000),"BANKNIFTY":(30000,80000),"SENSEX":(30000,95000),
     "US_3M":(0,8),"US_5Y":(0,8),"US_10Y":(0,8),"US_30Y":(0,8),"US_2Y":(0,8),
+    "JP_10Y":(0,5),"DE_10Y":(0,8),"UK_10Y":(0,10),"IN_10Y":(4,12),
     "VIX":(5,90),"INDIA_VIX":(5,90),"BTC":(5000,300000),"ETH":(50,25000),
 }
 
@@ -89,7 +121,7 @@ def _ok(name, val):
     lo, hi = _VALID.get(name, (None, None))
     return lo is None or lo <= float(val) <= hi
 
-def _entry(price, prev, source):
+def _entry(price, prev, source, quality="OK"):
     if not price or price <= 0:
         return None
     chg = round((price - prev) / prev * 100, 3) if prev and prev > 0 else 0.0
@@ -100,12 +132,14 @@ def _entry(price, prev, source):
         "change": chg,
         "arrow":  "▲" if chg > 0 else "▼" if chg < 0 else "─",
         "source": source,
+        "quality": quality,   # "OK" | "DEGRADED" — see prev_close_cache.reconcile_with_quality
     }
 
 # ── Source 1: Stooq ───────────────────────────────────────────────────────────
 
 def _stooq_one(name, sym, mult=1.0):
-    global _stooq_blocked
+    global _stooq_blocked, _stooq_blocked_at
+    _stooq_check_unblock()
     if _stooq_blocked:
         return None
     try:
@@ -117,7 +151,8 @@ def _stooq_one(name, sym, mult=1.0):
         if "Exceeded" in body or "limit" in body.lower():
             with _stooq_lock:
                 _stooq_blocked = True
-            print("[live_prices] Stooq daily limit hit — switching to Swissquote+yfinance", flush=True)
+                _stooq_blocked_at = time.time()
+            print("[live_prices] Stooq daily limit hit — cooling down for 30 min", flush=True)
             return None
         lines = [l for l in body.splitlines() if l and not l.startswith("Symbol") and "," in l]
         if not lines:
@@ -129,12 +164,24 @@ def _stooq_one(name, sym, mult=1.0):
         open_ = float(parts[3]) * mult
         if close <= 0 or not _ok(name, close):
             return None
+        # Stooq's intraday CSV gives today's OPEN as the only stable "prev"
+        # reference. For commodity futures + FX that trade nearly 24h this is
+        # ~= yesterday's close, so it's the most reliable day-change anchor
+        # we have. Publish it to the prev_close cache so yfinance fallback
+        # doesn't poison the change% with its stale futures-rollover prev
+        # (yfinance reported CL=F prev=$96.60 while reality was $91.02).
+        try:
+            from prev_close_cache import put as _pc_put
+            _pc_put(name, open_, source="stooq")
+        except Exception:
+            pass
         return _entry(close, open_, "stooq")
     except Exception:
         return None
 
 def _stooq_batch(keys: list) -> dict:
     """Fetch symbols from Stooq with max 3 concurrent connections."""
+    _stooq_check_unblock()
     if _stooq_blocked:
         return {}
     results = {}
@@ -229,7 +276,13 @@ def _yf_one(name, sym):
         last = float(fi.last_price)
         prev = float(fi.previous_close)
         if last > 0 and _ok(name, last):
-            return _entry(last, prev, "yfinance")
+            quality = "OK"
+            try:
+                from prev_close_cache import reconcile_with_quality as _pc_rec
+                prev, quality = _pc_rec(name, prev, max_drift_pct=5.0)
+            except Exception:
+                pass
+            return _entry(last, prev, "yfinance", quality=quality)
     except Exception:
         pass
     return None
@@ -245,6 +298,53 @@ def _yf_batch(keys: list) -> dict:
             k = futs[fut]
             try:
                 v = fut.result(timeout=20)
+                if v:
+                    results[k] = v
+            except Exception:
+                pass
+    return results
+
+# ── Source 3b: TradingView (tvdata) — non-US sovereign yields ────────────────
+
+def _tv_bond_one(name, sym, exch):
+    # tvdatafeed often SSL-times-out on the first call per process — retry
+    # twice with short backoff so JGB/Bund/Gilt/India don't drop on cold-start.
+    try:
+        from tvdata import _fetch_one
+    except Exception:
+        return None
+    d = None
+    for attempt in range(3):
+        try:
+            d = _fetch_one(sym, exch, n_bars=2)
+        except Exception:
+            d = None
+        if d:
+            break
+        time.sleep(0.4)
+    if not d:
+        return None
+    try:
+        price = float(d.get("price", 0))
+        change_pct = float(d.get("change", 0))
+        prev = price / (1 + change_pct/100.0) if change_pct else price
+        if price > 0 and _ok(name, price):
+            return _entry(price, prev, "tvdata")
+    except Exception:
+        pass
+    return None
+
+def _tv_bond_batch(keys: list) -> dict:
+    results = {}
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futs = {
+            pool.submit(_tv_bond_one, k, TV_BOND_MAP[k][0], TV_BOND_MAP[k][1]): k
+            for k in keys if k in TV_BOND_MAP
+        }
+        for fut in futs:
+            k = futs[fut]
+            try:
+                v = fut.result(timeout=12)
                 if v:
                     results[k] = v
             except Exception:
@@ -296,6 +396,7 @@ _CMDTY_KEYS  = ["GOLD","SILVER","CRUDE","NATGAS","COPPER"]
 _FX_KEYS     = ["DXY","EURUSD","GBPUSD","USDJPY","USDINR","AUDUSD","USDCAD","USDCNY"]
 _GLOBAL_KEYS = ["SPX","NASDAQ","DAX","HSI","DOW","FTSE","NIKKEI"]
 _BOND_KEYS   = ["US_3M","US_5Y","US_10Y","US_30Y","US_2Y"]
+_TV_BOND_KEYS = ["JP_10Y","DE_10Y","UK_10Y","IN_10Y"]
 _CRYPTO_KEYS = ["BTC","ETH"]
 _VIX_KEYS    = ["VIX"]
 
@@ -325,6 +426,7 @@ def _fetch_all() -> dict:
         fut_stooq  = outer.submit(_stooq_batch, _CMDTY_KEYS + _FX_KEYS + ["SPX","NASDAQ","DAX","HSI"])
         fut_yf_glo = outer.submit(_yf_batch, ["DOW","FTSE","NIKKEI","HSI"])
         fut_yf_bnd = outer.submit(_yf_batch, _BOND_KEYS[:-1])   # US_2Y from FRED
+        fut_tv_bnd = outer.submit(_tv_bond_batch, _TV_BOND_KEYS)  # JGB/Bund/Gilt/India
         fut_yf_cry = outer.submit(_yf_batch, _CRYPTO_KEYS)
         fut_yf_vix = outer.submit(_yf_batch, _VIX_KEYS)
         fut_fred   = outer.submit(_fred_yield, "US_2Y", "DGS2")
@@ -388,6 +490,11 @@ def _fetch_all() -> dict:
     try:
         fred2y = fut_fred.result(timeout=5)
         if fred2y: result["bonds"]["US_2Y"] = fred2y
+    except: pass
+    try:
+        tvbnd = fut_tv_bnd.result(timeout=15) or {}
+        for k,v in tvbnd.items():
+            result["bonds"][k] = v
     except: pass
     try:
         for k,v in (fut_yf_cry.result(timeout=5) or {}).items():

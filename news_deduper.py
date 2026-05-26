@@ -276,6 +276,29 @@ def dedupe_news(
         out.append(cluster_dict)
 
     out.sort(key=lambda c: (c["weighted_score"], c["size"]), reverse=True)
+
+    # Push HIGH-severity clusters to the event bus so downstream caches
+    # (morning_report, yield_watch, ai_persona) invalidate immediately.
+    # event_classifier scores geopolitical military events at 7+, so we
+    # use 7 as the breaking threshold. publish_breaking dedups per-topic.
+    try:
+        from event_bus import publish_breaking
+        for c in out[:max_clusters]:
+            ev = c.get("event") or {}
+            sev = int(ev.get("severity", 0) or 0)
+            if sev >= 7:
+                publish_breaking(
+                    topic=c.get("topic", "")[:200],
+                    severity=sev,
+                    extra={
+                        "category":  ev.get("category"),
+                        "direction": ev.get("direction"),
+                        "sources":   c.get("sources", [])[:3],
+                    },
+                )
+    except Exception:  # noqa: BLE001
+        pass
+
     return out[:max_clusters]
 
 

@@ -375,6 +375,86 @@ def _call_groq_json(messages: list, max_tokens: int = 700, temp: float = 0.25):
 
 # ─── Generate one explanation ─────────────────────────────────────────────────
 
+def _validate_grounding(parsed: dict, context_block: str, move: dict) -> tuple[bool, str]:
+    """Reject LLM outputs that cite numbers not present in the snapshot.
+
+    Two checks, in order of impact:
+
+    1. **Direction-matches-data**: if the actual move is UP but the prose
+       reads as "decline / dropped / fell / down", reject hard. The LLM
+       confabulated the direction of the move itself.
+
+    2. **Numeric grounding**: extract numbers from what_moved/why_it_moved/
+       evidence, compare to numbers in the context block (the snapshot the
+       LLM was actually given). When >40% of the numbers cited don't appear
+       in the snapshot (within 1% tolerance), the prose is unsourced and
+       must not ship.
+
+    Returns
+    -------
+    (ok, reason). ``reason`` is empty when ``ok`` is True.
+    """
+    import re
+
+    output_text = " ".join([
+        str(parsed.get("what_moved", "")),
+        str(parsed.get("why_it_moved", "")),
+        " ".join(str(x) for x in (parsed.get("evidence", []) or [])),
+    ]).lower()
+
+    # ── Check 1: direction sanity. Cheap and catches the worst class. ──
+    chg = float(move.get("change_pct", 0) or 0)
+    if chg > 0.5:  # actual move is UP
+        # "rose / climbed / rallied / surged / jumped / gained" → consistent
+        # "fell / dropped / declined / down / slid / plunged" → confabulation
+        down_words = ("fell", "dropped", "declined", " down ", "slid",
+                      "plunged", "tumbled", "lost ground", "sold off",
+                      "selling pressure", "downward pressure")
+        for w in down_words:
+            if w in output_text:
+                return False, f"actual move +{chg:.2f}% but prose says '{w.strip()}'"
+    elif chg < -0.5:  # actual move is DOWN
+        up_words = ("rose", "climbed", "rallied", "surged", "jumped",
+                    "gained", " up ", "advanced", "broke higher",
+                    "upward pressure", "bid up")
+        for w in up_words:
+            if w in output_text:
+                return False, f"actual move {chg:.2f}% but prose says '{w.strip()}'"
+
+    # ── Check 2: numeric grounding. Extract numbers from output + context. ──
+    def _extract(text: str) -> set:
+        nums = set()
+        for m in re.finditer(r"[+-]?\d+(?:\.\d+)?", text):
+            try:
+                v = float(m.group(0))
+                if abs(v) >= 0.1:
+                    nums.add(round(v, 2))
+            except ValueError:
+                pass
+        return nums
+
+    out_nums = _extract(output_text)
+    if not out_nums:
+        return True, ""
+    ctx_nums = _extract(context_block.lower())
+
+    def _grounded(n: float) -> bool:
+        if n in ctx_nums:
+            return True
+        for cn in ctx_nums:
+            if cn == 0:
+                continue
+            if abs(n - cn) / abs(cn) < 0.01:  # 1% tolerance for rounding
+                return True
+        return False
+
+    ungrounded = [n for n in out_nums if not _grounded(n)]
+    if len(ungrounded) > max(2, len(out_nums) * 0.4):
+        sample = sorted(ungrounded)[:5]
+        return False, f"{len(ungrounded)}/{len(out_nums)} numbers absent from snapshot, e.g. {sample}"
+    return True, ""
+
+
 def generate_explanation_for(asset_def: dict, force: bool = False) -> dict | None:
     """Generate (and persist) one explanation if asset has a strong move.
     Returns the explanation dict or None if no move / already explained / failed."""
@@ -412,6 +492,17 @@ def generate_explanation_for(asset_def: dict, force: bool = False) -> dict | Non
         ]
     parsed = _call_groq_json(messages, max_tokens=700)
     if not parsed:
+        return None
+
+    # Number-grounding guard: reject explanations whose prose cites numbers
+    # that don't appear in the LIVE SNAPSHOT. The bug class this prevents:
+    # the Groq Llama-3 model used here will happily write "crude fell 3.1%"
+    # even when the snapshot says +3.0% — fabricating supporting evidence
+    # to make a wrong direction sound coherent. This validator is a hard gate
+    # downstream of the prompt's "cite ONLY snapshot data" instruction.
+    ok, reason = _validate_grounding(parsed, context_block, move)
+    if not ok:
+        print(f"[explainer] rejected {asset_def['key']} — ungrounded: {reason}", flush=True)
         return None
 
     expl = {

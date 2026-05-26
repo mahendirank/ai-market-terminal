@@ -1,6 +1,215 @@
 # Production Architecture — Status & Roadmap
 
-This document tracks what's production-ready in the terminal. **Last updated 2026-05-22** — AI sidebar cold-start fixes (section below). Step 8 baseline: 2026-05-12.
+This document tracks what's production-ready in the terminal. **Last updated 2026-05-26** — bonds/yields coverage, breaking-news event bus, data-quality hardening (section below). Step 8 baseline: 2026-05-12.
+
+---
+
+## 🛠 Pending commit 2026-05-26 — bonds, breaking-news bus, data-truth (in `market-terminal` container, not yet pushed)
+
+A live incident exposed three classes of bug at once: (1) the BOND
+YIELDS column showed only US sovereigns, so a Japan-10Y-rising-overnight
+signal was structurally invisible; (2) the Morning Note kept serving a
+05:00 IST brief that missed a 06:15 IST US-attacks-Iran headline because
+the TTL was 90–150 min; (3) the Explainer wrote "crude fell 3.1%, risk-on"
+based on yfinance's broken futures-rollover `previous_close` (it returned
+$96.60 vs Stooq's actual $91.02), then `bias_consensus_engine` cascaded
+that into systematic SELL across all 8 markets in the pre-market report.
+
+Six waves, all running on the bind-mounted container — each restart was a
+single ~5s blip. **No commits yet — review the diff before pushing.**
+
+### 1. Non-US 10Y yields live in BOND YIELDS  (`live_prices.py`, `Dockerfile`)
+
+The BOND YIELDS column only had `US_3M/2Y/5Y/10Y/30Y`. JGB, Bund, Gilt,
+India 10Y were absent — and `tvdata.py` (the TradingView-fed module
+already in the repo) was silently returning `None` because the
+`tvdatafeed` PyPI package had been withdrawn and the Dockerfile's
+optional `pip install tvdatafeed || true` swallowed the failure. NSE
+indices had been falling through to yfinance's 15-min-delayed quotes
+the whole time, undetected.
+
+- `Dockerfile`: install `git` in apt-get + `pip install
+  'tvdatafeed @ git+https://github.com/rongardF/tvdatafeed.git'` so the
+  maintained fork lands at build time.
+- `live_prices.py`: added `TV_BOND_MAP = {JP_10Y, DE_10Y, UK_10Y, IN_10Y → TVC}`,
+  `_TV_BOND_KEYS`, `_tv_bond_one` (with 3× retry/0.4s backoff because
+  tvdata cold-starts SSL-timeout on first call), `_tv_bond_batch`, and
+  `_VALID` ranges. Wired into the existing `_fetch_all` parallel
+  executor.
+- Frontend auto-renders the new keys via the existing
+  `_renderDbr('db-yld', lp.bonds||{}, 'BONDS')` — no HTML edit needed.
+
+Side benefit: NSE indices now use live TradingView instead of the
+15-min-delayed yfinance fallback they'd been on for months.
+
+### 2. Morning Note: global shocks attach to every market  (`morning_report.py`)
+
+`_overnight_catalysts` filtered news clusters by per-market keyword sets
+(USA: `"us ", "fed", "fomc", ...`). "Iran", "Israel", "missile",
+"oil shock" appeared in *no* market's list — so a "US strikes Iran"
+headline sat in the GEOPOLITICS bucket attached to *no* market brief
+even though every oil-importer index reprices on it instantly.
+
+- Added `GLOBAL_SHOCK_KEYWORDS` (Iran, Israel, Russia, Ukraine, Taiwan,
+  missile, strike, oil shock, sanction, bond rout, BOJ intervention, ...).
+- `_overnight_catalysts` now returns up to 2 local-keyword hits + 2 global-shock
+  hits per brief; global hits carry `scope: "GLOBAL"` so the UI can mark them.
+- Global shocks only count when severity ≥ 5 so routine flashpoint-country
+  mentions don't dilute the signal.
+
+### 3. Adaptive TTL on breaking news  (`morning_report.py`)
+
+`_GLOBAL_TTL = 90 min` and `_BASE_TTL = 150 min` per market meant a brief
+generated at 05:00 IST stayed cached through the entire 05:00–07:30
+window even after a major catalyst. New helper `_breaking_news_active(snap)`
+scans `snap.news.clusters` for any cluster with severity ≥ 7
+(`event_classifier` scores geopolitical military events at 7–9). When
+True, `_BREAKING_TTL = 5 min` overrides both `_GLOBAL_TTL` and
+`_market_ttl` at cache-write time. Default behaviour unchanged when no
+HIGH-severity event is in-snapshot.
+
+### 4. AI yield narrative + new endpoint  (`yield_watch.py` (new), `dashboard_api.py`, `templates/dashboard.html`)
+
+New module reads US/JP/DE/UK/IN 10Y from `live_prices`, computes
+basis-point deltas (1d), and calls `ai_router.chat(task="fast_summary")`
+for a one-paragraph cross-asset read whenever any |Δ| ≥ 5 bp. Cached 5
+min normally, 1 min when any |Δ| ≥ 10 bp.
+
+- New endpoint `/api/yield-watch` (`dashboard_api.py:1977-1991`).
+- New UI element `#db-yld-insight` under the BOND YIELDS column; the
+  `loadLivePrices()` call now also calls `loadYieldInsight()`.
+- `morning_report._macro_drivers` includes `yield_watch.{yields,
+  narrative, big_movers, any_breaking}` in every brief.
+- Gated by `ENABLE_YIELD_NARRATION` env (default on); narrative stays
+  hidden until a yield actually moves ≥ 5 bp so the UI doesn't show an
+  empty paragraph.
+
+### 5. Redis pub/sub event bus  (`event_bus.py` (new), `news_deduper.py`, subscribers)
+
+Until this landed, every cache decided freshness on its own TTL clock.
+A 25-minute morning brief stayed warm through the first 25 minutes of a
+geopolitical shock while competing free tools (ChatGPT-with-web-search)
+were already naming the new driver.
+
+- New channel `events:breaking`. Payload is JSON with `topic`, `severity`,
+  `ts`, optional `category`, `direction`, `sources`.
+- `event_bus.publish_breaking()`: dedups per-topic within a 90s window so
+  a sticky cluster doesn't fire every poll.
+- `event_bus.start_listener()` (idempotent): spawns a daemon thread that
+  pumps the pub/sub and reconnects on Redis blips.
+- `news_deduper.dedupe_news()` publishes every cluster with severity ≥ 7
+  to the channel.
+- `morning_report.py` and `yield_watch.py` subscribe at module import:
+  on event they drop `morning:global_signals`, every `morning:brief:*`
+  (via Redis SCAN), and `yield_watch:v1`. Verified: smoke test publishes
+  a fake severity-8 event → all three caches gone within 2s.
+- Falls back silently when Redis is unavailable — caches just expire by
+  TTL as before.
+
+### 6. BONDS/RATES tab fills with the actual move drivers  (`news.py`, `dashboard_api.py`, `templates/dashboard.html`)
+
+Source-based `SOURCE_CATEGORY` only tagged 3 sources as BONDS (FT
+Markets, WSJ Mkt, BondBuyer). A Reuters story about "Japan 10Y rises,
+Nikkei falls" came from a `MARKETS`-tagged source and never landed in
+the BONDS/RATES tab.
+
+- `news.py`: added `_BOND_NEWS_KEYWORDS` (~30 terms: yield curve,
+  10-year, treasury, JGB, Bund, Gilt, rate hike, dot plot, FOMC, BOJ,
+  basis points, ...) and `_tag_content_categories()` — runs after dedup
+  and appends `BONDS` to each item's `tags` list when content matches.
+  Primary `category` stays as source-derived.
+- `dashboard_api.api_news` now serialises the `tags` field in the JSON
+  response (the bug that hid the fix in v1).
+- Frontend `renderFeed` + `updateCounts` filter on
+  `n.category === activeCat || (Array.isArray(n.tags) && n.tags.includes(activeCat))`.
+
+Verified live today: 14 items in BONDS tab vs the previous 4 (e.g.
+"UK gilt yields retreat from multi-decade highs", "Treasury yields
+slide as traders weigh Iran peace prospects", "Bessent's Options Seen
+Limited to Halt Climb in Treasury Yields").
+
+### 7. Data-truth hardening: prev_close cache  (`prev_close_cache.py` (new), `live_prices.py`)
+
+`yfinance.Ticker(sym).fast_info.previous_close` is unreliable for
+commodity futures — `CL=F` returned $96.60 while reality (per Stooq)
+was $91.02 today, flipping crude's daily change from +3% to −3% and
+cascading into the SELL-everything pre-market report.
+
+- New module `prev_close_cache.py`: per-symbol Redis-cached
+  yesterday's-close keyed by `(SYMBOL, IST date)`, 24h TTL,
+  in-process dict fallback. `put()` is first-write-wins;
+  `reconcile_with_quality()` lets a low-trust source's prev be
+  overridden by a high-trust one's, returning `(value, "OK" | "DEGRADED")`.
+- `_stooq_one` writes the truth value (Stooq's intraday "open", which
+  for commodity futures ≈ yesterday's close because they trade ~24h).
+- `_yf_one` reads via `reconcile_with_quality(..., max_drift_pct=5.0)`.
+  When the cached prev disagrees with yfinance's by > 5%, the cached
+  value wins and the entry is tagged `quality: "DEGRADED"`.
+- Verified: `_yf_one("CRUDE","CL=F")` returns `+2.977%` (was `-2.795%`).
+  Drift-detect logged: "candidate 96.60 drifts 6.13% from cached 91.02 — using cached".
+
+Also purged 6 wrong "OIL DOWN" entries (id 134, 135, 136, 137, 141, 144)
+from `db/explainer.db` and triggered an event-bus flush so the rest of
+the caches recomputed against corrected data.
+
+### 8. Stooq cooldown reset  (`live_prices.py`)
+
+`_stooq_blocked` used to be a module-global that, once True, stayed True
+for the process lifetime. A 11am "limit exceeded" reply meant the
+terminal ran on yfinance fallback for the rest of the day. New
+`_stooq_check_unblock()` resets after `_STOOQ_COOLDOWN_SECS = 1800`
+(30 min). Called at the top of `_stooq_one` and `_stooq_batch`.
+
+### 9. Cross-source quality flag propagation  (`live_prices.py`, `morning_report.py`)
+
+`_entry()` now carries `quality: "OK" | "DEGRADED"`.
+`_build_global_signals` reads quality on the watched inputs (`US_10Y`,
+`CRUDE`, `GOLD`, `DXY`, `SPX`, `NASDAQ`) and emits
+`out["data_quality"] = {"status", "degraded_assets", "checked_at"}`.
+`build_market_brief` propagates this into every brief AND appends a
+`DATA QUALITY DEGRADED — sources disagree on …` risk warning when
+status is `DEGRADED`. `narrate_brief` returns `None` (no LLM call) when
+`data_quality.status == "DEGRADED"` — better to render the deterministic
+bias alone than to fabricate confident prose grounded in conflicting
+source data.
+
+### 10. Explainer LLM grounding validator  (`explainer.py`)
+
+The WHY-MOVE prompt instructs "cite ONLY data points present in the LIVE
+SNAPSHOT" but Llama-3 still wrote "crude fell 3.10%" when the snapshot
+said `+3.03%`. New `_validate_grounding(parsed, context_block, move)`
+runs after every LLM call and **rejects** the explanation when:
+- The actual move is UP > 0.5% but the prose contains down-words
+  (`"fell"`, `"dropped"`, `"declined"`, `"plunged"`, `"sold off"`, ...),
+  or the actual move is DOWN < -0.5% but the prose contains up-words.
+- More than 40% of numbers cited in `what_moved + why_it_moved + evidence`
+  don't appear in the context block (within 1% tolerance).
+
+Verified: a confabulated "crude fell 3.10% on risk-on rotation" against
+actual +3.03% returns `(False, "actual move +3.03% but prose says 'fell'")`.
+A correctly-grounded "crude rose 3.03% on Iran tensions" returns
+`(True, "")`. Rejected explanations never reach `db/explainer.db`.
+
+### Operational notes for the next session
+
+- **Not yet committed** in `/Users/mahendiran/ai-system/core`. 12 files
+  modified/added (3 new: `event_bus.py`, `yield_watch.py`,
+  `prev_close_cache.py`). Recommend reviewing the diff per-wave before
+  pushing — each wave is independently revertable.
+- The container has `tvdatafeed` installed at runtime but the Dockerfile
+  change won't take effect until the next image rebuild. To verify the
+  rebuild works: `docker compose -f docker-compose.market-terminal.yml
+  build --no-cache market-terminal && docker compose ... up -d
+  --force-recreate market-terminal`.
+- The honest ceiling on free-data sources is now visible: the
+  `DATA QUALITY DEGRADED` warning fires when yfinance + Stooq disagree.
+  The product is "good for personal use with a credibility floor"; for
+  paid users, a Polygon.io Starter ($79/mo) + Trading Economics
+  ($50/mo) tier replaces yfinance/Stooq/manual-bonds entirely.
+- The Stooq cooldown is set to 30 min. If you see the
+  `[live_prices] Stooq cooldown elapsed` log line followed shortly by
+  `Stooq daily limit hit` again, lengthen `_STOOQ_COOLDOWN_SECS` to
+  3600 (1h) — they may have lowered the daily threshold.
 
 ---
 

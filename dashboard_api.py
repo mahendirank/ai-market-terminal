@@ -1427,6 +1427,7 @@ def api_news():
                     "time":       item.get("time", ""),
                     "pub_utc":    item.get("pub_utc", ""),
                     "category":   item.get("category", "MARKETS"),
+                    "tags":       item.get("tags", []),
                     "summarized": item.get("summarized", False),
                     "tickers":    item.get("tickers", []),
                     "url":        item.get("url", ""),
@@ -1972,6 +1973,23 @@ def api_liquidity():
         from fred_data import get_liquidity
         return _cached("liquidity", 21600, get_liquidity)
     except Exception as e: return {"error": str(e)}
+
+
+@app.get("/api/yield-watch")
+def api_yield_watch(force: bool = False):
+    """Sovereign 10Y yields (US/JGB/Bund/Gilt/India) with a one-paragraph
+    cross-asset narrative when any |Δ| >= 5bp. Cached 5 min normally,
+    1 min when any yield is moving 10bp+."""
+    def _build():
+        try:
+            from yield_watch import get_yield_watch
+            return get_yield_watch(force=force)
+        except Exception as e:
+            return {"error": str(e), "yields": {}, "narrative": None}
+    return _bg_refresh("yield_watch", 300, _build, empty={
+        "yields": {}, "narrative": None, "big_movers": [],
+        "any_breaking": False, "generated_at": 0,
+    })
 
 
 @app.get("/api/earnings")

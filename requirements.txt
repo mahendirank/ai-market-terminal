@@ -19,3 +19,8 @@ ta>=0.11.0
 
 # Sprint 1 — added 2026-05-18 (was implicit/missing)
 python-pptx
+# NOTE: tvdatafeed is installed via a `pip install ... || true` line in the
+# Dockerfile (the PyPI package was withdrawn; we install from the rongardF
+# fork). Keeping it out of this file means a transient network glitch
+# during build downgrades cleanly to 'no live TV feed' instead of failing
+# the whole image build.

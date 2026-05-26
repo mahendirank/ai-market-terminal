@@ -5,7 +5,7 @@ RUN useradd -m -u 1000 appuser
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc g++ libxml2-dev libxslt1-dev libffi-dev curl \
+    gcc g++ libxml2-dev libxslt1-dev libffi-dev curl git \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
@@ -14,8 +14,11 @@ RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
 # newspaper3k is optional (has BeautifulSoup fallback) — install best-effort
 RUN pip install --no-cache-dir --prefer-binary newspaper3k || true
 
-# tvdatafeed is optional — install best-effort (falls back gracefully if unavailable)
-RUN pip install --no-cache-dir --prefer-binary tvdatafeed || true
+# tvdatafeed: install from the maintained rongardF fork (the original PyPI
+# package was withdrawn). git is installed above so pip can clone. This is
+# critical — without it, tvdata.py silently returns None and NSE indices
+# fall through to yfinance's 15-min-delayed quotes.
+RUN pip install --no-cache-dir 'tvdatafeed @ git+https://github.com/rongardF/tvdatafeed.git' || true
 
 # Pre-download NLTK data at build time
 RUN python -c "import nltk; nltk.download('punkt', quiet=True); nltk.download('punkt_tab', quiet=True)" || true

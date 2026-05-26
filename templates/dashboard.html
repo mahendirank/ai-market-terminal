@@ -2751,7 +2751,11 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 <div class="data-bar">
   <div class="db-col"><div class="db-head">GLOBAL INDICES</div><div class="db-rows" id="db-idx"><div class="loading">—</div></div></div>
   <div class="db-col"><div class="db-head">FX / CURRENCIES</div><div class="db-rows" id="db-fx"><div class="loading">—</div></div></div>
-  <div class="db-col"><div class="db-head">BOND YIELDS</div><div class="db-rows" id="db-yld"><div class="loading">—</div></div></div>
+  <div class="db-col">
+    <div class="db-head">BOND YIELDS</div>
+    <div class="db-rows" id="db-yld"><div class="loading">—</div></div>
+    <div id="db-yld-insight" style="margin-top:6px;padding:6px 8px;border-top:1px solid #1a2a3a;font-size:10.5px;line-height:1.45;color:#9aa6b2;display:none;"></div>
+  </div>
   <div class="db-col"><div class="db-head">COMMODITIES + ETFs</div><div class="db-rows" id="db-cmd"><div class="loading">—</div></div></div>
 </div>
 
@@ -3200,7 +3204,14 @@ function _matchesAsset(n) {
 
 function renderFeed(freshSet) {
   const feed = document.getElementById('news-feed');
-  let raw = activeCat === 'ALL' ? allNews : allNews.filter(n => n.category === activeCat);
+  // Match on source-based `category` OR content-based `tags` (BONDS).
+  // The backend tags any headline mentioning yields, 10Y, treasury, JGB,
+  // rate hike etc. so the BONDS/RATES tab fills with the actual move
+  // drivers, not just BondBuyer.
+  let raw = activeCat === 'ALL'
+    ? allNews
+    : allNews.filter(n => n.category === activeCat ||
+                          (Array.isArray(n.tags) && n.tags.includes(activeCat)));
 
   // Asset filter — uses shared _matchesAsset so count always = visible rows
   if (activeAsset !== 'ALL') raw = raw.filter(_matchesAsset);
@@ -3348,7 +3359,10 @@ function updateCounts() {
   cats.forEach(c => {
     const el = document.getElementById(`cnt-${c}`);
     if (!el) return;
-    const pool = c === 'ALL' ? allNews : allNews.filter(n => n.category === c);
+    const pool = c === 'ALL'
+      ? allNews
+      : allNews.filter(n => n.category === c ||
+                            (Array.isArray(n.tags) && n.tags.includes(c)));
     el.textContent = pool.filter(_matchesAsset).length;
   });
 }
@@ -3482,6 +3496,7 @@ async function loadLivePrices() {
 
     // Yields panel (bonds)
     _renderDbr('db-yld', lp.bonds||{}, 'BONDS');
+    loadYieldInsight();   // refresh the AI cross-asset paragraph below the yields rows
 
     // Commodities + Crypto panel
     const cmdAll = {...(lp.commodities||{}), ...(lp.crypto||{}), ...(lp.vix||{})};
@@ -3496,6 +3511,34 @@ async function loadLivePrices() {
 // Keep old names wired to new function for compatibility
 async function loadIndices() { return loadLivePrices(); }
 async function loadMacro()   { return loadLivePrices(); }
+
+// ══════════════════════════════════════════════════════════════════
+// YIELD WATCH — cross-asset narrative for sovereign 10Y yields
+// Fetched together with live prices; only renders text when any |Δ| ≥ 5bp.
+// ══════════════════════════════════════════════════════════════════
+async function loadYieldInsight() {
+  const el = document.getElementById('db-yld-insight');
+  if (!el) return;
+  try {
+    const r = await fetch(BASE + '/api/yield-watch');
+    if (!r.ok) return;
+    const d = await r.json();
+    const txt = (d && d.narrative) ? String(d.narrative).trim() : '';
+    if (!txt) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    const movers = (d.big_movers || []).map(k => {
+      const row = (d.yields || {})[k] || {};
+      const bp  = row.delta_bp;
+      const sign = bp > 0 ? '+' : '';
+      return (row.label || k) + ' ' + sign + bp + 'bp';
+    }).join(' · ');
+    const breaking = d.any_breaking ? '<span style="color:#ff5b5b;font-weight:600;">BREAKING</span> ' : '';
+    el.style.display = 'block';
+    el.innerHTML =
+      '<div style="color:#7faaff;font-weight:600;margin-bottom:2px;">' + breaking +
+      'YIELD READ ' + (movers ? '· ' + movers : '') + '</div>' +
+      '<div>' + txt.replace(/</g, '&lt;') + '</div>';
+  } catch(e) { /* silent — the rows still render below */ }
+}
 
 // ══════════════════════════════════════════════════════════════════
 // MACRO OVERVIEW PANEL — live price + regime alignment
