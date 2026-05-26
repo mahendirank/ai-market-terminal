@@ -28,8 +28,8 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 90s
+      retries: 10           # was 3 — VPS boot warms ~9 caches before /api/health goes green
+      start_period: 120s    # was 90s — pip install tvdatafeed-from-git takes ~45-60s on first build
     networks: [terminal]
     logging:
       driver: "json-file"

@@ -31,7 +31,7 @@ USER appuser
 
 EXPOSE 8001
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=10 \
     CMD curl -f http://localhost:${PORT:-8001}/health || exit 1
 
 CMD ["python", "run.py"]
