@@ -116,12 +116,35 @@ async def loop_signal_verify():
         await asyncio.sleep(3600)
 
 
+async def loop_econ_pre_print():
+    """Watch the FF calendar and fire event_bus signals 5-15 min BEFORE
+    HIGH-impact prints (FOMC, NFP, CPI...) so morning_report + yield_watch
+    caches drop in time to serve fresh narratives the moment the print
+    lands. Also fires a post-print signal once actual values populate."""
+    log("INFO", "worker", "loop_econ_pre_print started")
+    await asyncio.sleep(45)  # let event_bus listener attach first
+    while True:
+        try:
+            from econ_publisher import scan_and_publish
+            summary = await asyncio.to_thread(scan_and_publish)
+            heartbeat("econ_publisher")
+            if summary.get("published"):
+                log("INFO", "worker", "econ_pre_print",
+                    published=summary["published"],
+                    checked=summary["checked"])
+        except Exception as e:
+            log("ERROR", "worker", "econ_pre_print",
+                err=type(e).__name__, msg=str(e)[:120])
+        await asyncio.sleep(60)
+
+
 LOOPS = {
     "refresh":         loop_continuous_refresh,
     "macro_snap":      loop_macro_desk_snapshot,
     "explainer":       loop_explainer_scan,
     "alerts":          loop_alert_engine,
     "signal_verify":   loop_signal_verify,
+    "econ_pre_print":  loop_econ_pre_print,
 }
 
 

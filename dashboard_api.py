@@ -83,6 +83,15 @@ async def lifespan(app: FastAPI):
         alerts_task.add_done_callback(_bg_tasks.discard)
     except Exception as _e:
         print(f"[ALERTS] init error: {_e}", flush=True)
+    # Economic-calendar pre-print gate: fires event_bus on HIGH-impact prints
+    # 5-15 min before they happen so morning_report + yield_watch caches
+    # drop in time to serve fresh narratives the moment the print lands.
+    try:
+        econ_task = asyncio.create_task(_econ_publisher_loop())
+        _bg_tasks.add(econ_task)
+        econ_task.add_done_callback(_bg_tasks.discard)
+    except Exception as _e:
+        print(f"[ECON_PUB] init error: {_e}", flush=True)
     # WS price publisher: stream live prices every 2 seconds
     try:
         ws_task = asyncio.create_task(_price_publisher_loop())
@@ -291,6 +300,27 @@ async def _alert_engine_loop():
         except Exception as _e:
             print(f"[ALERTS] loop error: {_e}", flush=True)
         await asyncio.sleep(180)   # 3 min
+
+
+async def _econ_publisher_loop():
+    """Watch the FF economic calendar and publish HIGH-impact prints to
+    event_bus 5-15 min BEFORE they fire. morning_report + yield_watch
+    are subscribed and drop their caches on receipt, so the dashboard
+    serves a fresh narrative the moment the print lands instead of a
+    pre-event stale brief."""
+    await asyncio.sleep(45)  # let event_bus listener attach first
+    while True:
+        try:
+            from econ_publisher import scan_and_publish
+            from production import heartbeat
+            summary = await asyncio.to_thread(scan_and_publish)
+            heartbeat("econ_publisher")
+            if summary.get("published"):
+                print(f"[ECON_PUB] published={summary['published']} "
+                      f"checked={summary['checked']}", flush=True)
+        except Exception as _e:
+            print(f"[ECON_PUB] loop error: {_e}", flush=True)
+        await asyncio.sleep(60)
 
 
 app = FastAPI(title="AI Market Terminal", lifespan=lifespan)
@@ -2911,6 +2941,36 @@ def api_catalyst_calendar():
             return {"events": [], "total": 0, "source": "error", "generated_at": now_ist()}
     return _bg_refresh("catalyst_calendar", 1800, _build,
                        empty={"events": [], "total": 0, "source": "loading", "generated_at": now_ist()})
+
+
+@app.get("/api/calendar/imminent")
+def api_calendar_imminent(pre: int = 30, post: int = 5):
+    """Events firing within [-post, +pre] minutes from now. Powers the
+    dashboard's 'FOMC IN 12 MIN' pre-print banner.
+
+    Query params:
+        pre  — lookahead window in minutes (default 30)
+        post — look-back window in minutes (default 5, for showing 'PRINTED' results)
+    """
+    def _build():
+        try:
+            from econ_publisher import get_imminent_events, _severity_for
+            events = get_imminent_events(window_pre_min=pre, window_post_min=post)
+            # Enrich with severity so the frontend can colour-code without a second pass
+            for ev in events:
+                ev["severity"] = _severity_for(ev)
+                ev["phase"]    = "PRE" if ev["delta_secs"] > 0 else "POST"
+            return {"events": events, "total": len(events),
+                    "pre_min": pre, "post_min": post,
+                    "generated_at": now_ist()}
+        except Exception as e:
+            print(f"[api] calendar/imminent error: {e}", flush=True)
+            return {"events": [], "total": 0, "error": str(e)[:120],
+                    "generated_at": now_ist()}
+    # 30s cache — much shorter than the parent calendar because "imminent"
+    # is time-sensitive. Worth recomputing every poll cycle.
+    return _bg_refresh("calendar_imminent", 30, _build,
+                       empty={"events": [], "total": 0, "generated_at": now_ist()})
 
 
 @app.get("/api/nse-earnings")
