@@ -739,6 +739,38 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 </div>
 </div><!-- end #market-strip-wrap -->
 
+<!-- MARKET STATE — unified cross-asset overview (regime + pressure + yields + last-hour delta + AI read) -->
+<div id="ms-card" style="display:none;margin:8px 12px 0;padding:10px 14px;background:#0a0d12;border:1px solid #1c2a3a;border-radius:6px;font-family:'JetBrains Mono','SF Mono',Menlo,monospace;font-size:11px;line-height:1.5;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+    <div style="font-size:10px;letter-spacing:0.1em;color:#7faaff;font-weight:700;">📊 MARKET STATE</div>
+    <div style="display:flex;gap:10px;align-items:center;">
+      <span id="ms-dq" style="font-size:9px;color:#5a6a7a;">—</span>
+      <span id="ms-ts" style="font-size:9px;color:#5a6a7a;">—</span>
+    </div>
+  </div>
+  <!-- Row 1: regime / net risk / dominant driver -->
+  <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:14px;margin-bottom:6px;">
+    <div>
+      <div style="color:#5a6a7a;font-size:9px;letter-spacing:0.05em;">REGIME</div>
+      <span id="ms-regime" style="color:#e5e7eb;font-weight:600;">—</span>
+      <span id="ms-conf" style="color:#5a6a7a;margin-left:6px;font-size:10px;">—</span>
+      <span id="ms-prev" style="color:#7faaff;margin-left:8px;font-size:10px;display:none;"></span>
+    </div>
+    <div>
+      <div style="color:#5a6a7a;font-size:9px;letter-spacing:0.05em;">NET RISK</div>
+      <span id="ms-netrisk" style="font-weight:600;">—</span>
+    </div>
+    <div>
+      <div style="color:#5a6a7a;font-size:9px;letter-spacing:0.05em;">DRIVER</div>
+      <span id="ms-driver" style="color:#e5e7eb;font-weight:600;">—</span>
+    </div>
+  </div>
+  <!-- Row 2: AI narrative -->
+  <div id="ms-ai" style="margin:6px 0;padding:7px 9px;background:#0d1117;border-left:2px solid #7faaff;color:#cbd5e1;font-size:11px;line-height:1.55;display:none;"></div>
+  <!-- Row 3: Last-hour deltas -->
+  <div id="ms-deltas" style="display:flex;gap:14px;padding:5px 0 1px;border-top:1px solid #1a2a3a;flex-wrap:wrap;font-size:10px;color:#9aa6b2;"></div>
+</div>
+
 <!-- MAIN -->
 <div class="main-wrap">
 
@@ -3511,6 +3543,110 @@ async function loadLivePrices() {
 // Keep old names wired to new function for compatibility
 async function loadIndices() { return loadLivePrices(); }
 async function loadMacro()   { return loadLivePrices(); }
+
+// ══════════════════════════════════════════════════════════
+// MARKET STATE — unified Bloomberg-style overview card
+// Polls /api/market-state every 30s. Backend pulls regime_engine +
+// pressure_vector + yield_watch + market_memory + live_prices into
+// one flat payload, with an optional LLM cross-asset paragraph.
+// ══════════════════════════════════════════════════════════
+async function loadMarketState() {
+  const card = document.getElementById('ms-card');
+  if (!card) return;
+  try {
+    const r = await fetch(BASE + '/api/market-state');
+    if (!r.ok) return;
+    const d = await r.json();
+    if (!d || !d.regime || d.data_quality === 'LOADING') {
+      // First poll after restart — hide quietly until warm.
+      return;
+    }
+
+    // Regime + confidence
+    const composite = (d.regime.composite || '—').toString().toUpperCase().replace(/_/g,' ');
+    const conf      = d.regime.confidence ? `${d.regime.confidence}%` : '';
+    document.getElementById('ms-regime').textContent = composite;
+    document.getElementById('ms-conf').textContent   = conf ? `(${conf})` : '';
+
+    // Last-hour regime transition flag
+    const prevEl = document.getElementById('ms-prev');
+    if (d.last_hour && d.last_hour.regime_changed && d.last_hour.regime_prev) {
+      prevEl.textContent = `← was ${String(d.last_hour.regime_prev).toUpperCase().replace(/_/g,' ')}`;
+      prevEl.style.display = 'inline';
+    } else {
+      prevEl.style.display = 'none';
+    }
+
+    // Net risk
+    const nr        = d.pressure && d.pressure.net_risk ? d.pressure.net_risk : {};
+    const nrScore   = (nr.score != null) ? Number(nr.score).toFixed(2) : '—';
+    const nrLabel   = (nr.label || '').toString().toUpperCase().replace(/-/g,' ');
+    const nrDir     = nr.direction || 0;
+    const nrColor   = nrDir > 0 ? '#00d26a' : nrDir < 0 ? '#f87171' : '#fbbf24';
+    const nrEl      = document.getElementById('ms-netrisk');
+    nrEl.textContent = nrLabel ? `${nrScore} · ${nrLabel}` : nrScore;
+    nrEl.style.color = nrColor;
+
+    // Dominant driver
+    const dom    = d.pressure && d.pressure.dominant_driver ? d.pressure.dominant_driver : {};
+    const domDir = dom.direction || 0;
+    const arrow  = domDir > 0 ? '▲' : domDir < 0 ? '▼' : '─';
+    const mag    = Number(dom.magnitude || 0).toFixed(2);
+    document.getElementById('ms-driver').textContent =
+      `${(dom.node || '—').toUpperCase()} ${arrow} ${mag}`;
+
+    // AI narrative
+    const aiEl = document.getElementById('ms-ai');
+    if (d.ai_read && d.ai_read.trim()) {
+      aiEl.textContent = d.ai_read.trim();
+      aiEl.style.display = 'block';
+    } else {
+      aiEl.style.display = 'none';
+    }
+
+    // Last-hour deltas
+    const lhDeltas = (d.last_hour && d.last_hour.feature_deltas) || {};
+    const labels = { us10y:'US10Y', dxy:'DXY', vix:'VIX', fng_local:'F&G',
+                     sentiment_tilt:'SENT', risk_score:'RISK', fed_score:'FED',
+                     vol_score:'VOL' };
+    let chips = [];
+    for (const [k, v] of Object.entries(lhDeltas)) {
+      const label = labels[k] || k.toUpperCase();
+      const sign  = v.delta > 0 ? '+' : '';
+      const color = v.delta > 0 ? '#00d26a' : v.delta < 0 ? '#f87171' : '#9aa6b2';
+      chips.push(`<span><span style="color:#5a6a7a">${label}</span> ` +
+                 `<span style="color:#e5e7eb">${v.curr}</span> ` +
+                 `<span style="color:${color}">(${sign}${v.delta})</span></span>`);
+    }
+    const lhEl = document.getElementById('ms-deltas');
+    if (chips.length) {
+      const win = (d.last_hour && d.last_hour.window_min) || '—';
+      lhEl.innerHTML = `<span style="color:#5a6a7a;font-weight:600">LAST ${win}m</span>` + chips.join('');
+    } else {
+      lhEl.innerHTML = '<span style="color:#5a6a7a;">no last-hour history yet</span>';
+    }
+
+    // Data quality indicator
+    const dq = (d.data_quality || 'OK').toUpperCase();
+    const dqEl = document.getElementById('ms-dq');
+    if (dq === 'DEGRADED') {
+      const sources = (d.degraded_assets || []).slice(0,3).join(',');
+      dqEl.innerHTML = `<span style="color:#f87171;font-weight:600;">⚠ DATA DEGRADED${sources?': '+sources:''}</span>`;
+    } else if (dq === 'LOADING') {
+      dqEl.textContent = 'warming…';
+    } else {
+      dqEl.textContent = '';
+    }
+
+    document.getElementById('ms-ts').textContent = d.generated_at || '—';
+    card.style.display = 'block';
+  } catch(e) { console.warn('market-state:', e); }
+}
+
+// First call + 30s cadence. The card stays hidden until the first
+// successful response so the layout doesn't flicker on cold start.
+loadMarketState();
+setInterval(loadMarketState, 30000);
 
 // ══════════════════════════════════════════════════════════════════
 // YIELD WATCH — cross-asset narrative for sovereign 10Y yields

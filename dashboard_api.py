@@ -2943,6 +2943,56 @@ def api_catalyst_calendar():
                        empty={"events": [], "total": 0, "source": "loading", "generated_at": now_ist()})
 
 
+@app.get("/api/market-state")
+def api_market_state(force: bool = False):
+    """Unified MARKET STATE snapshot — consolidates regime_engine,
+    pressure_vector, yield_watch, live_prices, and market_memory into one
+    flat payload for the dashboard card.
+
+    Cached 30s normally; event_bus drops the cache on breaking events
+    (see _market_state_event_bus_init below) so high-impact news refreshes
+    the card immediately rather than waiting out the TTL.
+    """
+    def _build():
+        try:
+            from market_state_aggregator import get_market_state
+            return get_market_state()
+        except Exception as e:
+            print(f"[api] market-state error: {type(e).__name__}: {e}", flush=True)
+            return {"error": str(e)[:160], "data_quality": "DEGRADED",
+                    "generated_at": now_ist()}
+    return _bg_refresh("market_state", 30, _build, empty={
+        "regime": {}, "pressure": {}, "yields": {}, "last_hour": {},
+        "key_prices": {}, "ai_read": None, "data_quality": "LOADING",
+        "generated_at": now_ist(),
+    })
+
+
+def _market_state_event_bus_init():
+    """Subscribe the market_state cache to event_bus so HIGH-severity
+    events (severity >= 7 — geopolitical, FOMC, NFP-grade prints) drop
+    the cache and the next read recomputes against fresh intel."""
+    try:
+        from event_bus import subscribe as _bus_subscribe, start_listener as _bus_start
+
+        def _on_breaking(ev: dict) -> None:
+            try:
+                with _cache_lock:
+                    _cache.pop("market_state", None)
+                print(f"[market_state] cache dropped on breaking event sev={ev.get('severity')}",
+                      flush=True)
+            except Exception:
+                pass
+
+        _bus_subscribe(_on_breaking)
+        _bus_start()
+    except Exception as _e:
+        print(f"[market_state] event_bus init skipped: {_e}", flush=True)
+
+
+_market_state_event_bus_init()
+
+
 @app.get("/api/calendar/imminent")
 def api_calendar_imminent(pre: int = 30, post: int = 5):
     """Events firing within [-post, +pre] minutes from now. Powers the
