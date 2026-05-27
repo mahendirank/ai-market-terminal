@@ -18,7 +18,7 @@ set -euo pipefail
 INSTALL_DIR="${INSTALL_DIR:-/opt/zyvora}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 SERVICE="${SERVICE:-market-terminal}"
-HEALTH_URL="${HEALTH_URL:-http://localhost:8001/api/health}"
+HEALTH_PATH="${HEALTH_PATH:-/api/health}"
 HEALTH_WAIT_SECS="${HEALTH_WAIT_SECS:-120}"
 TAG="${1:-latest}"
 
@@ -49,11 +49,27 @@ docker compose -f "$COMPOSE_FILE" up -d --no-build --remove-orphans 2>&1 | tail 
 ok "containers started"
 
 # ─── 4. Wait for healthy state ──────────────────────────────────
+# The container declares `expose: [8001]` (not `ports: 8001:8001`), so the
+# FastAPI app is only reachable on the docker-internal network — host-side
+# `curl localhost:8001` would always time out and report a false failure
+# (this exact bug masked successful deploys for hours before being caught).
+# Use `docker exec` so the curl runs INSIDE the container where localhost
+# IS the app. Falls through gracefully if the container is mid-startup:
+# any non-zero exit (no-such-container, connection-refused, 5xx) leaves
+# last_status empty and the loop retries.
 step "4/6 waiting for /api/health (up to ${HEALTH_WAIT_SECS}s)"
 deadline=$(( $(date +%s) + HEALTH_WAIT_SECS ))
 last_status=""
 while [ "$(date +%s)" -lt "$deadline" ]; do
-  if curl -fsS --max-time 5 "$HEALTH_URL" >/dev/null 2>&1; then
+  if docker exec "$SERVICE" curl -fsS --max-time 5 "http://localhost:8001${HEALTH_PATH}" >/dev/null 2>&1; then
+    last_status="healthy"
+    break
+  fi
+  # Belt-and-braces: also accept Docker's own healthcheck reporting "healthy"
+  # in case curl inside the container is briefly unavailable (e.g. during
+  # exec-stream contention). Either signal is enough to call it good.
+  state=$(docker inspect --format '{{.State.Health.Status}}' "$SERVICE" 2>/dev/null || echo "")
+  if [ "$state" = "healthy" ]; then
     last_status="healthy"
     break
   fi
@@ -84,7 +100,7 @@ step "6/6 deploy complete"
 docker compose -f "$COMPOSE_FILE" ps
 echo
 echo "  Image: ghcr.io/mahendirank/ai-market-terminal:$TAG"
-echo "  Health: $(curl -fsS --max-time 3 "$HEALTH_URL" 2>/dev/null | head -c 200 || echo 'unreachable')"
+echo "  Health: $(docker exec "$SERVICE" curl -fsS --max-time 3 "http://localhost:8001${HEALTH_PATH}" 2>/dev/null | head -c 200 || echo 'unreachable')"
 echo
 echo "  Tail live logs:    docker logs -f $SERVICE"
 echo "  Rollback:          ./deploy.sh sha-XXXXXXX"
