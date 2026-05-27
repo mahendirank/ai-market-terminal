@@ -739,36 +739,39 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 </div>
 </div><!-- end #market-strip-wrap -->
 
-<!-- MARKET STATE — unified cross-asset overview (regime + pressure + yields + last-hour delta + AI read) -->
-<div id="ms-card" style="display:none;margin:8px 12px 0;padding:10px 14px;background:#0a0d12;border:1px solid #1c2a3a;border-radius:6px;font-family:'JetBrains Mono','SF Mono',Menlo,monospace;font-size:11px;line-height:1.5;">
+<!-- MARKET STATE — unified cross-asset overview (regime + pressure + yields + last-hour delta + AI read).
+     IDs use mstate-* prefix because ms-* is taken by the legacy master-signal
+     panel (#master-panel). The previous ms-regime collision caused our regime
+     label to be overwritten by loadRegime() before users could read it. -->
+<div id="mstate-card" style="display:none;margin:8px 12px 0;padding:10px 14px;background:#0a0d12;border:1px solid #1c2a3a;border-radius:6px;font-family:'JetBrains Mono','SF Mono',Menlo,monospace;font-size:11px;line-height:1.5;">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
     <div style="font-size:10px;letter-spacing:0.1em;color:#7faaff;font-weight:700;">📊 MARKET STATE</div>
     <div style="display:flex;gap:10px;align-items:center;">
-      <span id="ms-dq" style="font-size:9px;color:#5a6a7a;">—</span>
-      <span id="ms-ts" style="font-size:9px;color:#5a6a7a;">—</span>
+      <span id="mstate-dq" style="font-size:9px;color:#5a6a7a;">—</span>
+      <span id="mstate-ts" style="font-size:9px;color:#5a6a7a;">—</span>
     </div>
   </div>
   <!-- Row 1: regime / net risk / dominant driver -->
   <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:14px;margin-bottom:6px;">
     <div>
       <div style="color:#5a6a7a;font-size:9px;letter-spacing:0.05em;">REGIME</div>
-      <span id="ms-regime" style="color:#e5e7eb;font-weight:600;">—</span>
-      <span id="ms-conf" style="color:#5a6a7a;margin-left:6px;font-size:10px;">—</span>
-      <span id="ms-prev" style="color:#7faaff;margin-left:8px;font-size:10px;display:none;"></span>
+      <span id="mstate-regime" style="color:#e5e7eb;font-weight:600;">—</span>
+      <span id="mstate-conf" style="color:#5a6a7a;margin-left:6px;font-size:10px;">—</span>
+      <span id="mstate-prev" style="color:#7faaff;margin-left:8px;font-size:10px;display:none;"></span>
     </div>
     <div>
       <div style="color:#5a6a7a;font-size:9px;letter-spacing:0.05em;">NET RISK</div>
-      <span id="ms-netrisk" style="font-weight:600;">—</span>
+      <span id="mstate-netrisk" style="font-weight:600;">—</span>
     </div>
     <div>
       <div style="color:#5a6a7a;font-size:9px;letter-spacing:0.05em;">DRIVER</div>
-      <span id="ms-driver" style="color:#e5e7eb;font-weight:600;">—</span>
+      <span id="mstate-driver" style="color:#e5e7eb;font-weight:600;">—</span>
     </div>
   </div>
   <!-- Row 2: AI narrative -->
-  <div id="ms-ai" style="margin:6px 0;padding:7px 9px;background:#0d1117;border-left:2px solid #7faaff;color:#cbd5e1;font-size:11px;line-height:1.55;display:none;"></div>
+  <div id="mstate-ai" style="margin:6px 0;padding:7px 9px;background:#0d1117;border-left:2px solid #7faaff;color:#cbd5e1;font-size:11px;line-height:1.55;display:none;"></div>
   <!-- Row 3: Last-hour deltas -->
-  <div id="ms-deltas" style="display:flex;gap:14px;padding:5px 0 1px;border-top:1px solid #1a2a3a;flex-wrap:wrap;font-size:10px;color:#9aa6b2;"></div>
+  <div id="mstate-deltas" style="display:flex;gap:14px;padding:5px 0 1px;border-top:1px solid #1a2a3a;flex-wrap:wrap;font-size:10px;color:#9aa6b2;"></div>
 </div>
 
 <!-- MAIN -->
@@ -3551,7 +3554,7 @@ async function loadMacro()   { return loadLivePrices(); }
 // one flat payload, with an optional LLM cross-asset paragraph.
 // ══════════════════════════════════════════════════════════
 async function loadMarketState() {
-  const card = document.getElementById('ms-card');
+  const card = document.getElementById('mstate-card');
   if (!card) return;
   try {
     const r = await fetch(BASE + '/api/market-state');
@@ -3565,11 +3568,11 @@ async function loadMarketState() {
     // Regime + confidence
     const composite = (d.regime.composite || '—').toString().toUpperCase().replace(/_/g,' ');
     const conf      = d.regime.confidence ? `${d.regime.confidence}%` : '';
-    document.getElementById('ms-regime').textContent = composite;
-    document.getElementById('ms-conf').textContent   = conf ? `(${conf})` : '';
+    document.getElementById('mstate-regime').textContent = composite;
+    document.getElementById('mstate-conf').textContent   = conf ? `(${conf})` : '';
 
     // Last-hour regime transition flag
-    const prevEl = document.getElementById('ms-prev');
+    const prevEl = document.getElementById('mstate-prev');
     if (d.last_hour && d.last_hour.regime_changed && d.last_hour.regime_prev) {
       prevEl.textContent = `← was ${String(d.last_hour.regime_prev).toUpperCase().replace(/_/g,' ')}`;
       prevEl.style.display = 'inline';
@@ -3583,7 +3586,7 @@ async function loadMarketState() {
     const nrLabel   = (nr.label || '').toString().toUpperCase().replace(/-/g,' ');
     const nrDir     = nr.direction || 0;
     const nrColor   = nrDir > 0 ? '#00d26a' : nrDir < 0 ? '#f87171' : '#fbbf24';
-    const nrEl      = document.getElementById('ms-netrisk');
+    const nrEl      = document.getElementById('mstate-netrisk');
     nrEl.textContent = nrLabel ? `${nrScore} · ${nrLabel}` : nrScore;
     nrEl.style.color = nrColor;
 
@@ -3592,11 +3595,11 @@ async function loadMarketState() {
     const domDir = dom.direction || 0;
     const arrow  = domDir > 0 ? '▲' : domDir < 0 ? '▼' : '─';
     const mag    = Number(dom.magnitude || 0).toFixed(2);
-    document.getElementById('ms-driver').textContent =
+    document.getElementById('mstate-driver').textContent =
       `${(dom.node || '—').toUpperCase()} ${arrow} ${mag}`;
 
     // AI narrative
-    const aiEl = document.getElementById('ms-ai');
+    const aiEl = document.getElementById('mstate-ai');
     if (d.ai_read && d.ai_read.trim()) {
       aiEl.textContent = d.ai_read.trim();
       aiEl.style.display = 'block';
@@ -3618,7 +3621,7 @@ async function loadMarketState() {
                  `<span style="color:#e5e7eb">${v.curr}</span> ` +
                  `<span style="color:${color}">(${sign}${v.delta})</span></span>`);
     }
-    const lhEl = document.getElementById('ms-deltas');
+    const lhEl = document.getElementById('mstate-deltas');
     if (chips.length) {
       const win = (d.last_hour && d.last_hour.window_min) || '—';
       lhEl.innerHTML = `<span style="color:#5a6a7a;font-weight:600">LAST ${win}m</span>` + chips.join('');
@@ -3628,7 +3631,7 @@ async function loadMarketState() {
 
     // Data quality indicator
     const dq = (d.data_quality || 'OK').toUpperCase();
-    const dqEl = document.getElementById('ms-dq');
+    const dqEl = document.getElementById('mstate-dq');
     if (dq === 'DEGRADED') {
       const sources = (d.degraded_assets || []).slice(0,3).join(',');
       dqEl.innerHTML = `<span style="color:#f87171;font-weight:600;">⚠ DATA DEGRADED${sources?': '+sources:''}</span>`;
@@ -3638,7 +3641,7 @@ async function loadMarketState() {
       dqEl.textContent = '';
     }
 
-    document.getElementById('ms-ts').textContent = d.generated_at || '—';
+    document.getElementById('mstate-ts').textContent = d.generated_at || '—';
     card.style.display = 'block';
   } catch(e) { console.warn('market-state:', e); }
 }
