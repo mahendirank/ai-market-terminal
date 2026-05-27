@@ -54,6 +54,15 @@ ALL_SOURCES = {
     "SemiEngineering":  {"type": "rss", "url": "https://semiengineering.com/feed/", "category": "TECH"},
     "EE Times":         {"type": "rss", "url": "https://www.eetimes.com/rss/", "category": "TECH"},
     "Tom's Hardware":   {"type": "rss", "url": "https://www.tomshardware.com/feeds/all", "category": "TECH"},
+    # Primary-source feeds added 2026-05-27 — Treasury / SEC / central banks
+    "TreasuryDirect Auctions": {"type": "rss", "url": "https://www.treasurydirect.gov/TA_WS/securities/announced?format=rss", "category": "BONDS"},
+    "TreasuryDirect Results":  {"type": "rss", "url": "https://www.treasurydirect.gov/TA_WS/securities/auctioned?format=rss", "category": "BONDS"},
+    "SEC EDGAR Latest":        {"type": "rss", "url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&output=atom", "category": "EARNINGS"},
+    "FRB San Francisco":       {"type": "rss", "url": "https://www.frbsf.org/feed/", "category": "MACRO"},
+    "ECB Press":               {"type": "rss", "url": "https://www.ecb.europa.eu/rss/press.html", "category": "MACRO"},
+    "Bank of England":         {"type": "rss", "url": "https://www.bankofengland.co.uk/rss/news", "category": "MACRO"},
+    "BoE Publications":        {"type": "rss", "url": "https://www.bankofengland.co.uk/rss/publications", "category": "MACRO"},
+    "RBA Media":               {"type": "rss", "url": "https://www.rba.gov.au/rss/rss-cb-media-releases.xml", "category": "MACRO"},
 }
 
 

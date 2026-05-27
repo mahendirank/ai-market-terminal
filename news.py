@@ -18,6 +18,20 @@ MAX_AGE_HOURS = 8
 MAX_ITEMS_PER_SOURCE = 20
 MAX_TOTAL     = 800
 
+# Per-source MAX_AGE override. Primary-source feeds (Treasury, central banks)
+# publish a few times per week, not hourly — an 8h global cutoff filters out
+# yesterday's auction announcement even though it's still market-relevant.
+# 48h gives these slow-cadence sources room to surface, while the fast
+# newswires (Reuters, MarketWatch, CNBC) stay at the global 8h.
+SLOW_CADENCE_MAX_AGE_HOURS = 48
+SLOW_CADENCE_SOURCES: set = {
+    "TreasuryDirect Auctions", "TreasuryDirect Results",
+    "FRB San Francisco", "ECB Press",
+    "Bank of England", "BoE Publications", "RBA Media",
+    # Fed Reserve was already in the list — same cadence
+    "Fed Reserve", "IMF News",
+}
+
 SOURCE_CATEGORY = {
     # Markets
     "Reuters Top":      "MARKETS",
@@ -116,6 +130,15 @@ SOURCE_CATEGORY = {
     "FT Home":          "MARKETS",
     # Earnings wire
     "Globe Newswire":   "EARNINGS",
+    # Primary-source feeds added 2026-05-27
+    "TreasuryDirect Auctions": "BONDS",
+    "TreasuryDirect Results":  "BONDS",
+    "SEC EDGAR Latest":        "EARNINGS",
+    "FRB San Francisco":       "MACRO",
+    "ECB Press":               "MACRO",
+    "Bank of England":         "MACRO",
+    "BoE Publications":        "MACRO",
+    "RBA Media":               "MACRO",
 }
 
 RSS_SOURCES = {
@@ -225,6 +248,21 @@ RSS_SOURCES = {
 
     # ── Earnings Wire (verified working) ─────────────────────
     "Globe Newswire":   "https://www.globenewswire.com/RssFeed/subjectcode/17-Earnings",
+
+    # ── Primary-source feeds added 2026-05-27 ────────────────
+    # These come straight from the issuing authority (Treasury, SEC,
+    # central banks) — no scraping, no Cloudflare risk, no aggregator
+    # in between. Each URL verified responsive at add time.
+    # SEC EDGAR requires a contact-bearing User-Agent (see HEADERS above);
+    # the global UA includes admin@zyvoratech.co for compliance.
+    "TreasuryDirect Auctions":  "https://www.treasurydirect.gov/TA_WS/securities/announced?format=rss",
+    "TreasuryDirect Results":   "https://www.treasurydirect.gov/TA_WS/securities/auctioned?format=rss",
+    "SEC EDGAR Latest":         "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&output=atom",
+    "FRB San Francisco":        "https://www.frbsf.org/feed/",
+    "ECB Press":                "https://www.ecb.europa.eu/rss/press.html",
+    "Bank of England":          "https://www.bankofengland.co.uk/rss/news",
+    "BoE Publications":         "https://www.bankofengland.co.uk/rss/publications",
+    "RBA Media":                "https://www.rba.gov.au/rss/rss-cb-media-releases.xml",
 }
 
 # ── Stock ticker detection ────────────────────────────────────
@@ -318,12 +356,17 @@ def _to_ist(dt):
         return ""
 
 
-HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; NewsBot/1.0)"}
+# UA carries a contact email so SEC EDGAR (which requires it under their
+# fair-use policy) doesn't IP-ban us. Other sources are happy with any UA;
+# using a single contact-bearing string for all of them is the simpler
+# robust approach vs. per-source UA overrides.
+HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; ZyvoraTerminal/1.0; +admin@zyvoratech.co)"}
 
 
 def _fetch_one(source, url):
     items  = []
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=MAX_AGE_HOURS)
+    age_h  = SLOW_CADENCE_MAX_AGE_HOURS if source in SLOW_CADENCE_SOURCES else MAX_AGE_HOURS
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=age_h)
     try:
         resp = requests.get(url, timeout=FEED_TIMEOUT, headers=HEADERS)
         feed = feedparser.parse(resp.content)
