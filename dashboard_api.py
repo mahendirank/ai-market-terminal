@@ -1546,7 +1546,9 @@ def api_hni_watch(hours: float = 48, limit: int = 150, country: str = None):
     try:
         from hni_news_store import search
         from hni_watch import classify, is_premarket, detect_countries, countries_meta
-        rows = search(category="HNI", since_hours=hours, limit=800)
+        # Scan ALL archived sources (HNI desks + country-relevant RSS), not just
+        # the US-centric HNI category, so non-US country filters populate.
+        rows = search(since_hours=hours, limit=1500)
         hits, seen = [], set()
         for it in rows:
             terms, prio = classify(it)

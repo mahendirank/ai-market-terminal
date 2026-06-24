@@ -731,6 +731,27 @@ def _get_all_news_uncached():
 
     unique = unique[:MAX_TOTAL]
     _tag_content_categories(unique)
+
+    # Also archive country-relevant institutional comments from non-HNI (RSS)
+    # sources — India/Asia/global desks — so the HNI Comments country filter
+    # isn't US-only. Only items that BOTH classify as a comment (analyst call,
+    # stake, earnings, M&A, tracked name) AND tag to a country are kept, so the
+    # archive stays focused and small.
+    try:
+        from hni_news_store import store_items
+        from hni_watch import classify, detect_countries
+        extra = []
+        for n in unique:
+            if not isinstance(n, dict) or n.get("category") == "HNI":
+                continue
+            _, prio = classify(n)
+            if prio and detect_countries(n):
+                extra.append(n)
+        if extra:
+            store_items(extra)
+    except Exception:
+        pass
+
     return unique
 
 
