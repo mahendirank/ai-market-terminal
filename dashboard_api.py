@@ -497,6 +497,10 @@ def _spawn_refresh(key, ttl, fn):
     def _job():
         try:
             _cached(key, ttl, fn)
+        except Exception as e:
+            # Surface background build failures — without this they die silently in
+            # the daemon thread and the endpoint just serves an empty/stale payload.
+            print(f"[bg_refresh] build failed for {key!r}: {type(e).__name__}: {e}", flush=True)
         finally:
             with _cache_lock:
                 _refresh_inflight.discard(key)
@@ -598,6 +602,22 @@ def _warm():
     _time.sleep(3)
     try: _cached("nse",      300,  _build_nse)
     except: pass
+
+    # Pre-warm the panels converted from synchronous _cached to _bg_refresh, so the
+    # first poll after boot gets data instead of the empty placeholder. Call the
+    # builder directly (NOT via _lazy) — _lazy swallows a transient failure into {}
+    # which _cached would then pin for the whole TTL; letting it raise leaves the key
+    # empty so the next poll retries, matching the endpoints' request-path semantics.
+    for _key, _ttl, _mod, _fn in (
+        ("forex",        30,  "forex",        "get_forex_intel"),
+        ("macro_regime", 60,  "macro_desk",   "get_macro_regime_view"),
+        ("sectors",      300, "sector_pulse", "get_sector_pulse"),
+        ("vix",          300, "vix_term",     "get_vix_signals"),
+    ):
+        _time.sleep(3)
+        try: _cached(_key, _ttl, getattr(__import__(_mod), _fn))
+        except Exception: pass
+
     try:
         from earnings_telegram import get_telegram_earnings
         get_telegram_earnings(force_refresh=True)
@@ -1512,7 +1532,7 @@ def api_signal():
 
 @app.get("/api/nse")
 def api_nse():
-    return _cached("nse", 300, _build_nse)
+    return _bg_refresh("nse", 300, _build_nse, empty={})
 
 
 @app.get("/api/nse/bulk")
@@ -1542,7 +1562,9 @@ def api_forex():
     confidence %, macro driver, volatility state."""
     try:
         from forex import get_forex_intel
-        return _cached("forex", 30, get_forex_intel)
+        # _bg_refresh runs the build (incl. its on-path regime call) off the request
+        # thread, so /api/forex returns instantly instead of blocking ~13s on a miss.
+        return _bg_refresh("forex", 30, get_forex_intel, empty={})
     except Exception as e:
         print(f"[/api/forex] {type(e).__name__}: {e}", flush=True)
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -1555,7 +1577,7 @@ def api_macro_regime():
     confidence + driver. Includes desk-style commentary and last 10 snapshots."""
     try:
         from macro_desk import get_macro_regime_view
-        return _cached("macro_regime", 60, get_macro_regime_view)
+        return _bg_refresh("macro_regime", 60, get_macro_regime_view, empty={})
     except Exception as e:
         print(f"[/api/macro-regime] {type(e).__name__}: {e}", flush=True)
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -2185,7 +2207,7 @@ def api_whales():
 def api_sectors():
     try:
         from sector_pulse import get_sector_pulse
-        return _cached("sectors", 300, get_sector_pulse)
+        return _bg_refresh("sectors", 300, get_sector_pulse, empty={})
     except Exception as e: return {"error": str(e)}
 
 
@@ -2193,7 +2215,7 @@ def api_sectors():
 def api_vix():
     try:
         from vix_term import get_vix_signals
-        return _cached("vix", 300, get_vix_signals)
+        return _bg_refresh("vix", 300, get_vix_signals, empty={})
     except Exception as e: return {"error": str(e)}
 
 
