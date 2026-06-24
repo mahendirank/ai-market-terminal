@@ -385,7 +385,12 @@ _FEED_HEALTH: dict = {}
 _DEAD_STREAK = 6
 
 
-def _record_health(source, ok, raw, kept):
+def _record_health(source, ok, raw, kept, status=0):
+    # Transient throttling/unavailability (429/503) isn't a dead feed — leave the
+    # streak untouched so we don't false-flag a live source that's just rate-limited
+    # (the new Google-News feeds can hit this when several fire at once).
+    if status in (429, 503):
+        return
     prev   = _FEED_HEALTH.get(source, {})
     dead   = (not ok) or raw == 0
     streak = (prev.get("empty_streak", 0) + 1) if dead else 0
@@ -402,7 +407,7 @@ def get_feed_health(only_suspect: bool = False) -> dict:
     """Snapshot of per-source health. suspect=True means it's been empty/failing
     for >= _DEAD_STREAK fetches (likely a dead feed needing replacement)."""
     out = {}
-    for src, h in _FEED_HEALTH.items():
+    for src, h in list(_FEED_HEALTH.items()):   # copy: workers mutate the dict concurrently
         suspect = h.get("empty_streak", 0) >= _DEAD_STREAK
         if only_suspect and not suspect:
             continue
@@ -414,11 +419,13 @@ def _fetch_one(source, url):
     items  = []
     ok     = False
     raw    = 0
+    status = 0
     age_h  = SLOW_CADENCE_MAX_AGE_HOURS if source in SLOW_CADENCE_SOURCES else MAX_AGE_HOURS
     cutoff = datetime.now(timezone.utc) - timedelta(hours=age_h)
     try:
         resp = requests.get(url, timeout=FEED_TIMEOUT, headers=HEADERS)
-        ok   = resp.status_code == 200
+        status = resp.status_code
+        ok   = status == 200
         feed = feedparser.parse(resp.content)
         raw  = len(feed.entries)
         for entry in feed.entries[:MAX_ITEMS_PER_SOURCE]:
@@ -454,7 +461,10 @@ def _fetch_one(source, url):
                 pass
     except:
         ok = False
-    _record_health(source, ok, raw, len(items))
+    try:
+        _record_health(source, ok, raw, len(items), status)
+    except Exception:
+        pass                       # health bookkeeping must never drop a feed's items
     return items
 
 
