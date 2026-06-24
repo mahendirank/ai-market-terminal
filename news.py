@@ -169,13 +169,14 @@ RSS_SOURCES = {
     # ── FX / Currencies ─────────────────────────────────────
     "ForexLive":        "https://www.forexlive.com/feed/news",
     "FXStreet":         "https://www.fxstreet.com/rss/news",
-    "DailyFX":          "https://www.dailyfx.com/feeds/all",
+    # dailyfx.com feed is defunct — generic FX via Google News
+    "DailyFX":          "https://news.google.com/rss/search?q=(forex+OR+%22currency+markets%22+OR+%22dollar+index%22)+when:1d&hl=en-US&gl=US&ceid=US:en",
 
     # ── Geopolitics / War ───────────────────────────────────
     "BBC World":        "https://feeds.bbci.co.uk/news/world/rss.xml",
     "Sky News World":   "https://feeds.skynews.com/feeds/rss/world.xml",
     "Al Jazeera":       "https://www.aljazeera.com/xml/rss/all.xml",
-    "AP News":          "https://rsshub.app/apnews/topics/business",
+    "AP News":          "https://news.google.com/rss/search?q=site:apnews.com+(markets+OR+economy+OR+business)+when:1d&hl=en-US&gl=US&ceid=US:en",
     "PBS NewsHour":     "https://www.pbs.org/newshour/feeds/rss/world",
     "Foreign Policy":   "https://foreignpolicy.com/feed/",
     "Defense News":     "https://www.defensenews.com/arc/outboundfeeds/rss/?outputType=xml",
@@ -183,11 +184,11 @@ RSS_SOURCES = {
     # ── Bonds / Rates / Macro ───────────────────────────────
     "FT Markets":       "https://www.ft.com/rss/home/uk",
     "ZeroHedge":        "https://nitter.net/zerohedge/rss",
-    "BondBuyer":        "https://www.bondbuyer.com/feed",
+    "BondBuyer":        "https://news.google.com/rss/search?q=site:bondbuyer.com+when:3d&hl=en-US&gl=US&ceid=US:en",
     "Calculated Risk":  "https://www.calculatedriskblog.com/feeds/posts/default",
     "Mish Talk":        "https://mishtalk.com/feed",
     "Fed Reserve":      "https://www.federalreserve.gov/feeds/press_all.xml",
-    "IMF News":         "https://www.imf.org/en/News/rss?language=eng",
+    "IMF News":         "https://news.google.com/rss/search?q=site:imf.org+when:7d&hl=en-US&gl=US&ceid=US:en",
     "Econbrowser":      "https://econbrowser.com/feed",
     "Project Syndicate":"https://www.project-syndicate.org/rss",
 
@@ -209,7 +210,8 @@ RSS_SOURCES = {
     "Rigzone":          "https://www.rigzone.com/news/rss/rigzone_latest.aspx",
     "Mining.com":       "https://www.mining.com/feed/",
     "Natural Gas Intel":"https://naturalgasintel.com/feed/",
-    "GoldSeek":         "https://news.goldseek.com/goldseek/rss.php",
+    # goldseek.com is low-volume (recent items age out) — fresh gold/silver via Google News
+    "GoldSeek":         "https://news.google.com/rss/search?q=(gold+OR+silver)+(price+OR+rally+OR+forecast+OR+outlook)+when:1d&hl=en-US&gl=US&ceid=US:en",
 
     # ── India — core ────────────────────────────────────────
     "Economic Times":   "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
@@ -218,10 +220,10 @@ RSS_SOURCES = {
     "Livemint":         "https://www.livemint.com/rss/markets",
     "Mint Companies":   "https://www.livemint.com/rss/companies",
     "Mint Economy":     "https://www.livemint.com/rss/economy",
-    "MoneyControl":     "https://www.moneycontrol.com/rss/marketreports.xml",
-    "MC Tech":          "https://www.moneycontrol.com/rss/technology.xml",
-    "Business Standard":"https://www.business-standard.com/rss/markets-106.rss",
-    "NDTV Profit":      "https://www.ndtvprofit.com/rss",
+    "MoneyControl":     "https://news.google.com/rss/search?q=site:moneycontrol.com+(markets+OR+stocks)+when:1d&hl=en-US&gl=US&ceid=US:en",
+    "MC Tech":          "https://news.google.com/rss/search?q=site:moneycontrol.com+technology+when:2d&hl=en-US&gl=US&ceid=US:en",
+    "Business Standard":"https://news.google.com/rss/search?q=site:business-standard.com+(markets+OR+economy)+when:1d&hl=en-US&gl=US&ceid=US:en",
+    "NDTV Profit":      "https://news.google.com/rss/search?q=site:ndtvprofit.com+when:1d&hl=en-US&gl=US&ceid=US:en",
     "Hindu Business":   "https://www.thehindubusinessline.com/markets/feeder/default.rss",
     "The Hindu Biz":    "https://www.thehindu.com/business/feeder/default.rss",
     "Finshots":         "https://finshots.in/feed",
@@ -231,7 +233,7 @@ RSS_SOURCES = {
     "Ars Technica":     "https://feeds.arstechnica.com/arstechnica/technology-lab",
     "SemiWiki":         "https://semiwiki.com/feed/",
     "SemiEngineering":  "https://semiengineering.com/feed/",
-    "EE Times":         "https://www.eetimes.com/rss/",
+    "EE Times":         "https://news.google.com/rss/search?q=site:eetimes.com+when:3d&hl=en-US&gl=US&ceid=US:en",
     "TechCrunch":       "https://techcrunch.com/feed/",
     "VentureBeat AI":   "https://venturebeat.com/category/ai/feed/",
     "MIT Tech Rev":     "https://www.technologyreview.com/feed/",
@@ -241,10 +243,10 @@ RSS_SOURCES = {
     "CoinDesk":         "https://www.coindesk.com/arc/outboundfeeds/rss/",
 
     # ── Global / Asia ────────────────────────────────────────
-    "Nikkei Asia":      "https://asia.nikkei.com/rss/feed/nar",
+    "Nikkei Asia":      "https://news.google.com/rss/search?q=site:asia.nikkei.com+when:1d&hl=en-US&gl=US&ceid=US:en",
     "CNA Business":     "https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml&category=6311",
     "SCMP Markets":     "https://www.scmp.com/rss/91/feed",
-    "Globe Mail":       "https://www.theglobeandmail.com/arc/outboundfeeds/rss/",
+    "Globe Mail":       "https://news.google.com/rss/search?q=site:theglobeandmail.com+business+when:1d&hl=en-US&gl=US&ceid=US:en",
     "Asia Times":       "https://asiatimes.com/feed/",
 
     # ── India Fast (verified working) ────────────────────────
@@ -274,7 +276,7 @@ RSS_SOURCES = {
     "ECB Press":                "https://www.ecb.europa.eu/rss/press.html",
     "Bank of England":          "https://www.bankofengland.co.uk/rss/news",
     "BoE Publications":         "https://www.bankofengland.co.uk/rss/publications",
-    "RBA Media":                "https://www.rba.gov.au/rss/rss-cb-media-releases.xml",
+    "RBA Media":                "https://news.google.com/rss/search?q=%22Reserve+Bank+of+Australia%22+when:14d&hl=en-US&gl=US&ceid=US:en",
 }
 
 # ── Stock ticker detection ────────────────────────────────────
