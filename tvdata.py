@@ -32,7 +32,7 @@ _next_req_at   = 0.0
 _COOLDOWN_BASE = int(os.getenv("TV_COOLDOWN_BASE", "60"))         # seconds, first 429
 _COOLDOWN_MAX  = int(os.getenv("TV_COOLDOWN_MAX",  "900"))        # cap (15 min)
 _INIT_COOLDOWN = 120                                              # pause after login/init failure
-_CD_LOCK       = threading.Lock()                                 # guards cooldown escalate/clear
+_CD_LOCK       = threading.Lock()                                 # guards cooldown + circuit state
 _cooldown_until      = 0.0
 _consec_429          = 0
 _tv_init_blocked_until = 0.0
@@ -235,11 +235,17 @@ def _record_fail(cache_key: str, exchange: str) -> None:
 def _record_ok(cache_key: str, exchange: str) -> None:
     _fail_count.pop(cache_key, None)
     _clear_neg(cache_key)
-    # A genuine success means this exchange is healthy — reset its failure run / circuit.
+    # Decrement (don't zero) the failure run: the circuit should trip only on a SUSTAINED
+    # all-failure streak, so one cheap success on a mostly-failing exchange shouldn't fully
+    # reset detection — and conversely a cold-start blip that interleaves with successes
+    # shouldn't accumulate into a false trip. Reaching 0 fully closes the circuit.
     with _CD_LOCK:
-        if _consec_fail.get(exchange) or _circuit_until.get(exchange):
-            _consec_fail[exchange] = 0
+        c = _consec_fail.get(exchange, 0)
+        if c <= 1:
+            _consec_fail.pop(exchange, None)
             _circuit_until.pop(exchange, None)
+        else:
+            _consec_fail[exchange] = c - 1
 
 
 def _is_neg(cache_key: str) -> bool:
@@ -409,11 +415,14 @@ def _fetch_one(symbol: str, exchange: str, n_bars: int = 5) -> dict | None:
     except Exception as e:
         msg = str(e)
         if "429" in msg or "too many requests" in msg.lower():
+            # 429 is account/IP-wide — the global cooldown handles it. Don't also charge
+            # the per-exchange circuit, or one exchange stays blocked after the cooldown
+            # lapses for a limit that was never exchange-specific.
             _trigger_cooldown("HTTP 429")
         else:
             print(f"[tvdata] fetch failed {exchange}:{symbol} — {e}", flush=True)
-        _record_fail(cache_key, exchange)  # neg-cache + per-exchange circuit
-        return _serve_stale(data, age)     # serve stale (flagged) on any failure
+            _record_fail(cache_key, exchange)  # neg-cache + per-exchange circuit
+        return _serve_stale(data, age)         # serve stale (flagged) on any failure
 
 
 def _fetch_many(symbols_map: dict, max_workers: int = None) -> dict:
