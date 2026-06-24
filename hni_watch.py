@@ -134,9 +134,12 @@ DEFAULT_COUNTRIES = {
     "US": {"name": "USA", "flag": "🇺🇸", "terms": [
         "s&p 500", "s&p500", "s&p", "nasdaq", "dow jones", "dow 30", "dow",
         "wall street", "nyse", "federal reserve", "fed", "fomc", "sec",
-        "u.s.", "united states", "apple", "nvidia", "tesla", "microsoft",
-        "amazon", "alphabet", "google", "meta", "jpmorgan", "goldman",
-        "palantir", "broadcom", "microstrategy",
+        "u.s.", "united states", "new york", "california", "white house",
+        "apple", "nvidia", "tesla", "microsoft", "amazon", "alphabet",
+        "google", "meta", "jpmorgan", "goldman", "palantir", "broadcom",
+        "microstrategy", "qualcomm", "paramount", "oracle", "intel", "amd",
+        "boeing", "ford", "disney", "netflix", "coinbase", "openai",
+        "anthropic",
     ]},
     "DE": {"name": "Germany", "flag": "🇩🇪", "terms": [
         "dax", "frankfurt", "bundesbank", "germany", "german", "sap",
@@ -193,13 +196,24 @@ def detect_countries(item: dict) -> list:
     """Return list of country codes this item relates to (by market terms /
     major companies). An item can map to several (e.g. 'Fed cuts, Nikkei pops')."""
     text = (item.get("text") or "").lower()
-    if not text:
-        return []
     out = []
     for code, v in COUNTRIES.items():
         rx = v.get("_re")
-        if rx and rx.search(text):
+        if rx and text and rx.search(text):
             out.append(code)
+    # Ticker-based tagging — exchange suffix tells the listing country.
+    tickers = [str(t).upper() for t in (item.get("tickers") or [])]
+    SUFFIX = {".NS": "IN", ".BO": "IN", ".DE": "DE", ".F": "DE",
+              ".T": "JP", ".MI": "IT"}
+    for t in tickers:
+        for suf, code in SUFFIX.items():
+            if t.endswith(suf) and code not in out:
+                out.append(code)
+    # Fallback: a plain cashtag with no exchange suffix ($AVGO, $QCOM) is
+    # almost always a US listing in this feed — tag US, but only when no other
+    # country was found (so an India item carrying a cashtag isn't double-tagged).
+    if not out and any("." not in t and t.isalpha() and 1 <= len(t) <= 5 for t in tickers):
+        out.append("US")
     return out
 
 
