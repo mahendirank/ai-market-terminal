@@ -1537,7 +1537,7 @@ def api_news_history(q: str = None, source: str = None, ticker: str = None,
 
 
 @app.get("/api/hni-watch")
-def api_hni_watch(hours: float = 48, limit: int = 150):
+def api_hni_watch(hours: float = 48, limit: int = 150, country: str = None):
     """Classified HNI watchlist hits for the dashboard panel.
 
     Returns only items that hit the keyword/entity watchlist (the same ones
@@ -1545,7 +1545,7 @@ def api_hni_watch(hours: float = 48, limit: int = 150):
     """
     try:
         from hni_news_store import search
-        from hni_watch import classify, is_premarket
+        from hni_watch import classify, is_premarket, detect_countries, countries_meta
         rows = search(category="HNI", since_hours=hours, limit=800)
         hits, seen = [], set()
         for it in rows:
@@ -1556,22 +1556,28 @@ def api_hni_watch(hours: float = 48, limit: int = 150):
             if k in seen:
                 continue
             seen.add(k)
+            ccs = detect_countries(it)
+            # Optional server-side country filter (?country=IN)
+            if country and country.upper() not in ccs:
+                continue
             hits.append({
-                "text":     it.get("text", ""),
-                "source":   it.get("source", ""),
-                "time":     it.get("time", ""),
-                "seen":     it.get("first_seen_ist", ""),
-                "tickers":  it.get("tickers", []),
-                "url":      it.get("url", ""),
-                "priority": prio,
-                "matched":  list(dict.fromkeys(terms))[:5],
+                "text":      it.get("text", ""),
+                "source":    it.get("source", ""),
+                "time":      it.get("time", ""),
+                "seen":      it.get("first_seen_ist", ""),
+                "tickers":   it.get("tickers", []),
+                "url":       it.get("url", ""),
+                "priority":  prio,
+                "matched":   list(dict.fromkeys(terms))[:5],
+                "countries": ccs,
             })
             if len(hits) >= limit:
                 break
         hits.sort(key=lambda h: 0 if h["priority"] == "high" else 1)
-        return {"count": len(hits), "premarket": is_premarket(), "items": hits}
+        return {"count": len(hits), "premarket": is_premarket(),
+                "items": hits, "countries": countries_meta()}
     except Exception as e:
-        return {"count": 0, "premarket": False, "items": [], "error": str(e)}
+        return {"count": 0, "premarket": False, "items": [], "countries": [], "error": str(e)}
 
 
 # ── AI Summary proxy → forwards to Bun news service (localhost:4000) ──────────

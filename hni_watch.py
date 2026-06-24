@@ -20,7 +20,7 @@ changes. Dedup + Telegram delivery are handled in notify.py.
 """
 from __future__ import annotations
 
-import os, json
+import os, json, re
 from datetime import datetime, timezone, timedelta
 
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -117,6 +117,95 @@ def _load_watch() -> dict:
 
 
 WATCH = _load_watch()
+
+
+# ── Country / market tagging (extensible) ────────────────────────────────────
+# Each item is tagged with the countries whose market terms or major companies
+# it mentions. To add a country, just add an entry here (or a "countries" block
+# in hni_watchlist.json). Terms are matched on word boundaries (so "sap" won't
+# hit "sapphire", "fed" won't hit "federal-funds-noise", etc.).
+DEFAULT_COUNTRIES = {
+    "IN": {"name": "India", "flag": "🇮🇳", "terms": [
+        "nifty", "sensex", "bank nifty", "banknifty", "nse", "bse", "sebi",
+        "rbi", "rupee", "inr", "dalal street", "mumbai", "india", "indian",
+        "reliance", "tata", "tcs", "infosys", "hdfc", "icici", "adani",
+        "wipro", "sbi", "bajaj", "zomato", "paytm",
+    ]},
+    "US": {"name": "USA", "flag": "🇺🇸", "terms": [
+        "s&p 500", "s&p500", "s&p", "nasdaq", "dow jones", "dow 30", "dow",
+        "wall street", "nyse", "federal reserve", "fed", "fomc", "sec",
+        "u.s.", "united states", "apple", "nvidia", "tesla", "microsoft",
+        "amazon", "alphabet", "google", "meta", "jpmorgan", "goldman",
+        "palantir", "broadcom", "microstrategy",
+    ]},
+    "DE": {"name": "Germany", "flag": "🇩🇪", "terms": [
+        "dax", "frankfurt", "bundesbank", "germany", "german", "sap",
+        "siemens", "volkswagen", "bmw", "mercedes", "allianz", "bayer",
+        "adidas", "deutsche bank", "deutsche telekom", "deutsche borse",
+        "porsche", "infineon", "rheinmetall",
+    ]},
+    "JP": {"name": "Japan", "flag": "🇯🇵", "terms": [
+        "nikkei", "topix", "boj", "bank of japan", "yen", "tokyo", "japan",
+        "japanese", "toyota", "sony", "softbank", "nintendo", "honda",
+        "mitsubishi", "keyence", "fast retailing", "hitachi",
+    ]},
+    "IT": {"name": "Italy", "flag": "🇮🇹", "terms": [
+        "ftse mib", "mib", "milan", "borsa italiana", "italy", "italian",
+        "ferrari", "eni", "enel", "stellantis", "unicredit", "intesa",
+        "generali", "leonardo", "prada", "moncler",
+    ]},
+}
+
+
+def _load_countries() -> dict:
+    base = {k: {"name": v["name"], "flag": v["flag"], "terms": list(v["terms"])}
+            for k, v in DEFAULT_COUNTRIES.items()}
+    try:
+        if os.path.exists(_WATCHLIST_FILE):
+            with open(_WATCHLIST_FILE) as f:
+                override = json.load(f)
+            cc = override.get("countries")
+            if isinstance(cc, dict):
+                for code, v in cc.items():
+                    if not isinstance(v, dict):
+                        continue
+                    entry = base.get(code, {"name": code, "flag": "🏳", "terms": []})
+                    entry["name"] = v.get("name", entry["name"])
+                    entry["flag"] = v.get("flag", entry.get("flag", "🏳"))
+                    if isinstance(v.get("terms"), list):
+                        entry["terms"] = [str(t).lower() for t in v["terms"]]
+                    base[code] = entry
+    except Exception as e:
+        print(f"[hni_watch] country config load failed, using defaults: {e}", flush=True)
+    # Precompile a boundary regex per country for safe substring-free matching.
+    for code, v in base.items():
+        terms = sorted({t.lower() for t in v["terms"] if t}, key=len, reverse=True)
+        v["_re"] = re.compile(
+            r"(?<![a-z0-9])(?:" + "|".join(re.escape(t) for t in terms) + r")(?![a-z0-9])"
+        ) if terms else None
+    return base
+
+
+COUNTRIES = _load_countries()
+
+
+def detect_countries(item: dict) -> list:
+    """Return list of country codes this item relates to (by market terms /
+    major companies). An item can map to several (e.g. 'Fed cuts, Nikkei pops')."""
+    text = (item.get("text") or "").lower()
+    if not text:
+        return []
+    out = []
+    for code, v in COUNTRIES.items():
+        rx = v.get("_re")
+        if rx and rx.search(text):
+            out.append(code)
+    return out
+
+
+def countries_meta() -> list:
+    """Lightweight list for the UI filter buttons (order preserved)."""
+    return [{"code": k, "name": v["name"], "flag": v["flag"]} for k, v in COUNTRIES.items()]
 
 
 def classify(item: dict):

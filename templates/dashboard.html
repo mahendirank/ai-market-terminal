@@ -1829,6 +1829,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
         <span style="margin-left:auto;font-size:10px;color:#64748b;">Institutional flow · funds · analyst calls · last 2 days</span>
         <button onclick="loadHniComments()" style="background:#13202e;color:#94a3b8;border:1px solid #24364a;border-radius:6px;font-size:10px;padding:3px 10px;cursor:pointer;">↻ Refresh</button>
       </div>
+      <div id="hnic-countries" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
       <div id="hnic-list"><div class="hniw-empty">Loading institutional-flow comments…</div></div>
     </div>
 
@@ -5967,11 +5968,16 @@ function showHniComments(tab) {
   loadHniComments();
 }
 
+var _hnicItems = [];        // all loaded hits
+var _hnicCountries = [];     // [{code,name,flag}]
+var _hnicCountry = 'ALL';    // active filter
+
+function _hnicEsc(s){ return (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
 async function loadHniComments() {
   const list = document.getElementById('hnic-list');
   try {
     const d = await fetch(`${BASE}/api/hni-watch?hours=48&limit=150`).then(r=>r.json());
-    const esc = s => (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
     document.getElementById('hnic-cnt').textContent = d.count || 0;
     const pm = document.getElementById('hnic-pm');
     if (d.premarket) { pm.textContent = 'PRE-MKT'; pm.style.background = '#7c2d12'; pm.style.color = '#fdba74'; }
@@ -5979,37 +5985,72 @@ async function loadHniComments() {
     const cntEl = document.getElementById('cnt-HNI_COMMENTS');
     if (cntEl) cntEl.textContent = d.count || 0;
 
-    const items = d.items || [];
-    if (!items.length) {
-      list.innerHTML = '<div class="hniw-empty">No institutional-flow comments in last 2 days.<br>Watching funds, banks &amp; tracked names across WalterBloomberg · Unusual Whales · FinancialJuice…</div>';
-      return;
-    }
-    const high = items.filter(i => i.priority === 'high');
-    const med  = items.filter(i => i.priority !== 'high');
-    const rowHtml = it => {
-      const hi  = it.priority === 'high';
-      const tks = (it.tickers||[]).slice(0,5).map(t=>`<span class="hniw-tk">$${esc(t)}</span>`).join('');
-      const tms = (it.matched||[]).slice(0,4).map(t=>`<span class="hniw-term">${esc(t)}</span>`).join('');
-      const url = (it.url||'').startsWith('http') ? it.url : '';
-      const onclick = url ? `onclick="window.open('${esc(url)}','_blank')"` : '';
-      return `<div class="hniw-row ${hi?'hi':''}" ${onclick}>
-        <div class="hniw-top">
-          <span class="hniw-badge ${hi?'hi':'md'}">${hi?'HIGH':'WATCH'}</span>
-          <span class="hniw-src">${esc(it.source)}</span>
-          <span class="hniw-time">${esc(it.seen||it.time||'')}</span>
-        </div>
-        <div class="hniw-txt">${esc(it.text)}</div>
-        <div class="hniw-meta">${tks}${tms}</div>
-      </div>`;
-    };
-    let html = '';
-    if (high.length) html += `<div style="font-size:10px;color:#fdba74;font-weight:700;margin:4px 0 6px;">🛰 HIGH — funds · banks · tracked names (${high.length})</div>` + high.map(rowHtml).join('');
-    if (med.length)  html += `<div style="font-size:10px;color:#93c5fd;font-weight:700;margin:12px 0 6px;">📡 WATCH — analyst calls · stakes · events (${med.length})</div>` + med.map(rowHtml).join('');
-    list.innerHTML = html;
+    _hnicItems = d.items || [];
+    _hnicCountries = d.countries || [];
+    _renderHnicCountries();
+    _renderHnicList();
   } catch(e) {
     console.error('hni-comments', e);
     list.innerHTML = '<div class="hniw-empty">Could not load HNI comments. Retry ↻</div>';
   }
+}
+
+function setHnicCountry(code){ _hnicCountry = code; _renderHnicCountries(); _renderHnicList(); }
+
+function _renderHnicCountries() {
+  const bar = document.getElementById('hnic-countries');
+  if (!bar) return;
+  const countFor = code => code === 'ALL'
+    ? _hnicItems.length
+    : _hnicItems.filter(i => (i.countries||[]).includes(code)).length;
+  const btn = (code, label) => {
+    const active = _hnicCountry === code;
+    const n = countFor(code);
+    return `<span onclick="setHnicCountry('${code}')" style="cursor:pointer;font-size:10px;padding:3px 9px;border-radius:12px;`
+      + `border:1px solid ${active?'#f59e0b':'#24364a'};background:${active?'#3a2a0c':'#13202e'};`
+      + `color:${active?'#fdba74':'#94a3b8'};">${label} <b style="opacity:.8">${n}</b></span>`;
+  };
+  let html = btn('ALL', '🌐 All');
+  for (const c of _hnicCountries) html += btn(c.code, `${c.flag} ${c.name}`);
+  bar.innerHTML = html;
+}
+
+function _renderHnicList() {
+  const list = document.getElementById('hnic-list');
+  const esc = _hnicEsc;
+  let items = _hnicItems;
+  if (_hnicCountry !== 'ALL') items = items.filter(i => (i.countries||[]).includes(_hnicCountry));
+
+  if (!items.length) {
+    const where = _hnicCountry === 'ALL' ? '' : ' for this market';
+    list.innerHTML = `<div class="hniw-empty">No institutional-flow comments${where} in the last 2 days.<br>Watching funds, banks &amp; tracked names across WalterBloomberg · Unusual Whales · FinancialJuice…</div>`;
+    return;
+  }
+  const high = items.filter(i => i.priority === 'high');
+  const med  = items.filter(i => i.priority !== 'high');
+  const flagMap = {}; for (const c of _hnicCountries) flagMap[c.code] = c.flag;
+  const rowHtml = it => {
+    const hi  = it.priority === 'high';
+    const tks = (it.tickers||[]).slice(0,5).map(t=>`<span class="hniw-tk">$${esc(t)}</span>`).join('');
+    const tms = (it.matched||[]).slice(0,4).map(t=>`<span class="hniw-term">${esc(t)}</span>`).join('');
+    const fl  = (it.countries||[]).map(c=>flagMap[c]||'').join('');
+    const url = (it.url||'').startsWith('http') ? it.url : '';
+    const onclick = url ? `onclick="window.open('${esc(url)}','_blank')"` : '';
+    return `<div class="hniw-row ${hi?'hi':''}" ${onclick}>
+      <div class="hniw-top">
+        <span class="hniw-badge ${hi?'hi':'md'}">${hi?'HIGH':'WATCH'}</span>
+        <span class="hniw-src">${esc(it.source)}</span>
+        ${fl?`<span style="font-size:11px;">${fl}</span>`:''}
+        <span class="hniw-time">${esc(it.seen||it.time||'')}</span>
+      </div>
+      <div class="hniw-txt">${esc(it.text)}</div>
+      <div class="hniw-meta">${tks}${tms}</div>
+    </div>`;
+  };
+  let html = '';
+  if (high.length) html += `<div style="font-size:10px;color:#fdba74;font-weight:700;margin:4px 0 6px;">🛰 HIGH — funds · banks · tracked names (${high.length})</div>` + high.map(rowHtml).join('');
+  if (med.length)  html += `<div style="font-size:10px;color:#93c5fd;font-weight:700;margin:12px 0 6px;">📡 WATCH — analyst calls · stakes · events (${med.length})</div>` + med.map(rowHtml).join('');
+  list.innerHTML = html;
 }
 setInterval(function(){
   const p = document.getElementById('hni-comments-panel');
