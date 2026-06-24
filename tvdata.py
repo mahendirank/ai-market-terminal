@@ -32,9 +32,14 @@ _next_req_at   = 0.0
 _COOLDOWN_BASE = int(os.getenv("TV_COOLDOWN_BASE", "60"))         # seconds, first 429
 _COOLDOWN_MAX  = int(os.getenv("TV_COOLDOWN_MAX",  "900"))        # cap (15 min)
 _INIT_COOLDOWN = 120                                              # pause after login/init failure
+_CD_LOCK       = threading.Lock()                                 # guards cooldown escalate/clear
 _cooldown_until      = 0.0
 _consec_429          = 0
 _tv_init_blocked_until = 0.0
+
+# Don't pass off arbitrarily old cached values as a live quote. Beyond this age the
+# stale-serve returns None so callers fall back (yfinance) instead of showing it.
+_STALE_SERVE_MAX = int(os.getenv("TV_STALE_SERVE_MAX", "86400"))  # 24h cap, configurable
 
 # ── Redis (optional, mirrors indicators.py pattern) ─────────────────────────────
 _redis_client = None
@@ -86,30 +91,41 @@ def _in_cooldown() -> bool:
 
 def _trigger_cooldown(reason: str) -> None:
     global _cooldown_until, _consec_429
-    _consec_429 += 1
-    secs  = min(_COOLDOWN_BASE * (2 ** (_consec_429 - 1)), _COOLDOWN_MAX)
-    until = time.time() + secs
-    _cooldown_until = until
-    if _redis_ok and _redis_client:
-        try:
-            _redis_client.set(_CD_KEY, until, ex=int(secs) + 5)
-            _redis_client.set(_N429_KEY, _consec_429, ex=_COOLDOWN_MAX * 2)
-        except Exception:
-            pass
+    with _CD_LOCK:
+        # Escalate at most once per window: a concurrent batch of 429s (4 workers all
+        # hitting the limit in one cycle) must not multiply the backoff exponent.
+        if _cooldown_until > time.time():
+            return
+        _consec_429 += 1
+        secs  = min(_COOLDOWN_BASE * (2 ** (_consec_429 - 1)), _COOLDOWN_MAX)
+        until = time.time() + secs
+        _cooldown_until = until
+        if _redis_ok and _redis_client:
+            try:
+                _redis_client.set(_CD_KEY, until, ex=int(secs) + 5)
+                _redis_client.set(_N429_KEY, _consec_429, ex=_COOLDOWN_MAX * 2)
+            except Exception:
+                pass
     print(f"[tvdata] rate-limited ({reason}) — pausing TradingView for {int(secs)}s "
           f"(#{_consec_429}); serving cached/yfinance", flush=True)
 
 
 def _clear_cooldown() -> None:
     global _cooldown_until, _consec_429
-    if _consec_429 or _cooldown_until:
-        _cooldown_until = 0.0
-        _consec_429     = 0
-        if _redis_ok and _redis_client:
-            try:
-                _redis_client.delete(_CD_KEY, _N429_KEY)
-            except Exception:
-                pass
+    with _CD_LOCK:
+        # Only reset the backoff once the window has fully elapsed. A success that
+        # races with a concurrent worker's fresh 429 must NOT wipe the new cooldown
+        # (that would defeat the escalating backoff mid-storm).
+        if _cooldown_until > time.time():
+            return
+        if _consec_429 or _cooldown_until:
+            _cooldown_until = 0.0
+            _consec_429     = 0
+            if _redis_ok and _redis_client:
+                try:
+                    _redis_client.delete(_CD_KEY, _N429_KEY)
+                except Exception:
+                    pass
 
 
 # ── Two-tier price cache with stale-serve ───────────────────────────────────────
@@ -141,14 +157,30 @@ def _cache_write(cache_key: str, data: dict) -> None:
             pass
 
 
+def _serve_stale(data, age):
+    """Return last-good data flagged as stale (so callers/UI can tell it isn't live),
+    or None if it's too old to pass off as a quote. The in-proc L1 never expires, so
+    the age cap is enforced here at serve time rather than relying on the entry TTL."""
+    if data is None or age is None or age >= _STALE_SERVE_MAX:
+        return None
+    out = dict(data)
+    out["stale"] = True
+    out["age_s"] = int(age)
+    return out
+
+
 def _throttle() -> None:
-    """Block until the global minimum gap has elapsed — smooths request bursts."""
+    """Pace requests to one per _MIN_GAP. Reserve a staggered slot under the lock,
+    then sleep OUTSIDE it so workers' get_hist calls overlap instead of serializing
+    to concurrency 1 (which would blow _fetch_many's deadline on large batches)."""
     global _next_req_at
     with _RL_LOCK:
-        wait = _next_req_at - time.time()
-        if wait > 0:
-            time.sleep(wait)
-        _next_req_at = time.time() + _MIN_GAP
+        now  = time.time()
+        slot = _next_req_at if _next_req_at > now else now
+        _next_req_at = slot + _MIN_GAP
+    wait = slot - time.time()
+    if wait > 0:
+        time.sleep(wait)
 
 
 # ── Per-symbol negative cache ───────────────────────────────────────────────────
@@ -157,6 +189,24 @@ def _throttle() -> None:
 # load on TradingView = far less chance of escalating into a 429.
 _neg_cache: dict = {}
 _NEG_TTL   = int(os.getenv("TV_NEG_CACHE_TTL", "60"))
+
+# Only suppress a symbol after this many CONSECUTIVE failures, so the FIRST transient
+# failure (e.g. the documented cold-start SSL timeout) doesn't immediately block the
+# tight retry loops that callers like live_prices._tv_bond_one depend on.
+_fail_count: dict = {}
+_NEG_THRESHOLD = int(os.getenv("TV_NEG_THRESHOLD", "2"))
+
+
+def _record_fail(cache_key: str) -> None:
+    n = _fail_count.get(cache_key, 0) + 1
+    _fail_count[cache_key] = n
+    if n >= _NEG_THRESHOLD:
+        _mark_neg(cache_key)
+
+
+def _record_ok(cache_key: str) -> None:
+    _fail_count.pop(cache_key, None)
+    _clear_neg(cache_key)
 
 
 def _is_neg(cache_key: str) -> bool:
@@ -273,18 +323,18 @@ def _fetch_one(symbol: str, exchange: str, n_bars: int = 5) -> dict | None:
     if data is not None and age is not None and age < _CACHE_TTL:
         return data                       # fresh cache hit
 
-    # While rate-limited, never touch the network — serve last-good (or None → caller
-    # falls back to yfinance). This is what stops the 429 storms.
+    # While rate-limited, never touch the network — serve last-good (flagged stale) or
+    # None → caller falls back to yfinance. This is what stops the 429 storms.
     if _in_cooldown():
-        return data
+        return _serve_stale(data, age)
 
-    # This symbol just failed — don't re-hammer it until the window elapses.
+    # This symbol just failed repeatedly — don't re-hammer it until the window elapses.
     if _is_neg(cache_key):
-        return data
+        return _serve_stale(data, age)
 
     tv = _get_tv()
     if tv is None:
-        return data                       # serve stale if we have it
+        return _serve_stale(data, age)    # serve stale if we have it
 
     try:
         _throttle()
@@ -295,8 +345,8 @@ def _fetch_one(symbol: str, exchange: str, n_bars: int = 5) -> dict | None:
             n_bars=n_bars,
         )
         if df is None or df.empty:
-            _mark_neg(cache_key)          # back off this symbol briefly
-            return data                   # serve stale instead of dropping the symbol
+            _record_fail(cache_key)       # neg-cache only after _NEG_THRESHOLD fails
+            return _serve_stale(data, age)  # serve stale instead of dropping the symbol
 
         row      = df.iloc[-1]
         prev_row = df.iloc[-2] if len(df) >= 2 else None
@@ -314,8 +364,8 @@ def _fetch_one(symbol: str, exchange: str, n_bars: int = 5) -> dict | None:
             "arrow":  "▲" if chg > 0 else "▼" if chg < 0 else "–",
         }
         _cache_write(cache_key, out)
-        _clear_neg(cache_key)             # recovered
-        _clear_cooldown()                 # success → reset backoff
+        _record_ok(cache_key)             # recovered: reset fail count + clear neg
+        _clear_cooldown()                 # success → reset backoff (if window elapsed)
         return out
 
     except Exception as e:
@@ -324,8 +374,8 @@ def _fetch_one(symbol: str, exchange: str, n_bars: int = 5) -> dict | None:
             _trigger_cooldown("HTTP 429")
         else:
             print(f"[tvdata] fetch failed {exchange}:{symbol} — {e}", flush=True)
-        _mark_neg(cache_key)              # don't retry this symbol every cycle
-        return data                       # serve stale on any failure
+        _record_fail(cache_key)           # neg-cache only after _NEG_THRESHOLD fails
+        return _serve_stale(data, age)    # serve stale (flagged) on any failure
 
 
 def _fetch_many(symbols_map: dict, max_workers: int = None) -> dict:
