@@ -56,15 +56,19 @@ def _fetch_channel(source, url):
         res  = requests.get(url, timeout=TIMEOUT,
                             headers={"User-Agent": "Mozilla/5.0"})
         soup = BeautifulSoup(res.text, "html.parser")
-        msgs = soup.select(".tgme_widget_message")[-6:]
+        msgs = soup.select(".tgme_widget_message")[-25:]
         for msg in msgs:
             try:
                 txt_el = msg.select_one(".tgme_widget_message_text")
                 if not txt_el:
                     continue
                 text = txt_el.get_text(" ", strip=True)
-                if not text or len(text) > 500:
+                if not text:
                     continue
+                # Long institutional posts (analyst initiations, big-stake buys)
+                # are the valuable ones — truncate instead of dropping them.
+                if len(text) > 1500:
+                    text = text[:1500].rstrip() + " …"
                 time_el = msg.select_one("time")
                 ts_str  = time_el["datetime"] if time_el else None
                 if ts_str:

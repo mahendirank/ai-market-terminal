@@ -99,6 +99,13 @@ async def lifespan(app: FastAPI):
         ws_task.add_done_callback(_bg_tasks.discard)
     except Exception as _e:
         print(f"[WS_PRICES] init error: {_e}", flush=True)
+    # HNI watchlist scanner: 90s scan for institutional-flow / pre-market hits
+    try:
+        hni_task = asyncio.create_task(_hni_watch_loop())
+        _bg_tasks.add(hni_task)
+        hni_task.add_done_callback(_bg_tasks.discard)
+    except Exception as _e:
+        print(f"[HNI_WATCH] init error: {_e}", flush=True)
 
     # ── Sprint 4 Stage 4.1: orchestrator lifecycle (feature-flagged) ──
     # When AGENT_ORCHESTRATOR_ENABLED is unset/false (default), this
@@ -321,6 +328,30 @@ async def _econ_publisher_loop():
         except Exception as _e:
             print(f"[ECON_PUB] loop error: {_e}", flush=True)
         await asyncio.sleep(60)
+
+
+async def _hni_watch_loop():
+    """Scan the HNI feed for watchlist hits every 90s and fire instant alerts.
+    Faster cadence than the 5-min watchdog so pre-market institutional flow
+    (analyst initiations, big-fund buys) is caught within ~1.5 min of posting.
+    Also triggers the once-daily US pre-market briefing inside the window."""
+    await asyncio.sleep(90)   # let the news cache warm first
+    while True:
+        try:
+            from hni_watch import scan_and_alert, is_premarket
+            from production import heartbeat
+            summary = await asyncio.to_thread(scan_and_alert)
+            heartbeat("hni_watch")
+            if summary.get("sent"):
+                print(f"[HNI_WATCH] sent={summary['sent']} "
+                      f"matched={summary.get('matched',0)} "
+                      f"premarket={summary.get('premarket')}", flush=True)
+            if is_premarket():
+                from notify import send_premarket_briefing
+                await asyncio.to_thread(send_premarket_briefing)
+        except Exception as _e:
+            print(f"[HNI_WATCH] loop error: {_e}", flush=True)
+        await asyncio.sleep(90)
 
 
 app = FastAPI(title="AI Market Terminal", lifespan=lifespan)
@@ -1484,6 +1515,63 @@ def api_news():
                 })
         except: pass
     return result
+
+
+@app.get("/api/news/history")
+def api_news_history(q: str = None, source: str = None, ticker: str = None,
+                     category: str = None, hours: float = None, limit: int = 100):
+    """Searchable archive of HNI/Telegram news — survives the live window.
+
+    Examples:
+      /api/news/history?ticker=SPCX
+      /api/news/history?source=WalterBloomberg&hours=48
+      /api/news/history?q=SpaceX
+    """
+    try:
+        from hni_news_store import search, stats
+        items = search(q=q, source=source, ticker=ticker, category=category,
+                       since_hours=hours, limit=min(int(limit), 500))
+        return {"count": len(items), "items": items, "archive": stats()}
+    except Exception as e:
+        return {"count": 0, "items": [], "error": str(e)}
+
+
+@app.get("/api/hni-watch")
+def api_hni_watch(hours: float = 48, limit: int = 150):
+    """Classified HNI watchlist hits for the dashboard panel.
+
+    Returns only items that hit the keyword/entity watchlist (the same ones
+    that fire a Telegram alert), tagged high/medium, newest first.
+    """
+    try:
+        from hni_news_store import search
+        from hni_watch import classify, is_premarket
+        rows = search(category="HNI", since_hours=hours, limit=800)
+        hits, seen = [], set()
+        for it in rows:
+            terms, prio = classify(it)
+            if not prio:
+                continue
+            k = (it.get("text", "") or "")[:60].lower()
+            if k in seen:
+                continue
+            seen.add(k)
+            hits.append({
+                "text":     it.get("text", ""),
+                "source":   it.get("source", ""),
+                "time":     it.get("time", ""),
+                "seen":     it.get("first_seen_ist", ""),
+                "tickers":  it.get("tickers", []),
+                "url":      it.get("url", ""),
+                "priority": prio,
+                "matched":  list(dict.fromkeys(terms))[:5],
+            })
+            if len(hits) >= limit:
+                break
+        hits.sort(key=lambda h: 0 if h["priority"] == "high" else 1)
+        return {"count": len(hits), "premarket": is_premarket(), "items": hits}
+    except Exception as e:
+        return {"count": 0, "premarket": False, "items": [], "error": str(e)}
 
 
 # ── AI Summary proxy → forwards to Bun news service (localhost:4000) ──────────
@@ -3013,6 +3101,27 @@ def _market_state_event_bus_init():
 
 
 _market_state_event_bus_init()
+
+
+@app.get("/api/cockpit")
+def api_cockpit(symbol: str = "GOLD"):
+    """Trade Cockpit — HNI-desk scalp + swing entry/exit read for ``symbol``
+    (gold by default). Fuses market-state, the economic-event gate, SMC scalp
+    levels and the multi-timeframe consensus into a TRADE/WAIT/STAND-ASIDE
+    verdict per mode. Background-refreshed (90s) like /api/market-state."""
+    def _build():
+        try:
+            from cockpit_engine import get_cockpit
+            return get_cockpit(symbol)
+        except Exception as e:
+            print(f"[api] cockpit error: {type(e).__name__}: {e}", flush=True)
+            return {"error": str(e)[:160], "data_quality": "DEGRADED",
+                    "generated_at": now_ist()}
+    return _bg_refresh(f"cockpit_{symbol}", 90, _build, empty={
+        "symbol": symbol, "context": {}, "event_gate": {},
+        "scalp": {}, "swing": {}, "data_quality": "LOADING",
+        "generated_at": now_ist(),
+    })
 
 
 @app.get("/api/calendar/imminent")
