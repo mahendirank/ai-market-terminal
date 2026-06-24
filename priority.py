@@ -20,6 +20,9 @@ MEDIUM_KEYWORDS = {
     "dollar": 5, "dxy": 5, "euro": 4, "yen": 4, "rupee": 4,
     "nvidia": 5, "semiconductor": 5, "chip": 5, "tsmc": 5,
     "intel": 4, "amd": 4, "ai": 4, "artificial intelligence": 4,
+    # Memory / supply-chain (the China DRAM/NAND-glut class of story)
+    "memory": 5, "dram": 6, "nand": 6, "micron": 5, "cxmt": 6, "ymtc": 6,
+    "oversupply": 6, "glut": 6, "supply chain": 5, "shortage": 5, "hynix": 5, "samsung": 4,
     "bank": 4, "banking": 4, "credit": 4, "liquidity": 5,
     "nifty": 4, "sensex": 4, "india": 4, "fii": 5,
     "earnings": 4, "revenue": 4, "outlook": 4, "downgrade": 5,
