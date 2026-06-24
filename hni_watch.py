@@ -157,6 +157,26 @@ DEFAULT_COUNTRIES = {
         "ferrari", "eni", "enel", "stellantis", "unicredit", "intesa",
         "generali", "leonardo", "prada", "moncler",
     ]},
+    "GB": {"name": "UK", "flag": "🇬🇧", "terms": [
+        "ftse 100", "ftse", "london stock exchange", "london", "boe",
+        "bank of england", "gilt", "gilts", "pound", "sterling", "gbp",
+        "hsbc", "bp", "astrazeneca", "unilever", "barclays", "glencore",
+        "rio tinto", "glaxosmithkline", "diageo", "rolls-royce", "vodafone",
+        "lloyds", "natwest", "bae systems", "national grid",
+    ]},
+    "FR": {"name": "France", "flag": "🇫🇷", "terms": [
+        "cac 40", "cac40", "cac", "paris", "euronext", "french", "france",
+        "lvmh", "hermes", "l'oreal", "loreal", "totalenergies", "airbus",
+        "sanofi", "schneider electric", "kering", "bnp paribas", "axa",
+        "danone", "michelin", "thales", "capgemini", "saint-gobain",
+    ]},
+    "CN": {"name": "China", "flag": "🇨🇳", "terms": [
+        "shanghai", "shenzhen", "csi 300", "csi300", "hang seng", "hong kong",
+        "hsi", "pboc", "yuan", "renminbi", "rmb", "china", "chinese",
+        "beijing", "alibaba", "tencent", "baidu", "jd.com", "pinduoduo",
+        "byd", "nio", "xpeng", "li auto", "xiaomi", "meituan", "catl",
+        "ping an", "icbc",
+    ]},
 }
 
 
@@ -204,7 +224,8 @@ def detect_countries(item: dict) -> list:
     # Ticker-based tagging — exchange suffix tells the listing country.
     tickers = [str(t).upper() for t in (item.get("tickers") or [])]
     SUFFIX = {".NS": "IN", ".BO": "IN", ".DE": "DE", ".F": "DE",
-              ".T": "JP", ".MI": "IT"}
+              ".T": "JP", ".MI": "IT", ".L": "GB", ".PA": "FR",
+              ".SS": "CN", ".SZ": "CN", ".HK": "CN"}
     for t in tickers:
         for suf, code in SUFFIX.items():
             if t.endswith(suf) and code not in out:
