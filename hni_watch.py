@@ -45,7 +45,7 @@ DEFAULT_WATCH = {
         # Gulf & sovereign funds (relevant to Dubai base + India flows)
         "adia", "abu dhabi investment", "mubadala", "adq", "pif",
         "public investment fund", "qia", "qatar investment", "norges",
-        "norway wealth fund", "temasek", "gic ",
+        "norway wealth fund", "temasek", "gic",
         # Leading banks / sell-side houses (their US-index calls — S&P 500,
         # Nasdaq 100, Dow 30 — target lifts/cuts, upgrades, etc.)
         "jpmorgan", "jp morgan", "goldman sachs", "goldman", "morgan stanley",
@@ -117,6 +117,19 @@ def _load_watch() -> dict:
 
 
 WATCH = _load_watch()
+
+
+def _boundary_re(terms):
+    """Compile a regex matching any term on word boundaries (no substring hits
+    like 'spac' inside 'airspace' or 'gic' inside 'strategic')."""
+    terms = sorted({str(t).lower() for t in terms if t}, key=len, reverse=True)
+    if not terms:
+        return None
+    return re.compile(r"(?<![a-z0-9])(?:" + "|".join(re.escape(t) for t in terms) + r")(?![a-z0-9])")
+
+
+_HIGH_RE = _boundary_re(WATCH["institutions"] + WATCH["tracked"])
+_CTX_RE  = _boundary_re(WATCH["actions"] + WATCH["events"] + WATCH.get("earnings", []))
 
 
 # ── Country / market tagging (extensible) ────────────────────────────────────
@@ -248,33 +261,23 @@ def classify(item: dict):
     text = (item.get("text") or "").lower()
     if not text:
         return [], None
-    matched = []
-    is_high = False
-    for term in WATCH["institutions"] + WATCH["tracked"]:
-        if term in text:
-            matched.append(term)
-            is_high = True
-
-    # Context terms (analyst actions, M&A/IPO events, earnings) — used for both
-    # the display label and the MEDIUM tier.
-    ctx = WATCH["actions"] + WATCH["events"] + WATCH.get("earnings", [])
-    ctx_hits = [a for a in ctx if a in text]
+    # Word-boundary matching (not substring) so "spac" never hits "airspace",
+    # "gic" never hits "strategic", "fed" never hits "feedback", etc.
+    high_hits = list(dict.fromkeys(_HIGH_RE.findall(text))) if _HIGH_RE else []
+    ctx_hits  = list(dict.fromkeys(_CTX_RE.findall(text)))  if _CTX_RE else []
 
     # Tracked tickers present as cashtags/detected symbols (e.g. "$NVDA").
     item_tickers = [str(t).upper() for t in (item.get("tickers") or [])]
     tk_hits = [t for t in item_tickers if t in TRACKED_TICKERS]
 
-    if is_high:
-        matched += [a for a in ctx_hits if a not in matched]
-        return matched, "high"
+    if high_hits:
+        return high_hits + [c for c in ctx_hits if c not in high_hits], "high"
 
-    # MEDIUM (WATCH): any analyst/event/earnings context, OR a tracked ticker
-    # mention. Looser than before so genuine market commentary is covered —
-    # but pure geopolitics (no context term, no tracked ticker) stays excluded.
+    # MEDIUM (WATCH): any analyst/event/earnings context, OR a tracked ticker.
+    # Pure geopolitics (no context term, no tracked ticker) stays excluded.
     if ctx_hits or tk_hits:
-        matched += ctx_hits + [f"${t}" for t in tk_hits]
-        return matched, "medium"
-    return matched, None
+        return ctx_hits + [f"${t}" for t in tk_hits], "medium"
+    return [], None
 
 
 # ── US pre-market window (robust to DST via zoneinfo) ────────────────────────
