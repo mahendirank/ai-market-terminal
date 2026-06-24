@@ -1,4 +1,4 @@
-import sys, os
+import sys, os, re
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 HIGH_KEYWORDS = {
@@ -29,6 +29,17 @@ MEDIUM_KEYWORDS = {
     "ipo": 4, "merger": 4, "acquisition": 4,
 }
 
+# Memory / semiconductor supply-chain terms (the China DRAM/NAND-glut class of
+# story). Matched on WORD BOUNDARIES, not as substrings, because short tokens like
+# "dram"/"nand"/"micron"/"glut" otherwise false-fire inside "dramatic"/"Hernandez"/
+# "omicron"/"glutathione" and could push a bogus HIGH-priority alert.
+EXACT_KEYWORDS = {
+    "memory": 5, "dram": 6, "nand": 6, "micron": 5, "cxmt": 6, "ymtc": 6,
+    "oversupply": 6, "glut": 6, "supply chain": 5, "shortage": 5, "hynix": 5, "samsung": 4,
+}
+_EXACT_RE = {k: re.compile(r"\b" + re.escape(k) + r"\b") for k in EXACT_KEYWORDS}
+
+
 def _text(item):
     return item["text"] if isinstance(item, dict) else item
 
@@ -41,6 +52,9 @@ def score_news(item):
             score += v
     for k, v in MEDIUM_KEYWORDS.items():
         if k in text:
+            score += v
+    for k, v in EXACT_KEYWORDS.items():
+        if _EXACT_RE[k].search(text):
             score += v
     return score
 

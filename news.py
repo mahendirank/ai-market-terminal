@@ -87,6 +87,11 @@ SOURCE_CATEGORY = {
     "Natural Gas Intel":"COMMODITIES",
     "Rigzone":          "COMMODITIES",
     "GoldTelegraph":    "COMMODITIES",
+    # Tech / Semiconductors (topical breaking — captures supply-chain stories like
+    # the China DRAM/NAND glut that our macro/forex sources don't cover)
+    "Memory & Chips":   "TECH",
+    "Semis Wire":       "TECH",
+    "Tech Breaking":    "TECH",
     # India
     "Economic Times":   "INDIA",
     "ET Stocks":        "INDIA",
@@ -143,8 +148,9 @@ SOURCE_CATEGORY = {
 
 RSS_SOURCES = {
     # ── Core Markets ─────────────────────────────────────────
-    "Reuters Top":      "https://feeds.reuters.com/reuters/topNews",
-    "Reuters Finance":  "https://feeds.reuters.com/reuters/financialNews",
+    # feeds.reuters.com was discontinued (returns empty) — route via Google News.
+    "Reuters Top":      "https://news.google.com/rss/search?q=site:reuters.com+when:1d&hl=en-US&gl=US&ceid=US:en",
+    "Reuters Finance":  "https://news.google.com/rss/search?q=site:reuters.com+markets+OR+business+when:1d&hl=en-US&gl=US&ceid=US:en",
     "BBC Business":     "https://feeds.bbci.co.uk/news/business/rss.xml",
     "MarketWatch":      "https://feeds.marketwatch.com/marketwatch/topstories/",
     "CNBC Markets":     "https://www.cnbc.com/id/100003114/device/rss/rss.html",
@@ -189,6 +195,12 @@ RSS_SOURCES = {
     "FinancialJuice":   "https://nitter.net/financialjuice/rss",
     "WalterBloomberg":  "https://nitter.net/WalterBloomberg/rss",
     "Unusual Whales":   "https://nitter.net/unusual_whales/rss",
+
+    # ── Tech / Semiconductors (Google News topical — captures supply-chain
+    #    breaking like the China DRAM/NAND glut that macro/forex feeds miss) ──
+    "Memory & Chips":   "https://news.google.com/rss/search?q=(DRAM+OR+NAND+OR+%22memory+chips%22+OR+CXMT+OR+YMTC+OR+Micron)+(glut+OR+oversupply+OR+prices+OR+shortage)+when:2d&hl=en-US&gl=US&ceid=US:en",
+    "Semis Wire":       "https://news.google.com/rss/search?q=(semiconductor+OR+chipmaker+OR+foundry+OR+TSMC+OR+Nvidia)+when:1d&hl=en-US&gl=US&ceid=US:en",
+    "Tech Breaking":    "https://news.google.com/rss/search?q=(site:reuters.com+OR+site:bloomberg.com+OR+site:cnbc.com)+technology+when:1d&hl=en-US&gl=US&ceid=US:en",
 
     # ── Commodities ─────────────────────────────────────────
     "Kitco News":       "https://news.google.com/rss/search?q=site:kitco.com+gold+silver&hl=en-US&gl=US&ceid=US:en",
@@ -363,13 +375,59 @@ def _to_ist(dt):
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; ZyvoraTerminal/1.0; +admin@zyvoratech.co)"}
 
 
+# ── Per-source health monitor ───────────────────────────────────────────────
+# Catches silently-dead feeds (e.g. the discontinued feeds.reuters.com, or a
+# user-agent-blocked source) that return 0 items without raising. A source is
+# "dead/suspect" when the request fails OR the RAW feed has zero entries for
+# _DEAD_STREAK consecutive fetches — distinct from a healthy-but-quiet source
+# whose entries exist but were filtered out by the age cutoff.
+_FEED_HEALTH: dict = {}
+_DEAD_STREAK = 6
+
+
+def _record_health(source, ok, raw, kept, status=0):
+    # Transient throttling/unavailability (429/503) isn't a dead feed — leave the
+    # streak untouched so we don't false-flag a live source that's just rate-limited
+    # (the new Google-News feeds can hit this when several fire at once).
+    if status in (429, 503):
+        return
+    prev   = _FEED_HEALTH.get(source, {})
+    dead   = (not ok) or raw == 0
+    streak = (prev.get("empty_streak", 0) + 1) if dead else 0
+    _FEED_HEALTH[source] = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "ok": ok, "raw": raw, "kept": kept, "empty_streak": streak,
+    }
+    if dead and streak == _DEAD_STREAK:   # warn once on crossing the threshold
+        print(f"[news] source '{source}' looks DEAD — {streak} consecutive "
+              f"empty/failed fetches (ok={ok}, raw_entries={raw})", flush=True)
+
+
+def get_feed_health(only_suspect: bool = False) -> dict:
+    """Snapshot of per-source health. suspect=True means it's been empty/failing
+    for >= _DEAD_STREAK fetches (likely a dead feed needing replacement)."""
+    out = {}
+    for src, h in list(_FEED_HEALTH.items()):   # copy: workers mutate the dict concurrently
+        suspect = h.get("empty_streak", 0) >= _DEAD_STREAK
+        if only_suspect and not suspect:
+            continue
+        out[src] = {**h, "suspect": suspect}
+    return out
+
+
 def _fetch_one(source, url):
     items  = []
+    ok     = False
+    raw    = 0
+    status = 0
     age_h  = SLOW_CADENCE_MAX_AGE_HOURS if source in SLOW_CADENCE_SOURCES else MAX_AGE_HOURS
     cutoff = datetime.now(timezone.utc) - timedelta(hours=age_h)
     try:
         resp = requests.get(url, timeout=FEED_TIMEOUT, headers=HEADERS)
+        status = resp.status_code
+        ok   = status == 200
         feed = feedparser.parse(resp.content)
+        raw  = len(feed.entries)
         for entry in feed.entries[:MAX_ITEMS_PER_SOURCE]:
             try:
                 title = entry.get("title", "").strip()
@@ -402,7 +460,11 @@ def _fetch_one(source, url):
             except:
                 pass
     except:
-        pass
+        ok = False
+    try:
+        _record_health(source, ok, raw, len(items), status)
+    except Exception:
+        pass                       # health bookkeeping must never drop a feed's items
     return items
 
 
