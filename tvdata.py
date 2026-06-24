@@ -196,17 +196,50 @@ _NEG_TTL   = int(os.getenv("TV_NEG_CACHE_TTL", "60"))
 _fail_count: dict = {}
 _NEG_THRESHOLD = int(os.getenv("TV_NEG_THRESHOLD", "2"))
 
+# ── Per-exchange circuit breaker ────────────────────────────────────────────────
+# When one exchange racks up consecutive failures of ANY kind — connection timeouts,
+# login/guest failures, no-data — not just 429s, open a circuit for THAT exchange so
+# every fetch short-circuits to cache/yfinance instead of each symbol re-paying the
+# doomed ~5s call. This is what stops the NSE feed burning ~8s/cycle on guest-mode
+# TradingView timeouts. Per-exchange so an NSE outage doesn't also gate the TVC
+# sovereign-yield fetches. The circuit's expiry doubles as the recovery probe: when it
+# lapses, fetches resume and either succeed (close it) or fail (re-open it).
+_CIRCUIT_THRESHOLD = int(os.getenv("TV_CIRCUIT_THRESHOLD", "5"))   # consecutive fails to open
+_CIRCUIT_OPEN_SECS = int(os.getenv("TV_CIRCUIT_OPEN", "180"))      # seconds to stay open
+_consec_fail:   dict = {}    # exchange -> consecutive failure count
+_circuit_until: dict = {}    # exchange -> open-until timestamp
 
-def _record_fail(cache_key: str) -> None:
+
+def _circuit_open(exchange: str) -> bool:
+    return _circuit_until.get(exchange, 0) > time.time()
+
+
+def _record_fail(cache_key: str, exchange: str) -> None:
+    # Per-symbol negative cache (short, isolates one bad symbol).
     n = _fail_count.get(cache_key, 0) + 1
     _fail_count[cache_key] = n
     if n >= _NEG_THRESHOLD:
         _mark_neg(cache_key)
+    # Per-exchange circuit (aggregate: trips when the whole exchange is failing).
+    with _CD_LOCK:
+        if _circuit_until.get(exchange, 0) > time.time():
+            return                      # already open — don't keep counting
+        c = _consec_fail.get(exchange, 0) + 1
+        _consec_fail[exchange] = c
+        if c >= _CIRCUIT_THRESHOLD:
+            _circuit_until[exchange] = time.time() + _CIRCUIT_OPEN_SECS
+            print(f"[tvdata] circuit OPEN for {exchange} after {c} consecutive failures "
+                  f"— serving cache/yfinance for {_CIRCUIT_OPEN_SECS}s", flush=True)
 
 
-def _record_ok(cache_key: str) -> None:
+def _record_ok(cache_key: str, exchange: str) -> None:
     _fail_count.pop(cache_key, None)
     _clear_neg(cache_key)
+    # A genuine success means this exchange is healthy — reset its failure run / circuit.
+    with _CD_LOCK:
+        if _consec_fail.get(exchange) or _circuit_until.get(exchange):
+            _consec_fail[exchange] = 0
+            _circuit_until.pop(exchange, None)
 
 
 def _is_neg(cache_key: str) -> bool:
@@ -328,6 +361,11 @@ def _fetch_one(symbol: str, exchange: str, n_bars: int = 5) -> dict | None:
     if _in_cooldown():
         return _serve_stale(data, age)
 
+    # This exchange is failing wholesale (e.g. guest-mode NSE timeouts) — skip the
+    # network entirely and let the caller fall back to yfinance until the circuit lapses.
+    if _circuit_open(exchange):
+        return _serve_stale(data, age)
+
     # This symbol just failed repeatedly — don't re-hammer it until the window elapses.
     if _is_neg(cache_key):
         return _serve_stale(data, age)
@@ -345,8 +383,8 @@ def _fetch_one(symbol: str, exchange: str, n_bars: int = 5) -> dict | None:
             n_bars=n_bars,
         )
         if df is None or df.empty:
-            _record_fail(cache_key)       # neg-cache only after _NEG_THRESHOLD fails
-            return _serve_stale(data, age)  # serve stale instead of dropping the symbol
+            _record_fail(cache_key, exchange)  # neg-cache + per-exchange circuit
+            return _serve_stale(data, age)     # serve stale instead of dropping the symbol
 
         row      = df.iloc[-1]
         prev_row = df.iloc[-2] if len(df) >= 2 else None
@@ -364,7 +402,7 @@ def _fetch_one(symbol: str, exchange: str, n_bars: int = 5) -> dict | None:
             "arrow":  "▲" if chg > 0 else "▼" if chg < 0 else "–",
         }
         _cache_write(cache_key, out)
-        _record_ok(cache_key)             # recovered: reset fail count + clear neg
+        _record_ok(cache_key, exchange)   # recovered: reset fail count + circuit + neg
         _clear_cooldown()                 # success → reset backoff (if window elapsed)
         return out
 
@@ -374,8 +412,8 @@ def _fetch_one(symbol: str, exchange: str, n_bars: int = 5) -> dict | None:
             _trigger_cooldown("HTTP 429")
         else:
             print(f"[tvdata] fetch failed {exchange}:{symbol} — {e}", flush=True)
-        _record_fail(cache_key)           # neg-cache only after _NEG_THRESHOLD fails
-        return _serve_stale(data, age)    # serve stale (flagged) on any failure
+        _record_fail(cache_key, exchange)  # neg-cache + per-exchange circuit
+        return _serve_stale(data, age)     # serve stale (flagged) on any failure
 
 
 def _fetch_many(symbols_map: dict, max_workers: int = None) -> dict:
