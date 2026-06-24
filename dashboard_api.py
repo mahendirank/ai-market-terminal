@@ -497,6 +497,10 @@ def _spawn_refresh(key, ttl, fn):
     def _job():
         try:
             _cached(key, ttl, fn)
+        except Exception as e:
+            # Surface background build failures — without this they die silently in
+            # the daemon thread and the endpoint just serves an empty/stale payload.
+            print(f"[bg_refresh] build failed for {key!r}: {type(e).__name__}: {e}", flush=True)
         finally:
             with _cache_lock:
                 _refresh_inflight.discard(key)
@@ -600,19 +604,19 @@ def _warm():
     except: pass
 
     # Pre-warm the panels converted from synchronous _cached to _bg_refresh, so the
-    # first poll after boot gets data instead of the empty placeholder.
-    _time.sleep(3)
-    try: _cached("forex",        30,  lambda: _lazy("forex",       "get_forex_intel"))
-    except: pass
-    _time.sleep(3)
-    try: _cached("macro_regime", 60,  lambda: _lazy("macro_desk",  "get_macro_regime_view"))
-    except: pass
-    _time.sleep(3)
-    try: _cached("sectors",      300, lambda: _lazy("sector_pulse","get_sector_pulse"))
-    except: pass
-    _time.sleep(3)
-    try: _cached("vix",          300, lambda: _lazy("vix_term",    "get_vix_signals"))
-    except: pass
+    # first poll after boot gets data instead of the empty placeholder. Call the
+    # builder directly (NOT via _lazy) — _lazy swallows a transient failure into {}
+    # which _cached would then pin for the whole TTL; letting it raise leaves the key
+    # empty so the next poll retries, matching the endpoints' request-path semantics.
+    for _key, _ttl, _mod, _fn in (
+        ("forex",        30,  "forex",        "get_forex_intel"),
+        ("macro_regime", 60,  "macro_desk",   "get_macro_regime_view"),
+        ("sectors",      300, "sector_pulse", "get_sector_pulse"),
+        ("vix",          300, "vix_term",     "get_vix_signals"),
+    ):
+        _time.sleep(3)
+        try: _cached(_key, _ttl, getattr(__import__(_mod), _fn))
+        except Exception: pass
 
     try:
         from earnings_telegram import get_telegram_earnings
