@@ -2909,25 +2909,45 @@ def _build_morning_note_data() -> dict:
         return {"error": str(e)}
 
 
+# Refresh the working market note every 20 min so it tracks the day in
+# (near) real time instead of freezing the 9:15 AM snapshot. The note's DATA
+# inputs (indices/macro/news) are already live on 30s caches; this refreshes
+# the AI narrative on top so the headline + ideas stay current.
+_MORNING_TTL = 20 * 60
+
+
+def _morning_note_fresh(today: str) -> bool:
+    return (
+        _morning_note.get("date") == today
+        and bool(_morning_note.get("data"))
+        and (_time.time() - _morning_note.get("generated_at", 0)) < _MORNING_TTL
+    )
+
+
 async def _morning_note_scheduler():
-    """Background task: generates morning note at 9:15 AM IST every trading day."""
+    """Background task: (re)generate the working market note every ~20 min so it
+    stays current through the trading day — not frozen at the 9:15 AM open."""
     print("[MORNING] scheduler started", flush=True)
     await asyncio.sleep(60)   # wait for server to warm up
     while True:
-        now = datetime.now(IST)
-        today = now.strftime("%Y-%m-%d")
-        # Generate at 9:15 AM IST on weekdays (Mon=0 ... Fri=4)
-        if now.weekday() < 5 and now.hour == 9 and now.minute >= 15:
-            if _morning_note.get("date") != today:
+        try:
+            today = datetime.now(IST).strftime("%Y-%m-%d")
+            if not _morning_note_fresh(today):
                 async with _morning_note_lock:
-                    if _morning_note.get("date") != today:
-                        print("[MORNING] generating morning note...", flush=True)
+                    if not _morning_note_fresh(today):
+                        print("[MORNING] (re)generating working note...", flush=True)
                         data = await asyncio.to_thread(_build_morning_note_data)
                         if "error" not in data:
                             _morning_note["date"] = today
                             _morning_note["data"] = data
-                            _disk_save("morning_note", {"date": today, "data": data})
-                            print(f"[MORNING] note ready: {data.get('headline','')}", flush=True)
+                            _morning_note["generated_at"] = _time.time()
+                            _disk_save("morning_note", {"date": today, "data": data,
+                                                        "generated_at": _time.time()})
+                            print(f"[MORNING] note refreshed: {data.get('headline','')}", flush=True)
+                        else:
+                            print(f"[MORNING] refresh skipped (error: {data.get('error')}) — keeping last note", flush=True)
+        except Exception as e:
+            print(f"[MORNING] scheduler error: {e}", flush=True)
         try:
             from production import heartbeat
             heartbeat("morning_note")
@@ -2943,12 +2963,12 @@ async def api_morning_note(force: int = 0):
       force=1 — bypass the cache and regenerate the note now.
     """
     today = datetime.now(IST).strftime("%Y-%m-%d")
-    # Serve from memory if today's note exists (force=1 skips the cache)
-    if not force and _morning_note.get("date") == today and _morning_note.get("data"):
+    # Serve from memory if today's note is still fresh (< TTL). force=1 skips it.
+    if not force and _morning_note_fresh(today):
         return JSONResponse(_morning_note["data"])
-    # On-demand generation
+    # Stale or missing → regenerate (the lock caps concurrent LLM calls)
     async with _morning_note_lock:
-        if not force and _morning_note.get("date") == today and _morning_note.get("data"):
+        if not force and _morning_note_fresh(today):
             return JSONResponse(_morning_note["data"])
         data = await asyncio.to_thread(_build_morning_note_data)
         err = data.get("error")
@@ -2974,7 +2994,8 @@ async def api_morning_note(force: int = 0):
                 status_code=503)
         _morning_note["date"] = today
         _morning_note["data"] = data
-        _disk_save("morning_note", {"date": today, "data": data})
+        _morning_note["generated_at"] = _time.time()
+        _disk_save("morning_note", {"date": today, "data": data, "generated_at": _time.time()})
         return JSONResponse(data)
 
 

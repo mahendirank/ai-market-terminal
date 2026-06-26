@@ -7659,12 +7659,22 @@ function showMorningNote(tab) {
   loadMorningNote(false);
 }
 
-async function loadMorningNote(force) {
+// Auto-refresh the working note while the tab is open so it tracks the day
+// without re-clicking (soft = no loading flicker). Backend serves a freshly
+// regenerated note every ~20 min.
+setInterval(function () {
+  var p = document.getElementById('morning-note-panel');
+  if (p && p.style.display !== 'none') loadMorningNote(false, true);
+}, 5 * 60 * 1000);
+
+async function loadMorningNote(force, soft) {
   var content = document.getElementById('morning-content');
-  if (!force && content && content.style.display === 'flex') return;
-  document.getElementById('morning-loading').style.display = 'block';
-  document.getElementById('morning-content').style.display = 'none';
-  document.getElementById('morning-error').style.display   = 'none';
+  if (!force && !soft && content && content.style.display === 'flex') return;
+  if (!soft) {
+    document.getElementById('morning-loading').style.display = 'block';
+    document.getElementById('morning-content').style.display = 'none';
+    document.getElementById('morning-error').style.display   = 'none';
+  }
   try {
     const res  = await fetch(`${BASE}/api/morning-note`);
     const data = await res.json();
@@ -7679,7 +7689,7 @@ async function loadMorningNote(force) {
     biasEl.style.color      = bias === 'BULLISH' ? '#4ade80' : bias === 'BEARISH' ? '#f87171' : '#9ca3af';
     biasEl.style.border     = `1px solid ${bias === 'BULLISH' ? '#16a34a' : bias === 'BEARISH' ? '#dc2626' : '#374151'}`;
     document.getElementById('mn-date').innerText   = data.date   || '';
-    document.getElementById('mn-gen-at').innerText = data.generated_at ? `Generated ${data.generated_at}` : '';
+    document.getElementById('mn-gen-at').innerText = data.generated_at_label ? `Updated ${data.generated_at_label}` : '';
 
     // Global cues
     document.getElementById('mn-global').innerText = data.global_cues || '—';
@@ -7727,6 +7737,7 @@ async function loadMorningNote(force) {
     document.getElementById('morning-loading').style.display = 'none';
     document.getElementById('morning-content').style.display = 'flex';
   } catch (err) {
+    if (soft) return;   // a background refresh failing shouldn't wipe the visible note
     document.getElementById('morning-loading').style.display = 'none';
     document.getElementById('morning-error').style.display   = 'block';
     document.getElementById('morning-error').innerText       = 'Error: ' + err.message;
