@@ -666,6 +666,8 @@ def _sig_words(text):
 
 def _cross_confirm(candidates, mainstream):
     """Keep only candidate items corroborated by a mainstream headline."""
+    if not candidates:                 # cold start / fully-throttled round — skip the work
+        return []
     main_tickers  = set()
     main_wordsets = []
     for m in mainstream:
@@ -687,8 +689,14 @@ def _cross_confirm(candidates, mainstream):
     return out
 
 
+# Telegram channels treated as Tier-B (lower-trust / sensational): routed through the
+# cross-confirm gate just like Reddit instead of flowing straight into the feed.
+_TIER_B_TG = {"Disclose.tv"}
+
+
 def _get_all_news_uncached():
     news = []
+    social = []          # Tier-B social (Reddit + flagged Telegram) — gated below
 
     try:
         tg = get_telegram_news()
@@ -700,6 +708,10 @@ def _get_all_news_uncached():
                     item["tickers"] = _detect_tickers(item.get("text", ""))
                 if "pub_utc" not in item:
                     item["pub_utc"] = ""
+                if item.get("source") in _TIER_B_TG:   # gate sensational TG channels
+                    item["tier"] = "B"; item["platform"] = "telegram"
+                    social.append(item)
+                    continue
             news.append(item)
     except:
         pass
@@ -719,17 +731,20 @@ def _get_all_news_uncached():
     except:
         pass
 
-    # Reddit (sentiment / early-signal) — fetched cached + rate-limit-safe, then gated:
-    # only items cross-confirmed by a mainstream headline enter the feed, so raw
-    # subreddit chatter never surfaces as "news". Copy items so we don't mutate the cache.
+    # Reddit (sentiment / early-signal) — cached + rate-limit-safe. Copy items so we
+    # don't mutate the cache, then add to the Tier-B social pool.
     try:
         from reddit_news import get_reddit_news
-        reddit_raw = [dict(it) for it in get_reddit_news()]
-        for it in reddit_raw:
-            it["tickers"] = _detect_tickers(it.get("text", ""))
-        news += _cross_confirm(reddit_raw, news)
+        for it in get_reddit_news():
+            c = dict(it)
+            c["tickers"] = _detect_tickers(c.get("text", ""))
+            social.append(c)
     except Exception:
         pass
+
+    # Gate ALL Tier-B social (Reddit + flagged Telegram): only items cross-confirmed by
+    # a mainstream headline enter the feed, so raw chatter never surfaces as "news".
+    news += _cross_confirm(social, news)
 
     # Smart dedup: same story from multiple sources → keep first, merge source list
     norm_map = {}   # norm_key → index in unique

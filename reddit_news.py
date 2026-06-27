@@ -25,14 +25,17 @@ REQUEST_GAP   = float(os.getenv("REDDIT_REQUEST_GAP", "2.5"))   # space requests
 CACHE_TTL     = int(os.getenv("REDDIT_CACHE_TTL", "300"))       # serial fetch at most ~1/5min
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; ZyvoraTerminal/1.0; +admin@zyvoratech.co)"}
 
-# label -> (subreddit, category)
+# label -> (subreddit, category). Categories are frontend-known values (MARKETS/
+# MACRO/INDIA) so items route into existing tabs; the sentiment/early-signal nature
+# is carried by tier="B" + platform="reddit", not a bespoke "SENTIMENT" category
+# (which the dashboard has no tab/color for).
 SUBREDDITS = {
-    "r/wallstreetbets":   ("wallstreetbets",   "SENTIMENT"),
+    "r/wallstreetbets":   ("wallstreetbets",   "MARKETS"),
     "r/stocks":           ("stocks",           "MARKETS"),
     "r/StockMarket":      ("StockMarket",      "MARKETS"),
     "r/investing":        ("investing",        "MARKETS"),
     "r/economics":        ("economics",        "MACRO"),
-    "r/options":          ("options",          "SENTIMENT"),
+    "r/options":          ("options",          "MARKETS"),
     "r/IndiaInvestments": ("IndiaInvestments", "INDIA"),
 }
 
@@ -103,5 +106,8 @@ def get_reddit_news():
     rate-limited fetch (up to ~tens of seconds) NEVER blocks the news build. Items are
     tier 'B', confirmed=False; the caller cross-confirms before surfacing them."""
     if (time.time() - _cache["ts"]) >= CACHE_TTL and _lock.acquire(blocking=False):
-        threading.Thread(target=_refresh_job, daemon=True).start()
+        try:
+            threading.Thread(target=_refresh_job, daemon=True).start()
+        except BaseException:
+            _lock.release()   # spawn failed (e.g. thread exhaustion) — don't leak the lock
     return _cache["items"]

@@ -120,14 +120,20 @@ def get_telegram_news(allowed_sources=None):
     channels = {k: v for k, v in CHANNELS.items()
                 if allowed_sources is None or k in allowed_sources}
     all_news = []
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    # Pool sized to the channel count so all fit in ~2 waves; the as_completed loop is
+    # wrapped so a slow wave returns PARTIAL results instead of letting TimeoutError
+    # propagate and drop the entire Telegram source for the build.
+    with ThreadPoolExecutor(max_workers=16) as pool:
         futures = {pool.submit(_fetch_channel, src, url): src
                    for src, url in channels.items()}
-        for fut in as_completed(futures, timeout=15):
-            try:
-                all_news.extend(fut.result())
-            except:
-                pass
+        try:
+            for fut in as_completed(futures, timeout=20):
+                try:
+                    all_news.extend(fut.result())
+                except:
+                    pass
+        except Exception:
+            pass   # overall timeout — keep whatever completed
     return all_news
 
 
