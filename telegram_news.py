@@ -27,6 +27,23 @@ CHANNELS = {
     "OilPrice":         "https://t.me/s/oilpricedotcom",
     # ── India ──────────────────────────────────────────────
     "BusinessInsider":  "https://t.me/s/Business_Insider",
+    # ── Added 2026-06: verified-live free channels (t.me/s/) ───────────────
+    # Breaking / squawk substitute (X is paid; these are the free fast layer)
+    "WatcherGuru":      "https://t.me/s/WatcherGuru",
+    "MarketTwits":      "https://t.me/s/MarketTwits",
+    "Bloomberg TG":     "https://t.me/s/bloomberg",
+    "Investing.com TG": "https://t.me/s/Investingcom",
+    "Burggraben":       "https://t.me/s/BurggrabenH",
+    "Geiger Capital":   "https://t.me/s/Geiger_Capital",
+    # Geopolitics (Tier-B disclose.tv is gated by cross-confirm downstream)
+    "Spectator Index":  "https://t.me/s/spectatorindex",
+    "Disclose.tv":      "https://t.me/s/disclosetv",
+    # India (NSE coverage)
+    "Livemint TG":      "https://t.me/s/livemint",
+    "MoneyControl TG":  "https://t.me/s/moneycontrolcom",
+    "ET Markets TG":    "https://t.me/s/ETMarkets",
+    "Finshots TG":      "https://t.me/s/Finshots",
+    "CNBC-TV18 TG":     "https://t.me/s/cnbctv18news",
 }
 
 SOURCE_CATEGORY = {
@@ -41,6 +58,19 @@ SOURCE_CATEGORY = {
     "KitcoNews":       "COMMODITIES",
     "OilPrice":        "COMMODITIES",
     "BusinessInsider": "MARKETS",
+    "WatcherGuru":     "MARKETS",
+    "MarketTwits":     "MARKETS",
+    "Bloomberg TG":    "MARKETS",
+    "Investing.com TG":"MARKETS",
+    "Burggraben":      "MACRO",
+    "Geiger Capital":  "MARKETS",
+    "Spectator Index": "GEOPOLITICS",
+    "Disclose.tv":     "GEOPOLITICS",
+    "Livemint TG":     "INDIA",
+    "MoneyControl TG": "INDIA",
+    "ET Markets TG":   "INDIA",
+    "Finshots TG":     "INDIA",
+    "CNBC-TV18 TG":    "INDIA",
 }
 
 

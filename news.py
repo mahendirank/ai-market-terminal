@@ -649,6 +649,44 @@ def get_all_news():
         return result
 
 
+# ── Cross-confirmation gate (authentic-only) ────────────────────────────────────
+# Sentiment-tier items (Reddit, and any Tier-B social source) are surfaced ONLY when
+# a mainstream headline corroborates them — a shared ticker, or >=3 shared significant
+# words. This keeps raw social chatter out of the feed while still catching the cases
+# where Reddit is echoing a real story.
+_STOP = {"about","after","again","amid","another","says","said","with","that","this",
+         "from","into","over","under","their","there","these","those","which","while",
+         "would","could","should","being","been","have","has","will","new","up","down"}
+
+
+def _sig_words(text):
+    return {w for w in re.findall(r"[a-z0-9]+", (text or "").lower())
+            if len(w) > 4 and w not in _STOP}
+
+
+def _cross_confirm(candidates, mainstream):
+    """Keep only candidate items corroborated by a mainstream headline."""
+    main_tickers  = set()
+    main_wordsets = []
+    for m in mainstream:
+        if not isinstance(m, dict):
+            continue
+        for t in (m.get("tickers") or []):
+            main_tickers.add(t)
+        main_wordsets.append(_sig_words(m.get("text", "")))
+    out = []
+    for c in candidates:
+        ok = bool(set(c.get("tickers") or []) & main_tickers)
+        if not ok:
+            cw = _sig_words(c.get("text", ""))
+            if len(cw) >= 3:
+                ok = any(len(cw & mw) >= 3 for mw in main_wordsets)
+        if ok:
+            c["confirmed"] = True
+            out.append(c)
+    return out
+
+
 def _get_all_news_uncached():
     news = []
 
@@ -679,6 +717,18 @@ def _get_all_news_uncached():
     try:
         news += get_finviz_news()
     except:
+        pass
+
+    # Reddit (sentiment / early-signal) — fetched cached + rate-limit-safe, then gated:
+    # only items cross-confirmed by a mainstream headline enter the feed, so raw
+    # subreddit chatter never surfaces as "news". Copy items so we don't mutate the cache.
+    try:
+        from reddit_news import get_reddit_news
+        reddit_raw = [dict(it) for it in get_reddit_news()]
+        for it in reddit_raw:
+            it["tickers"] = _detect_tickers(it.get("text", ""))
+        news += _cross_confirm(reddit_raw, news)
+    except Exception:
         pass
 
     # Smart dedup: same story from multiple sources → keep first, merge source list
