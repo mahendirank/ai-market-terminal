@@ -1,0 +1,8 @@
+# Ripster fusion watchlist scan -> Telegram (all users).
+# VPS clock is UTC. 13:30-20:00 UTC ~ 09:30-16:00 ET (US market hours).
+# Runs every 15 min, Mon-Fri. The scan self-dedupes (4h cooldown per user/ticker).
+#
+# Install (append to root's crontab on the VPS):
+#   ( crontab -l 2>/dev/null; cat /opt/zyvora/ops/ripster-scan.crontab ) | crontab -
+#
+*/15 13-20 * * 1-5  /opt/zyvora/ops/ripster-scan.sh
