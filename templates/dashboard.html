@@ -6035,7 +6035,7 @@ function _renderHnicList() {
     const tms = (it.matched||[]).slice(0,4).map(t=>`<span class="hniw-term">${esc(t)}</span>`).join('');
     const fl  = (it.countries||[]).map(c=>flagMap[c]||'').join('');
     const url = (it.url||'').startsWith('http') ? it.url : '';
-    const onclick = url ? `onclick="window.open('${esc(url)}','_blank')"` : '';
+    const onclick = url ? `data-u="${esc(url)}" onclick="window.open(this.dataset.u,'_blank')"` : '';
     return `<div class="hniw-row ${hi?'hi':''}" ${onclick}>
       <div class="hniw-top">
         <span class="hniw-badge ${hi?'hi':'md'}">${hi?'HIGH':'WATCH'}</span>
@@ -8308,7 +8308,7 @@ setInterval(function () {
         const tks = (it.tickers||[]).slice(0,4).map(t=>`<span class="hniw-tk">$${esc(t)}</span>`).join('');
         const tms = (it.matched||[]).slice(0,3).map(t=>`<span class="hniw-term">${esc(t)}</span>`).join('');
         const url = (it.url||'').startsWith('http') ? it.url : '';
-        const onclick = url ? `onclick="window.open('${esc(url)}','_blank')"` : '';
+        const onclick = url ? `data-u="${esc(url)}" onclick="window.open(this.dataset.u,'_blank')"` : '';
         return `<div class="hniw-row ${hi?'hi':''}" ${onclick}>
           <div class="hniw-top">
             <span class="hniw-badge ${hi?'hi':'md'}">${hi?'HIGH':'WATCH'}</span>

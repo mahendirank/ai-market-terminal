@@ -16,6 +16,7 @@ no external deps, survives restarts. Set HNI_NEWS_DB to override the path.
 from __future__ import annotations
 
 import os, re, time, sqlite3, hashlib, threading
+from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
 
 IST     = timezone(timedelta(hours=5, minutes=30))
@@ -27,12 +28,22 @@ RETENTION_DAYS = int(os.environ.get("HNI_NEWS_RETENTION_DAYS", "45"))
 
 _lock        = threading.Lock()
 _initialized = False
+_last_prune  = 0.0
+PRUNE_INTERVAL = 3600    # run retention prune at most once an hour
 
 
+@contextmanager
 def _conn():
+    # contextmanager so the connection is ALWAYS closed — `with sqlite3.connect(...)`
+    # only commits/rolls-back the transaction, it does NOT close, which leaked a
+    # connection (and FD) on every store/search/prune call.
     c = sqlite3.connect(DB_PATH, timeout=10, check_same_thread=False)
     c.row_factory = sqlite3.Row
-    return c
+    try:
+        yield c
+        c.commit()
+    finally:
+        c.close()
 
 
 def _init():
@@ -125,8 +136,11 @@ def store_items(items) -> int:
     except Exception as e:
         print(f"[hni_news_store] store failed: {e}", flush=True)
         return 0
-    # Opportunistic prune (cheap, indexed) roughly once per ~100 cycles.
-    if int(now) % 100 == 0:
+    # Time-based prune so retention actually runs (the old `int(now) % 100 == 0`
+    # gate almost never fired on coarse cycles → archive grew unbounded).
+    global _last_prune
+    if now - _last_prune > PRUNE_INTERVAL:
+        _last_prune = now
         prune()
     return new_count
 

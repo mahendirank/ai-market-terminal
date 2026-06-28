@@ -14,8 +14,10 @@ from datetime import datetime, timezone, timedelta
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
-BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8475057388:AAGUlt5Qu3Ei2_3xeUF8S1TWvygDKVVxb8I").strip()
-CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID",   "-1001379475837").strip()  # PTA NISM channel
+# Credentials come ONLY from env — never hardcode a live bot token in source (it
+# ships in the artifact, can't be rotated via config, and is a credential leak).
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID",   "").strip()
 
 _sent_cache = set()   # in-memory dedup for condition alerts (same session)
 
@@ -69,6 +71,8 @@ def _headline_key(text: str) -> str:
 
 def send_telegram(msg: str, silent: bool = False) -> bool:
     """Send a message to Telegram. Returns True if sent successfully."""
+    if not (BOT_TOKEN and CHAT_ID):
+        return False   # not configured — no-op instead of hitting a bogus URL
     try:
         url  = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
         resp = requests.post(url, json={
