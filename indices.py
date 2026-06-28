@@ -25,6 +25,27 @@ _YF_NSE = {
     "SENSEX":    "^BSESN",
 }
 
+# Plausibility bounds (min, max). The no-login TradingView feed on the VPS
+# sometimes returns garbage (e.g. NIFTY50 as 4.7, or FINNIFTY echoing SENSEX's
+# ~77k). Any index outside its band is treated as missing so the yfinance
+# fallback refills it with a real value.
+_NSE_BOUNDS = {
+    "NIFTY50":    (5_000, 60_000),
+    "BANKNIFTY":  (10_000, 120_000),
+    "SENSEX":     (20_000, 200_000),
+    "FINNIFTY":   (5_000, 50_000),
+    "MIDCPNIFTY": (2_000, 50_000),
+}
+
+
+def _implausible(label: str, entry) -> bool:
+    bounds = _NSE_BOUNDS.get(label)
+    if not bounds:
+        return False
+    price = entry.get("price") if isinstance(entry, dict) else None
+    lo, hi = bounds
+    return not isinstance(price, (int, float)) or price < lo or price > hi
+
 
 def _yf_price(sym: str) -> dict | None:
     try:
@@ -55,6 +76,12 @@ def get_indices() -> dict:
             data.update(nse)
     except Exception as e:
         print(f"[indices] tvdata failed, using yfinance fallback: {e}", flush=True)
+
+    # Drop any implausible tvdata values (e.g. NIFTY50=4.7) so yfinance refills.
+    for label in list(data.keys()):
+        if _implausible(label, data[label]):
+            print(f"[indices] dropping implausible {label}={data[label].get('price')}", flush=True)
+            del data[label]
 
     # Fill any missing NSE indices via yfinance
     for label, ticker in _YF_NSE.items():

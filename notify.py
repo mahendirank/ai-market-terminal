@@ -14,8 +14,10 @@ from datetime import datetime, timezone, timedelta
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
-BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8475057388:AAGUlt5Qu3Ei2_3xeUF8S1TWvygDKVVxb8I").strip()
-CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID",   "-1001379475837").strip()  # PTA NISM channel
+# Credentials come ONLY from env — never hardcode a live bot token in source (it
+# ships in the artifact, can't be rotated via config, and is a credential leak).
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID",   "").strip()
 
 _sent_cache = set()   # in-memory dedup for condition alerts (same session)
 
@@ -69,6 +71,8 @@ def _headline_key(text: str) -> str:
 
 def send_telegram(msg: str, silent: bool = False) -> bool:
     """Send a message to Telegram. Returns True if sent successfully."""
+    if not (BOT_TOKEN and CHAT_ID):
+        return False   # not configured — no-op instead of hitting a bogus URL
     try:
         url  = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
         resp = requests.post(url, json={
@@ -423,6 +427,121 @@ def send_eod_summary():
     threading.Thread(target=_build_and_send, daemon=True).start()
 
 
+# ── HNI watchlist alert (institutional flow, pre-market) ─────
+
+def alert_hni_watch(item: dict, matched: list, prio: str = "high",
+                    premarket: bool = False) -> bool:
+    """Instant alert when an HNI feed item hits the keyword/entity watchlist.
+
+    Persistent dedup (survives restarts) so the same post never re-alerts.
+    Returns True only when a message was actually sent.
+    """
+    headline = (item.get("text") or "").strip()
+    if not headline:
+        return False
+    key = "hniwatch_" + _headline_key(headline)
+    if _already_sent(key):
+        return False
+
+    source  = item.get("source", "")
+    t       = item.get("time", "")
+    url     = item.get("url", "")
+    tickers = item.get("tickers") or []
+    tick_str = "  ".join(f"${x}" for x in tickers[:4])
+    terms    = ", ".join(dict.fromkeys(matched))[:160]   # dedup, cap length
+
+    head_emoji = "🛰" if prio == "high" else "📡"
+    tag = "🌅 PRE-MARKET " if premarket else ""
+    msg = (
+        f"{head_emoji} <b>{tag}HNI WATCH</b>"
+        f"{'  ·  HIGH' if prio == 'high' else ''}\n\n"
+        f"📰 {headline}\n\n"
+    )
+    if tick_str:
+        msg += f"🏷 {tick_str}\n"
+    if terms:
+        msg += f"🎯 {terms}\n"
+    msg += f"📡 {source}"
+    if t:
+        msg += f"  •  {t}"
+    msg += "\n"
+    if url:
+        msg += f'<a href="{url}">Read more</a>\n'
+    msg += f"🕐 {datetime.now(IST).strftime('%d-%b %H:%M IST')}"
+
+    # HIGH buzzes the phone; MEDIUM is silent to keep noise down.
+    ok = send_telegram(msg, silent=(prio != "high"))
+    if ok:
+        _mark_sent(key)
+    return ok
+
+
+# ── US Pre-Market Briefing (once daily, at the US pre-open) ──
+
+_last_premkt_date = {"date": ""}
+
+def send_premarket_briefing():
+    """Digest of HNI watchlist hits seen in the ~14h before the US open.
+
+    Called repeatedly during the pre-market window; the date-guard makes it
+    fire exactly once per US trading day. Reads the persistent HNI archive so
+    overnight institutional flow (posted while you slept) is summarised in one
+    message right before the US session.
+    """
+    # Use US/Eastern date so the "trading day" matches the US session.
+    try:
+        from zoneinfo import ZoneInfo
+        et_today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
+    except Exception:
+        et_today = datetime.now(IST).strftime("%Y-%m-%d")
+    if _last_premkt_date["date"] == et_today:
+        return
+    _last_premkt_date["date"] = et_today
+
+    def _build_and_send():
+        try:
+            from hni_news_store import search
+            from hni_watch import classify
+        except Exception:
+            return
+        # Pull HNI items from the last 14h, keep only watchlist hits.
+        items = search(category="HNI", since_hours=14, limit=300)
+        hits = []
+        seen = set()
+        for it in items:
+            terms, prio = classify(it)
+            if not prio:
+                continue
+            k = _headline_key(it.get("text", ""))
+            if k in seen:
+                continue
+            seen.add(k)
+            hits.append((prio, it, terms))
+        # HIGH first
+        hits.sort(key=lambda x: 0 if x[0] == "high" else 1)
+
+        lines = [
+            f"🌅 <b>US PRE-MARKET — HNI FLOW</b>\n"
+            f"{datetime.now(IST).strftime('%a, %d %b %Y  %H:%M IST')}\n"
+        ]
+        if not hits:
+            lines.append("🔕 No institutional-flow watchlist hits overnight.")
+            lines.append("<i>Monitoring WalterBloomberg / Unusual Whales live…</i>")
+        else:
+            lines.append(f"<b>{len(hits)} watchlist hit(s) overnight:</b>\n")
+            for prio, it, terms in hits[:12]:
+                emoji = "🛰" if prio == "high" else "📡"
+                tickers = it.get("tickers") or []
+                tick = (" " + " ".join(f"${x}" for x in tickers[:3])) if tickers else ""
+                src = it.get("source", "")
+                lines.append(f"{emoji} {it.get('text','')[:180]}{tick}  <i>[{src}]</i>")
+        lines.append("")
+        lines.append("⚡️ <i>Powered by AI Market Terminal</i>")
+        send_telegram("\n".join(lines))
+
+    threading.Thread(target=_build_and_send, daemon=True).start()
+
+
 # ── News feed sender ─────────────────────────────────────────
 
 def _format_news_msg(item: dict, score: int) -> str:
@@ -527,6 +646,15 @@ def _check_all():
             send_morning_briefing()
         except Exception:
             pass
+
+    # ── HNI watchlist scan + US pre-market briefing ──
+    try:
+        from hni_watch import scan_and_alert, is_premarket
+        scan_and_alert()
+        if is_premarket():
+            send_premarket_briefing()   # date-guarded → fires once per US day
+    except Exception:
+        pass
 
     # ── EOD summary: 3:30–3:45 PM IST (market closed) ──
     if hour == 15 and 30 <= minute <= 45:

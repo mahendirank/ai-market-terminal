@@ -349,11 +349,27 @@ TICKER_MAP = {
 }
 
 
+_CASHTAG_RE = re.compile(r"\$([A-Za-z]{1,6})(?=[^A-Za-z]|$)")
+
+
 def _detect_tickers(text):
-    """Return list of up to 3 ticker tags found in headline."""
-    t = " " + text.lower() + " "
+    """Return up to 3 ticker tags: explicit $CASHTAGs first, then keyword map.
+
+    Cashtag extraction means a brand-new or unmapped listing (e.g. $SPCX from a
+    WalterBloomberg post) still gets tagged, even though it's not in TICKER_MAP.
+    """
     found = []
     seen  = set()
+    # 1) Explicit cashtags — catches new/unmapped tickers verbatim.
+    for sym in _CASHTAG_RE.findall(text or ""):
+        sym = sym.upper()
+        if sym not in seen:
+            found.append(sym)
+            seen.add(sym)
+        if len(found) >= 3:
+            return found
+    # 2) Company/asset name keywords → canonical ticker.
+    t = " " + (text or "").lower() + " "
     for keyword, ticker in TICKER_MAP.items():
         if keyword in t and ticker not in seen:
             found.append(ticker)
@@ -715,6 +731,13 @@ def _get_all_news_uncached():
                     social.append(item)
                     continue
             news.append(item)
+        # Persist Telegram/HNI items to the searchable archive so pre-market
+        # institutional flow survives past the in-memory rolling window.
+        try:
+            from hni_news_store import store_items
+            store_items(tg)
+        except Exception:
+            pass
     except:
         pass
 
@@ -773,6 +796,27 @@ def _get_all_news_uncached():
 
     unique = unique[:MAX_TOTAL]
     _tag_content_categories(unique)
+
+    # Also archive country-relevant institutional comments from non-HNI (RSS)
+    # sources — India/Asia/global desks — so the HNI Comments country filter
+    # isn't US-only. Only items that BOTH classify as a comment (analyst call,
+    # stake, earnings, M&A, tracked name) AND tag to a country are kept, so the
+    # archive stays focused and small.
+    try:
+        from hni_news_store import store_items
+        from hni_watch import classify, detect_countries
+        extra = []
+        for n in unique:
+            if not isinstance(n, dict) or n.get("category") == "HNI":
+                continue
+            _, prio = classify(n)
+            if prio and detect_countries(n):
+                extra.append(n)
+        if extra:
+            store_items(extra)
+    except Exception:
+        pass
+
     return unique
 
 

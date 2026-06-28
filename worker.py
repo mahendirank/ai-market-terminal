@@ -138,6 +138,27 @@ async def loop_econ_pre_print():
         await asyncio.sleep(60)
 
 
+async def loop_hni_watch():
+    """Scan HNI feed for watchlist hits every 90s + daily pre-market briefing."""
+    log("INFO", "worker", "loop_hni_watch started")
+    await asyncio.sleep(90)
+    while True:
+        try:
+            from hni_watch import scan_and_alert, is_premarket
+            summary = await asyncio.to_thread(scan_and_alert)
+            heartbeat("hni_watch")
+            if summary.get("sent"):
+                log("INFO", "worker", "hni_watch alerts",
+                    sent=summary["sent"], matched=summary.get("matched", 0),
+                    premarket=summary.get("premarket"))
+            if is_premarket():
+                from notify import send_premarket_briefing
+                await asyncio.to_thread(send_premarket_briefing)
+        except Exception as e:
+            log("ERROR", "worker", "hni_watch", err=type(e).__name__, msg=str(e)[:120])
+        await asyncio.sleep(90)
+
+
 LOOPS = {
     "refresh":         loop_continuous_refresh,
     "macro_snap":      loop_macro_desk_snapshot,
@@ -145,6 +166,7 @@ LOOPS = {
     "alerts":          loop_alert_engine,
     "signal_verify":   loop_signal_verify,
     "econ_pre_print":  loop_econ_pre_print,
+    "hni_watch":       loop_hni_watch,
 }
 
 

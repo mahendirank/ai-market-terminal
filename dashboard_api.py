@@ -99,6 +99,13 @@ async def lifespan(app: FastAPI):
         ws_task.add_done_callback(_bg_tasks.discard)
     except Exception as _e:
         print(f"[WS_PRICES] init error: {_e}", flush=True)
+    # HNI watchlist scanner: 90s scan for institutional-flow / pre-market hits
+    try:
+        hni_task = asyncio.create_task(_hni_watch_loop())
+        _bg_tasks.add(hni_task)
+        hni_task.add_done_callback(_bg_tasks.discard)
+    except Exception as _e:
+        print(f"[HNI_WATCH] init error: {_e}", flush=True)
 
     # ── Sprint 4 Stage 4.1: orchestrator lifecycle (feature-flagged) ──
     # When AGENT_ORCHESTRATOR_ENABLED is unset/false (default), this
@@ -321,6 +328,30 @@ async def _econ_publisher_loop():
         except Exception as _e:
             print(f"[ECON_PUB] loop error: {_e}", flush=True)
         await asyncio.sleep(60)
+
+
+async def _hni_watch_loop():
+    """Scan the HNI feed for watchlist hits every 90s and fire instant alerts.
+    Faster cadence than the 5-min watchdog so pre-market institutional flow
+    (analyst initiations, big-fund buys) is caught within ~1.5 min of posting.
+    Also triggers the once-daily US pre-market briefing inside the window."""
+    await asyncio.sleep(90)   # let the news cache warm first
+    while True:
+        try:
+            from hni_watch import scan_and_alert, is_premarket
+            from production import heartbeat
+            summary = await asyncio.to_thread(scan_and_alert)
+            heartbeat("hni_watch")
+            if summary.get("sent"):
+                print(f"[HNI_WATCH] sent={summary['sent']} "
+                      f"matched={summary.get('matched',0)} "
+                      f"premarket={summary.get('premarket')}", flush=True)
+            if is_premarket():
+                from notify import send_premarket_briefing
+                await asyncio.to_thread(send_premarket_briefing)
+        except Exception as _e:
+            print(f"[HNI_WATCH] loop error: {_e}", flush=True)
+        await asyncio.sleep(90)
 
 
 app = FastAPI(title="AI Market Terminal", lifespan=lifespan)
@@ -1484,6 +1515,71 @@ def api_news():
                 })
         except: pass
     return result
+
+
+@app.get("/api/news/history")
+def api_news_history(q: str = None, source: str = None, ticker: str = None,
+                     category: str = None, hours: float = None, limit: int = 100):
+    """Searchable archive of HNI/Telegram news — survives the live window.
+
+    Examples:
+      /api/news/history?ticker=SPCX
+      /api/news/history?source=WalterBloomberg&hours=48
+      /api/news/history?q=SpaceX
+    """
+    try:
+        from hni_news_store import search, stats
+        items = search(q=q, source=source, ticker=ticker, category=category,
+                       since_hours=hours, limit=min(int(limit), 500))
+        return {"count": len(items), "items": items, "archive": stats()}
+    except Exception as e:
+        return {"count": 0, "items": [], "error": str(e)}
+
+
+@app.get("/api/hni-watch")
+def api_hni_watch(hours: float = 48, limit: int = 150, country: str = None):
+    """Classified HNI watchlist hits for the dashboard panel.
+
+    Returns only items that hit the keyword/entity watchlist (the same ones
+    that fire a Telegram alert), tagged high/medium, newest first.
+    """
+    try:
+        from hni_news_store import search
+        from hni_watch import classify, is_premarket, detect_countries, countries_meta
+        # Scan ALL archived sources (HNI desks + country-relevant RSS), not just
+        # the US-centric HNI category, so non-US country filters populate.
+        rows = search(since_hours=hours, limit=1500)
+        hits, seen = [], set()
+        for it in rows:
+            terms, prio = classify(it)
+            if not prio:
+                continue
+            k = (it.get("text", "") or "")[:60].lower()
+            if k in seen:
+                continue
+            seen.add(k)
+            ccs = detect_countries(it)
+            # Optional server-side country filter (?country=IN)
+            if country and country.upper() not in ccs:
+                continue
+            hits.append({
+                "text":      it.get("text", ""),
+                "source":    it.get("source", ""),
+                "time":      it.get("time", ""),
+                "seen":      it.get("first_seen_ist", ""),
+                "tickers":   it.get("tickers", []),
+                "url":       it.get("url", ""),
+                "priority":  prio,
+                "matched":   list(dict.fromkeys(terms))[:5],
+                "countries": ccs,
+            })
+            if len(hits) >= limit:
+                break
+        hits.sort(key=lambda h: 0 if h["priority"] == "high" else 1)
+        return {"count": len(hits), "premarket": is_premarket(),
+                "items": hits, "countries": countries_meta()}
+    except Exception as e:
+        return {"count": 0, "premarket": False, "items": [], "countries": [], "error": str(e)}
 
 
 # ── AI Summary proxy → forwards to Bun news service (localhost:4000) ──────────
@@ -2813,25 +2909,45 @@ def _build_morning_note_data() -> dict:
         return {"error": str(e)}
 
 
+# Refresh the working market note every 20 min so it tracks the day in
+# (near) real time instead of freezing the 9:15 AM snapshot. The note's DATA
+# inputs (indices/macro/news) are already live on 30s caches; this refreshes
+# the AI narrative on top so the headline + ideas stay current.
+_MORNING_TTL = 20 * 60
+
+
+def _morning_note_fresh(today: str) -> bool:
+    return (
+        _morning_note.get("date") == today
+        and bool(_morning_note.get("data"))
+        and (_time.time() - _morning_note.get("generated_at", 0)) < _MORNING_TTL
+    )
+
+
 async def _morning_note_scheduler():
-    """Background task: generates morning note at 9:15 AM IST every trading day."""
+    """Background task: (re)generate the working market note every ~20 min so it
+    stays current through the trading day — not frozen at the 9:15 AM open."""
     print("[MORNING] scheduler started", flush=True)
     await asyncio.sleep(60)   # wait for server to warm up
     while True:
-        now = datetime.now(IST)
-        today = now.strftime("%Y-%m-%d")
-        # Generate at 9:15 AM IST on weekdays (Mon=0 ... Fri=4)
-        if now.weekday() < 5 and now.hour == 9 and now.minute >= 15:
-            if _morning_note.get("date") != today:
+        try:
+            today = datetime.now(IST).strftime("%Y-%m-%d")
+            if not _morning_note_fresh(today):
                 async with _morning_note_lock:
-                    if _morning_note.get("date") != today:
-                        print("[MORNING] generating morning note...", flush=True)
+                    if not _morning_note_fresh(today):
+                        print("[MORNING] (re)generating working note...", flush=True)
                         data = await asyncio.to_thread(_build_morning_note_data)
                         if "error" not in data:
                             _morning_note["date"] = today
                             _morning_note["data"] = data
-                            _disk_save("morning_note", {"date": today, "data": data})
-                            print(f"[MORNING] note ready: {data.get('headline','')}", flush=True)
+                            _morning_note["generated_at"] = _time.time()
+                            _disk_save("morning_note", {"date": today, "data": data,
+                                                        "generated_at": _time.time()})
+                            print(f"[MORNING] note refreshed: {data.get('headline','')}", flush=True)
+                        else:
+                            print(f"[MORNING] refresh skipped (error: {data.get('error')}) — keeping last note", flush=True)
+        except Exception as e:
+            print(f"[MORNING] scheduler error: {e}", flush=True)
         try:
             from production import heartbeat
             heartbeat("morning_note")
@@ -2847,12 +2963,12 @@ async def api_morning_note(force: int = 0):
       force=1 — bypass the cache and regenerate the note now.
     """
     today = datetime.now(IST).strftime("%Y-%m-%d")
-    # Serve from memory if today's note exists (force=1 skips the cache)
-    if not force and _morning_note.get("date") == today and _morning_note.get("data"):
+    # Serve from memory if today's note is still fresh (< TTL). force=1 skips it.
+    if not force and _morning_note_fresh(today):
         return JSONResponse(_morning_note["data"])
-    # On-demand generation
+    # Stale or missing → regenerate (the lock caps concurrent LLM calls)
     async with _morning_note_lock:
-        if not force and _morning_note.get("date") == today and _morning_note.get("data"):
+        if not force and _morning_note_fresh(today):
             return JSONResponse(_morning_note["data"])
         data = await asyncio.to_thread(_build_morning_note_data)
         err = data.get("error")
@@ -2878,7 +2994,8 @@ async def api_morning_note(force: int = 0):
                 status_code=503)
         _morning_note["date"] = today
         _morning_note["data"] = data
-        _disk_save("morning_note", {"date": today, "data": data})
+        _morning_note["generated_at"] = _time.time()
+        _disk_save("morning_note", {"date": today, "data": data, "generated_at": _time.time()})
         return JSONResponse(data)
 
 
@@ -3013,6 +3130,27 @@ def _market_state_event_bus_init():
 
 
 _market_state_event_bus_init()
+
+
+@app.get("/api/cockpit")
+def api_cockpit(symbol: str = "GOLD"):
+    """Trade Cockpit — HNI-desk scalp + swing entry/exit read for ``symbol``
+    (gold by default). Fuses market-state, the economic-event gate, SMC scalp
+    levels and the multi-timeframe consensus into a TRADE/WAIT/STAND-ASIDE
+    verdict per mode. Background-refreshed (90s) like /api/market-state."""
+    def _build():
+        try:
+            from cockpit_engine import get_cockpit
+            return get_cockpit(symbol)
+        except Exception as e:
+            print(f"[api] cockpit error: {type(e).__name__}: {e}", flush=True)
+            return {"error": str(e)[:160], "data_quality": "DEGRADED",
+                    "generated_at": now_ist()}
+    return _bg_refresh(f"cockpit_{symbol}", 90, _build, empty={
+        "symbol": symbol, "context": {}, "event_gate": {},
+        "scalp": {}, "swing": {}, "data_quality": "LOADING",
+        "generated_at": now_ist(),
+    })
 
 
 @app.get("/api/calendar/imminent")
