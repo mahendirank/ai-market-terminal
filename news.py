@@ -707,9 +707,14 @@ def _cross_confirm(candidates, mainstream):
     return out
 
 
-# Telegram channels treated as Tier-B (lower-trust / sensational): routed through the
-# cross-confirm gate just like Reddit instead of flowing straight into the feed.
-_TIER_B_TG = {"Disclose.tv"}
+# Telegram channels treated as Tier-B (lower-trust / sensational / trading opinion):
+# routed through the cross-confirm gate just like Reddit instead of flowing straight
+# into the feed — only items a mainstream headline corroborates surface.
+_TIER_B_TG = {
+    "Disclose.tv",
+    # Trader flow / options accounts — opinion + promo, not wire news.
+    "SpotGamma", "Cheddar Flow", "WallSt Jesus", "TheoTrade", "Tradytics", "Kobeissi",
+}
 
 
 def _get_all_news_uncached():

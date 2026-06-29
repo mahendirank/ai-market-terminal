@@ -44,6 +44,14 @@ CHANNELS = {
     "ET Markets TG":    "https://t.me/s/ETMarkets",
     "Finshots TG":      "https://t.me/s/Finshots",
     "CNBC-TV18 TG":     "https://t.me/s/cnbctv18news",
+    # ── Trader flow / options (Tier-B: gated by cross-confirm in news.py, since
+    #    these post trading opinion + promo, not wire news) ───────────────────
+    "SpotGamma":        "https://t.me/s/SpotGamma",
+    "Cheddar Flow":     "https://t.me/s/cheddarflow",
+    "WallSt Jesus":     "https://t.me/s/WallStJesus",
+    "TheoTrade":        "https://t.me/s/TheoTrade",
+    "Tradytics":        "https://t.me/s/Tradytics",
+    "Kobeissi":         "https://t.me/s/KobeissiLetter",
 }
 
 SOURCE_CATEGORY = {
@@ -71,6 +79,12 @@ SOURCE_CATEGORY = {
     "ET Markets TG":   "INDIA",
     "Finshots TG":     "INDIA",
     "CNBC-TV18 TG":    "INDIA",
+    "SpotGamma":       "MARKETS",
+    "Cheddar Flow":    "MARKETS",
+    "WallSt Jesus":    "MARKETS",
+    "TheoTrade":       "MARKETS",
+    "Tradytics":       "MARKETS",
+    "Kobeissi":        "MACRO",
 }
 
 
