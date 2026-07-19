@@ -51,7 +51,7 @@ ALL_SOURCES = {
     "The Register":     {"type": "rss", "url": "https://www.theregister.com/headlines.atom", "category": "TECH"},
     "Ars Technica":     {"type": "rss", "url": "https://feeds.arstechnica.com/arstechnica/technology-lab", "category": "TECH"},
     "SemiWiki":         {"type": "rss", "url": "https://semiwiki.com/feed/", "category": "TECH"},
-    "SemiEngineering":  {"type": "rss", "url": "https://semiengineering.com/feed/", "category": "TECH"},
+    "SemiEngineering":  {"type": "rss", "url": "https://news.google.com/rss/search?q=site:semiengineering.com+when:7d&hl=en-US&gl=US&ceid=US:en", "category": "TECH"},
     "EE Times":         {"type": "rss", "url": "https://www.eetimes.com/rss/", "category": "TECH"},
     "Tom's Hardware":   {"type": "rss", "url": "https://www.tomshardware.com/feeds/all", "category": "TECH"},
     # Primary-source feeds added 2026-05-27 — Treasury / SEC / central banks
