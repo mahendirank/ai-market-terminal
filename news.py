@@ -30,6 +30,8 @@ SLOW_CADENCE_SOURCES: set = {
     "Bank of England", "BoE Publications", "RBA Media",
     # Fed Reserve was already in the list — same cadence
     "Fed Reserve", "IMF News",
+    # Blogs / trade press posting ~daily, not hourly — 8h cutoff leaves them empty
+    "Calculated Risk", "SemiEngineering",
 }
 
 SOURCE_CATEGORY = {
@@ -48,7 +50,7 @@ SOURCE_CATEGORY = {
     "SA Earnings":      "EARNINGS",
     "Bloomberg Mkts":   "MARKETS",
     "WSJ Mkt":          "MARKETS",
-    "Valuewalk":        "MARKETS",
+    "Barron's":         "MARKETS",
     # FX
     "ForexLive":        "FX",
     "DailyFX":          "FX",
@@ -157,9 +159,11 @@ RSS_SOURCES = {
     "Yahoo Finance":    "https://finance.yahoo.com/news/rssindex",
     "Benzinga":         "https://www.benzinga.com/feed",
     "Bloomberg Mkts":   "https://feeds.bloomberg.com/markets/news.rss",
-    "WSJ Mkt":          "https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml",
+    # feeds.a.dj.com stopped updating (items frozen ~2025) — route via Google News.
+    "WSJ Mkt":          "https://news.google.com/rss/search?q=site:wsj.com+(markets+OR+stocks+OR+economy)+when:1d&hl=en-US&gl=US&ceid=US:en",
     "Motley Fool":      "https://www.fool.com/feeds/index.aspx",
-    "Valuewalk":        "https://www.valuewalk.com/feed/",
+    # valuewalk.com went dormant (zero items even over 30d) — replaced by Barron's via Google News.
+    "Barron's":         "https://news.google.com/rss/search?q=site:barrons.com+when:1d&hl=en-US&gl=US&ceid=US:en",
 
     # ── Earnings-specific ────────────────────────────────────
     "SA Earnings":      "https://seekingalpha.com/tag/earnings/feed.xml",
@@ -185,7 +189,8 @@ RSS_SOURCES = {
     "FT Markets":       "https://www.ft.com/rss/home/uk",
     "ZeroHedge":        "https://nitter.net/zerohedge/rss",
     "BondBuyer":        "https://news.google.com/rss/search?q=site:bondbuyer.com+when:3d&hl=en-US&gl=US&ceid=US:en",
-    "Calculated Risk":  "https://www.calculatedriskblog.com/feeds/posts/default",
+    # calculatedriskblog.com feed abandoned — the blog moved to Substack.
+    "Calculated Risk":  "https://calculatedrisk.substack.com/feed",
     "Mish Talk":        "https://mishtalk.com/feed",
     "Fed Reserve":      "https://www.federalreserve.gov/feeds/press_all.xml",
     "IMF News":         "https://news.google.com/rss/search?q=site:imf.org+when:7d&hl=en-US&gl=US&ceid=US:en",
@@ -194,7 +199,9 @@ RSS_SOURCES = {
 
     # ── HNI / Institutional ─────────────────────────────────
     "FinancialJuice":   "https://nitter.net/financialjuice/rss",
-    "WalterBloomberg":  "https://nitter.net/WalterBloomberg/rss",
+    # @WalterBloomberg handle is stale on nitter (~3y-old items); the live
+    # account is @DeItaone — same wire, keep the source name downstream relies on.
+    "WalterBloomberg":  "https://nitter.net/DeItaone/rss",
     "Unusual Whales":   "https://nitter.net/unusual_whales/rss",
 
     # ── Tech / Semiconductors (Google News topical — captures supply-chain
@@ -232,7 +239,8 @@ RSS_SOURCES = {
     "The Register":     "https://www.theregister.com/headlines.atom",
     "Ars Technica":     "https://feeds.arstechnica.com/arstechnica/technology-lab",
     "SemiWiki":         "https://semiwiki.com/feed/",
-    "SemiEngineering":  "https://semiengineering.com/feed/",
+    # semiengineering.com/feed times out from the container — route via Google News.
+    "SemiEngineering":  "https://news.google.com/rss/search?q=site:semiengineering.com+when:7d&hl=en-US&gl=US&ceid=US:en",
     "EE Times":         "https://news.google.com/rss/search?q=site:eetimes.com+when:3d&hl=en-US&gl=US&ceid=US:en",
     "TechCrunch":       "https://techcrunch.com/feed/",
     "VentureBeat AI":   "https://venturebeat.com/category/ai/feed/",
