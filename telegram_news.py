@@ -51,7 +51,8 @@ CHANNELS = {
     "WallSt Jesus":     "https://t.me/s/WallStJesus",
     "TheoTrade":        "https://t.me/s/TheoTrade",
     "Tradytics":        "https://t.me/s/Tradytics",
-    "Kobeissi":         "https://t.me/s/KobeissiLetter",
+    # Kobeissi removed 2026-07-19: t.me channel abandoned (last post May 2024).
+    # Now ingested via nitter RSS in news.py ("Kobeissi Letter").
 }
 
 SOURCE_CATEGORY = {
@@ -84,7 +85,6 @@ SOURCE_CATEGORY = {
     "WallSt Jesus":    "MARKETS",
     "TheoTrade":       "MARKETS",
     "Tradytics":       "MARKETS",
-    "Kobeissi":        "MACRO",
 }
 
 

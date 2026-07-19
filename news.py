@@ -32,6 +32,8 @@ SLOW_CADENCE_SOURCES: set = {
     "Fed Reserve", "IMF News",
     # Blogs / trade press posting ~daily, not hourly — 8h cutoff leaves them empty
     "Calculated Risk", "SemiEngineering",
+    # Market-hours wires: quiet on weekends, 8h cutoff empties them Sat/Sun
+    "Kobeissi Letter", "CN Wire",
 }
 
 SOURCE_CATEGORY = {
@@ -126,6 +128,12 @@ SOURCE_CATEGORY = {
     "Asia Times":       "GLOBAL",
     "CNA Business":     "GLOBAL",
     "SCMP Markets":     "GLOBAL",
+    "SCMP Economy":     "GLOBAL",
+    "Yicai Global":     "GLOBAL",
+    "CN Wire":          "GLOBAL",
+    "Japan Macro":      "GLOBAL",
+    "Politico Europe":  "GEOPOLITICS",
+    "Kobeissi Letter":  "MACRO",
     # India fast
     "NDTV Business":    "INDIA",
     "Mint Opinion":     "INDIA",
@@ -256,6 +264,16 @@ RSS_SOURCES = {
     "SCMP Markets":     "https://www.scmp.com/rss/91/feed",
     "Globe Mail":       "https://news.google.com/rss/search?q=site:theglobeandmail.com+business+when:1d&hl=en-US&gl=US&ceid=US:en",
     "Asia Times":       "https://asiatimes.com/feed/",
+    # ── China / Japan / Europe depth added 2026-07-19 (all probed live) ──
+    "SCMP Economy":     "https://www.scmp.com/rss/318421/feed",
+    "Yicai Global":     "https://news.google.com/rss/search?q=site:yicaiglobal.com+when:2d&hl=en-US&gl=US&ceid=US:en",
+    # Real-time China markets wire (@Sino_Market) — quiet on weekends, fine.
+    "CN Wire":          "https://nitter.net/Sino_Market/rss",
+    "Japan Macro":      "https://news.google.com/rss/search?q=(BOJ+OR+%22Bank+of+Japan%22+OR+yen+OR+Nikkei)+when:1d&hl=en-US&gl=US&ceid=US:en",
+    "Politico Europe":  "https://www.politico.eu/feed/",
+    # US macro commentary wire — t.me channel is abandoned (last post May 2024),
+    # the live outlet is their X account.
+    "Kobeissi Letter":  "https://nitter.net/KobeissiLetter/rss",
 
     # ── India Fast (verified working) ────────────────────────
     "NDTV Business":    "https://feeds.feedburner.com/ndtvprofit-latest",
@@ -721,7 +739,9 @@ def _cross_confirm(candidates, mainstream):
 _TIER_B_TG = {
     "Disclose.tv",
     # Trader flow / options accounts — opinion + promo, not wire news.
-    "SpotGamma", "Cheddar Flow", "WallSt Jesus", "TheoTrade", "Tradytics", "Kobeissi",
+    # (Kobeissi dropped 2026-07-19: its t.me channel is dead; now a Tier-A
+    # RSS source "Kobeissi Letter" via nitter.)
+    "SpotGamma", "Cheddar Flow", "WallSt Jesus", "TheoTrade", "Tradytics",
 }
 
 
