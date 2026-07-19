@@ -54,6 +54,13 @@ ALL_SOURCES = {
     "SemiEngineering":  {"type": "rss", "url": "https://news.google.com/rss/search?q=site:semiengineering.com+when:7d&hl=en-US&gl=US&ceid=US:en", "category": "TECH"},
     "EE Times":         {"type": "rss", "url": "https://www.eetimes.com/rss/", "category": "TECH"},
     "Tom's Hardware":   {"type": "rss", "url": "https://www.tomshardware.com/feeds/all", "category": "TECH"},
+    # China / Japan / Europe depth + Kobeissi added 2026-07-19 (all probed live)
+    "Kobeissi Letter":  {"type": "rss", "url": "https://nitter.net/KobeissiLetter/rss", "category": "MACRO"},
+    "SCMP Economy":     {"type": "rss", "url": "https://www.scmp.com/rss/318421/feed", "category": "GLOBAL"},
+    "Yicai Global":     {"type": "rss", "url": "https://news.google.com/rss/search?q=site:yicaiglobal.com+when:2d&hl=en-US&gl=US&ceid=US:en", "category": "GLOBAL"},
+    "CN Wire":          {"type": "rss", "url": "https://nitter.net/Sino_Market/rss", "category": "GLOBAL"},
+    "Japan Macro":      {"type": "rss", "url": "https://news.google.com/rss/search?q=(BOJ+OR+%22Bank+of+Japan%22+OR+yen+OR+Nikkei)+when:1d&hl=en-US&gl=US&ceid=US:en", "category": "GLOBAL"},
+    "Politico Europe":  {"type": "rss", "url": "https://www.politico.eu/feed/", "category": "GEOPOLITICS"},
     # Primary-source feeds added 2026-05-27 — Treasury / SEC / central banks
     "TreasuryDirect Auctions": {"type": "rss", "url": "https://www.treasurydirect.gov/TA_WS/securities/announced?format=rss", "category": "BONDS"},
     "TreasuryDirect Results":  {"type": "rss", "url": "https://www.treasurydirect.gov/TA_WS/securities/auctioned?format=rss", "category": "BONDS"},
