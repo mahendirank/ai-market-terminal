@@ -2198,6 +2198,28 @@ def api_earnings_social():
         return []
 
 
+@app.get("/api/feeds/health")
+def api_feeds_health():
+    """Per-source RSS feed health from the in-process tracker (news.get_feed_health).
+    suspect = request failed OR zero raw entries for >= 6 consecutive fetches."""
+    try:
+        from news import get_feed_health, RSS_SOURCES
+        health = get_feed_health()
+        suspects = sorted(
+            [{"name": s, **h} for s, h in health.items() if h.get("suspect")],
+            key=lambda x: -x.get("empty_streak", 0))
+        return {
+            "total": len(RSS_SOURCES),
+            "tracked": len(health),
+            "ok": sum(1 for h in health.values() if not h.get("suspect")),
+            "suspects": suspects,
+            "sources": health,
+        }
+    except Exception as e:
+        print(f"[/api/feeds/health] {type(e).__name__}: {e}", flush=True)
+        return {"total": 0, "tracked": 0, "ok": 0, "suspects": [], "sources": {}}
+
+
 @app.get("/api/sources")
 def api_sources():
     try:
