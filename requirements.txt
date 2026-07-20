@@ -30,3 +30,4 @@ openpyxl
 #   pip install torch --index-url https://download.pytorch.org/whl/cpu
 #   pip install transformers
 # finbert_sentiment.py degrades gracefully when they are absent.
+pypdf

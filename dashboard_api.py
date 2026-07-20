@@ -2223,6 +2223,17 @@ def api_sentiment_local():
         return {"status": "failed"}
 
 
+@app.get("/api/production")
+def api_production():
+    """Gold & silver mine supply by country (USGS MCS — annual data)."""
+    try:
+        from mine_production import get_mine_production
+        return _cached("production", 6 * 3600, get_mine_production)
+    except Exception as e:
+        print(f"[/api/production] {type(e).__name__}: {e}", flush=True)
+        return {}
+
+
 @app.get("/api/chokepoints")
 def api_chokepoints():
     """Live chokepoint monitor — ADS-B airspace density + Hormuz tanker count."""

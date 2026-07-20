@@ -36,6 +36,7 @@ SLOW_CADENCE_SOURCES: set = {
     "Kobeissi Letter", "CN Wire",
     # Monthly-release event wires: only fire around data dates, need wide window
     "SGE Withdrawals", "Korea Chip Exports", "TSMC Revenue", "SIA Billings",
+    "Mine Supply Wire",
 }
 
 SOURCE_CATEGORY = {
@@ -141,6 +142,7 @@ SOURCE_CATEGORY = {
     "Korea Chip Exports": "TECH",
     "TSMC Revenue":     "TECH",
     "SIA Billings":     "TECH",
+    "Mine Supply Wire": "COMMODITIES",
     # India fast
     "NDTV Business":    "INDIA",
     "Mint Opinion":     "INDIA",
@@ -290,6 +292,8 @@ RSS_SOURCES = {
     "Korea Chip Exports": "https://news.google.com/rss/search?q=Korea+exports+(semiconductor+OR+chips)+(%22first+20+days%22+OR+monthly)+when:30d&hl=en-US&gl=US&ceid=US:en",
     "TSMC Revenue":     "https://news.google.com/rss/search?q=TSMC+(%22monthly+revenue%22+OR+%22monthly+sales%22)+when:45d&hl=en-US&gl=US&ceid=US:en",
     "SIA Billings":     "https://news.google.com/rss/search?q=%22Semiconductor+Industry+Association%22+(billings+OR+sales)+when:60d&hl=en-US&gl=US&ceid=US:en",
+    # Mine supply shocks — the live counterpart to the annual USGS production table
+    "Mine Supply Wire": "https://news.google.com/rss/search?q=(gold+OR+silver)+mine+(output+OR+production+OR+strike+OR+halt+OR+suspended+OR+guidance)+when:7d&hl=en-US&gl=US&ceid=US:en",
 
     # ── India Fast (verified working) ────────────────────────
     "NDTV Business":    "https://feeds.feedburner.com/ndtvprofit-latest",
