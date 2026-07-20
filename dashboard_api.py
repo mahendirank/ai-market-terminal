@@ -2209,6 +2209,17 @@ def api_physical():
         return {}
 
 
+@app.get("/api/chokepoints")
+def api_chokepoints():
+    """Live chokepoint monitor — ADS-B airspace density + Hormuz tanker count."""
+    try:
+        from chokepoints import get_chokepoints
+        return _cached("chokepoints", 1800, get_chokepoints)
+    except Exception as e:
+        print(f"[/api/chokepoints] {type(e).__name__}: {e}", flush=True)
+        return {}
+
+
 @app.get("/api/feeds/health")
 def api_feeds_health():
     """Per-source RSS feed health from the in-process tracker (news.get_feed_health).

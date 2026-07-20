@@ -1886,6 +1886,17 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
         </div>
       </div>
 
+      <!-- Row 1c: Chokepoint monitor — airspace density + Hormuz tankers -->
+      <div class="sig-section">
+        <div class="sig-section-title">
+          <span>CHOKEPOINT MONITOR — LIVE AIRSPACE DENSITY (ADS-B) · AVOIDANCE = WAR-RISK SIGNAL</span>
+          <span id="sig-choke-ts" style="font-size:8px;color:#2a3a4a;font-weight:normal;"></span>
+        </div>
+        <div class="sig-grid" id="sig-choke-grid">
+          <div class="sig-card"><div class="sig-card-label">LOADING…</div></div>
+        </div>
+      </div>
+
       <!-- Row 2: Nifty + BankNifty PCR + Max Pain -->
       <div class="sig-section">
         <div class="sig-section-title">
@@ -5911,6 +5922,37 @@ async function loadPhysical() {
 }
 setTimeout(loadPhysical, 6000);
 setInterval(loadPhysical, 30 * 60_000);    // daily data — poll every 30 min
+
+// ── Chokepoint monitor (airspace density + Hormuz tankers) ─
+function _chokeCard(name, b) {
+  if (!b || b.status !== 'ok') {
+    return `<div class="sig-card"><div class="sig-card-label">${name}</div><div class="sig-card-val">—</div><div class="sig-card-sub">first sample pending</div></div>`;
+  }
+  const cls = b.label === 'AVOIDANCE' ? 'bear' : b.label === 'REDUCED' ? 'alert' : b.label === 'ELEVATED' ? 'alert' : b.label === 'NORMAL' ? 'bull' : 'neu';
+  const base = b.ratio != null ? `${Math.round(b.ratio * 100)}% of 7d norm (${b.baseline})` : `baseline building (${b.baseline_n || 0} samples)`;
+  return `
+    <div class="sig-card">
+      <div class="sig-card-label">${name} · AIRCRAFT NOW</div>
+      <div class="sig-card-val">${b.aircraft} <span style="font-size:9px;color:#4a5a6a;">${b.sampled}</span></div>
+      <div class="sig-card-sub"><span class="sig-badge ${cls}">${b.label}</span> ${base}</div>
+      <div class="sig-card-sub" style="color:#3a4a5a;">${b.note}</div>
+    </div>`;
+}
+async function loadChokepoints() {
+  try {
+    const d = await fetch(`${BASE}/api/chokepoints`).then(r => r.json());
+    if (!d.boxes) return;
+    let html = Object.entries(d.boxes).map(([name, b]) => _chokeCard(name, b)).join('');
+    const t = d.hormuz_tankers || {};
+    html += t.status === 'ok'
+      ? `<div class="sig-card"><div class="sig-card-label">HORMUZ · SHIPS (AIS)</div><div class="sig-card-val">${t.count} <span style="font-size:9px;color:#4a5a6a;">${t.sampled}</span></div><div class="sig-card-sub">45s aisstream sample</div></div>`
+      : `<div class="sig-card"><div class="sig-card-label">HORMUZ · TANKERS (AIS)</div><div class="sig-card-val" style="color:#4a5a6a;">OFF</div><div class="sig-card-sub">free key: aisstream.io → AISSTREAM_API_KEY env</div></div>`;
+    document.getElementById('sig-choke-grid').innerHTML = html;
+    document.getElementById('sig-choke-ts').textContent = 'refreshes every 45 min · OpenSky Network';
+  } catch (e) { console.warn('[chokepoints]', e); }
+}
+setTimeout(loadChokepoints, 9000);
+setInterval(loadChokepoints, 30 * 60_000);
 function closeSources() {
   document.getElementById('src-modal').style.display = 'none';
 }
