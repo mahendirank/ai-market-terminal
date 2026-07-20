@@ -25,3 +25,8 @@ python-pptx
 # during build downgrades cleanly to 'no live TV feed' instead of failing
 # the whole image build.
 openpyxl
+# NOT pinned here on purpose: torch + transformers (~600MB) power the optional
+# FinBERT local-sentiment panel. Install into the running container with
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+#   pip install transformers
+# finbert_sentiment.py degrades gracefully when they are absent.

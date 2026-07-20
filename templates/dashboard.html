@@ -429,6 +429,12 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 @keyframes spin { to{transform:rotate(360deg)} }
 /* ── SIGNALS PANEL ── */
 #signals-panel { display:none; flex:1; overflow-y:auto; padding:12px; background:#070b10; flex-direction:column; gap:12px; }
+#supplymap-panel { display:none; flex:1; position:relative; background:#04070c; min-height:0; }
+#supplymap-canvas { position:absolute; inset:0; }
+.sm-legend { position:absolute; left:10px; bottom:10px; z-index:5; background:rgba(7,11,16,0.88); border:1px solid #1c2a3a; border-radius:4px; padding:8px 12px; font-size:9px; color:#8a9aaa; letter-spacing:0.5px; line-height:1.9; }
+.sm-legend b { color:#c9d1d9; letter-spacing:1px; }
+.sm-chip { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; vertical-align:middle; }
+.sm-note { position:absolute; right:10px; top:8px; z-index:5; font-size:9px; color:#3a4a5a; letter-spacing:1px; }
 .sig-section { background:#0d1117; border:1px solid #1c2a3a; border-radius:6px; padding:12px; }
 .sig-section-title { font-size:10px; font-weight:bold; letter-spacing:2px; color:#5a7a9a; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; }
 .sig-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:8px; }
@@ -812,6 +818,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
       <div class="ctab" data-cat="CHARTS" data-module="charts" onclick="showCharts(this)" id="charts-tab" style="color:#22d3ee;border-left:2px solid #0891b2;">📈 CHARTS</div>
       <div class="ctab" data-cat="INDICATORS" data-module="indicators" onclick="showIndicators(this)" id="indicators-tab" style="color:#f5a623;border-left:2px solid #b45309;">📊 INDICATORS</div>
       <div class="ctab" data-cat="COCKPIT" data-module="cockpit" onclick="showCockpit(this)" id="cockpit-tab" style="color:#00d26a;border-left:2px solid #059669;">🎯 COCKPIT</div>
+      <div class="ctab" data-cat="SUPPLYMAP" data-module="supply_map" onclick="showSupplyMap(this)" id="supplymap-tab" style="color:#f5a623;border-left:2px solid #b45309;">🌍 SUPPLY MAP</div>
     </div>
     <!-- ASSET QUICK FILTERS -->
     <div class="asset-filters" id="asset-filters">
@@ -1819,6 +1826,18 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
       </div>
     </div>
 
+    <!-- SUPPLY CHAIN MAP (deck.gl — lazy-loaded on first open) -->
+    <div id="supplymap-panel">
+      <div id="supplymap-canvas"></div>
+      <div class="sm-note">DRAG TO PAN · SCROLL TO ZOOM · LIVE CHOKEPOINTS EVERY 30 MIN</div>
+      <div class="sm-legend">
+        <b>SUPPLY CHAIN MAP</b><br>
+        <span class="sm-chip" style="background:#f5a623;"></span>Gold flows: mine supply → trading hubs<br>
+        <span class="sm-chip" style="background:#22d3ee;"></span>Semiconductor flows: fabs → demand centers<br>
+        <span class="sm-chip" style="background:#00d26a;"></span>Chokepoint normal · <span class="sm-chip" style="background:#ff3b5c;"></span>avoidance/alert · dot size = live aircraft
+      </div>
+    </div>
+
     <div class="news-feed" id="news-feed">
       <div class="loading"><span class="spinner">◌</span> Fetching live news from 60+ sources...</div>
     </div>
@@ -1893,6 +1912,17 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
           <span id="sig-choke-ts" style="font-size:8px;color:#2a3a4a;font-weight:normal;"></span>
         </div>
         <div class="sig-grid" id="sig-choke-grid">
+          <div class="sig-card"><div class="sig-card-label">LOADING…</div></div>
+        </div>
+      </div>
+
+      <!-- Row 1d: FinBERT local sentiment -->
+      <div class="sig-section">
+        <div class="sig-section-title">
+          <span>LOCAL AI SENTIMENT — FinBERT TONE OVER LIVE HEADLINES (RUNS LOCALLY · $0)</span>
+          <span id="sig-finbert-ts" style="font-size:8px;color:#2a3a4a;font-weight:normal;"></span>
+        </div>
+        <div class="sig-grid" id="sig-finbert-grid">
           <div class="sig-card"><div class="sig-card-label">LOADING…</div></div>
         </div>
       </div>
@@ -5953,6 +5983,145 @@ async function loadChokepoints() {
 }
 setTimeout(loadChokepoints, 9000);
 setInterval(loadChokepoints, 30 * 60_000);
+
+// ── SUPPLY CHAIN MAP (deck.gl, self-hosted assets) ────────
+// Static reference geometry: mine supply → hub arcs (approx annual tonnes)
+// and fab → demand-center arcs. Live overlays come from /api/chokepoints
+// and /api/physical.
+const SM_GOLD_ARCS = [
+  {from:[104,35],   to:[121.47,31.23], w:380, tip:'China 380t → Shanghai (SGE)'},
+  {from:[90,60],    to:[8.54,47.37],   w:310, tip:'Russia 310t → Zurich'},
+  {from:[134,-25],  to:[121.47,31.23], w:290, tip:'Australia 290t → Shanghai'},
+  {from:[-110,60],  to:[-0.12,51.5],   w:200, tip:'Canada 200t → London (LBMA)'},
+  {from:[-100,40],  to:[-74,40.7],     w:160, tip:'US 160t → New York (COMEX)'},
+  {from:[-1.5,7.9], to:[8.54,47.37],   w:130, tip:'Ghana 130t → Zurich'},
+  {from:[64,41],    to:[-0.12,51.5],   w:110, tip:'Uzbekistan 110t → London'},
+  {from:[-102,23],  to:[-74,40.7],     w:120, tip:'Mexico 120t → New York'},
+  {from:[-75,-10],  to:[-74,40.7],     w:100, tip:'Peru 100t → New York'},
+  {from:[25,-29],   to:[-0.12,51.5],   w:100, tip:'South Africa 100t → London'},
+  {from:[-0.12,51.5],to:[55.3,25.2],   w:150, tip:'London → Dubai (DGCX re-export)'},
+  {from:[55.3,25.2],to:[72.88,19.07],  w:180, tip:'Dubai → Mumbai (India imports)'},
+];
+const SM_SEMI_ARCS = [
+  {from:[120.97,24.78], to:[-121.89,37.34], w:400, tip:'Taiwan fabs (TSMC) → US tech'},
+  {from:[120.97,24.78], to:[121.47,31.23],  w:300, tip:'Taiwan fabs → China assembly'},
+  {from:[127.0,37.5],   to:[-121.89,37.34], w:250, tip:'Korea fabs (SK/Samsung) → US'},
+  {from:[127.0,37.5],   to:[108.9,34.3],    w:200, tip:"Korea fabs → Xi'an (China)"},
+  {from:[120.97,24.78], to:[4.48,51.92],    w:150, tip:'Taiwan fabs → Rotterdam (EU)'},
+  {from:[5.5,52.1],     to:[120.97,24.78],  w:180, tip:'ASML (NL) EUV tools → Taiwan'},
+];
+const SM_CHOKE_POS = {'HORMUZ':[56.5,26.0],'TAIWAN STRAIT':[120.0,24.25],'SUEZ':[32.75,30.5],'MALACCA':[100.75,3.75]};
+let _smDeck = null, _smCountries = null;
+
+function _smChokeColor(label){ return label==='AVOIDANCE'?[255,59,92]:label==='REDUCED'||label==='ELEVATED'?[245,166,35]:label==='NORMAL'?[0,210,106]:[122,138,154]; }
+
+async function _smBuildLayers() {
+  const [choke, phys] = await Promise.all([
+    fetch(`${BASE}/api/chokepoints`).then(r=>r.json()).catch(()=>({})),
+    fetch(`${BASE}/api/physical`).then(r=>r.json()).catch(()=>({})),
+  ]);
+  const chokePts = Object.entries(choke.boxes || {}).map(([name,b]) => ({
+    name, pos: SM_CHOKE_POS[name], b,
+    tip: `${name}: ${b.aircraft ?? '—'} aircraft (${b.label || 'no data'})${b.ratio!=null ? ' · '+Math.round(b.ratio*100)+'% of norm' : ''}`,
+  })).filter(p => p.pos && p.b.status === 'ok');
+  const goldLbl = phys.gold?.label;
+  const goldCol = goldLbl === 'ACCUMULATION' ? [0,210,106] : goldLbl === 'DISTRIBUTION' ? [255,120,90] : [245,166,35];
+  return [
+    new deck.GeoJsonLayer({ id:'countries', data:_smCountries, stroked:true, filled:true,
+      getFillColor:[13,17,23,255], getLineColor:[28,42,58,255], getLineWidth:1, lineWidthUnits:'pixels' }),
+    new deck.ArcLayer({ id:'gold', data:SM_GOLD_ARCS, getSourcePosition:d=>d.from, getTargetPosition:d=>d.to,
+      getSourceColor:goldCol, getTargetColor:[245,166,35,220], getWidth:d=>Math.max(1.2, d.w/90),
+      greatCircle:true, pickable:true }),
+    new deck.ArcLayer({ id:'semi', data:SM_SEMI_ARCS, getSourcePosition:d=>d.from, getTargetPosition:d=>d.to,
+      getSourceColor:[34,211,238,200], getTargetColor:[34,211,238,60], getWidth:d=>Math.max(1.2, d.w/90),
+      greatCircle:true, pickable:true }),
+    new deck.ScatterplotLayer({ id:'choke', data:chokePts, getPosition:d=>d.pos,
+      getRadius:d=>140000 + (d.b.aircraft||0)*9000, getFillColor:d=>[..._smChokeColor(d.b.label),190],
+      getLineColor:[10,14,20,255], getLineWidth:2, lineWidthUnits:'pixels', stroked:true, pickable:true }),
+    new deck.TextLayer({ id:'choke-lbl', data:chokePts, getPosition:d=>d.pos,
+      getText:d=>`${d.name} · ${d.b.aircraft}`, getSize:11, getColor:[201,209,217,255],
+      getPixelOffset:[0,-22], fontFamily:'Menlo, monospace', background:true,
+      getBackgroundColor:[7,11,16,200], backgroundPadding:[4,2] }),
+  ];
+}
+
+async function _smInit() {
+  if (!window.deck) {
+    await new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = '/static/deck.gl.min.js'; s.onload = res; s.onerror = rej;
+      document.head.appendChild(s);
+    });
+  }
+  if (!_smCountries) _smCountries = await fetch('/static/world-countries.geo.json').then(r=>r.json());
+  const layers = await _smBuildLayers();
+  _smDeck = new deck.DeckGL({
+    container: 'supplymap-canvas',
+    views: new deck.MapView({repeat:true}),
+    initialViewState: {longitude:65, latitude:22, zoom:1.35, minZoom:1, maxZoom:8},
+    controller: true,
+    layers,
+    getTooltip: ({object}) => object && {
+      text: object.tip,
+      style: {backgroundColor:'#0d1117', color:'#e8eef5', fontSize:'11px', border:'1px solid #1c2a3a'},
+    },
+    parameters: {clearColor:[0.016,0.027,0.047,1]},
+  });
+  setInterval(async () => {
+    if (_smDeck && document.getElementById('supplymap-panel').style.display !== 'none')
+      _smDeck.setProps({layers: await _smBuildLayers()});
+  }, 30 * 60_000);
+}
+
+// ── FinBERT local sentiment ───────────────────────────────
+async function loadFinbert() {
+  try {
+    const d = await fetch(`${BASE}/api/sentiment/local`).then(r => r.json());
+    const g = document.getElementById('sig-finbert-grid');
+    if (!g) return;
+    if (d.status === 'loading') {
+      g.innerHTML = `<div class="sig-card"><div class="sig-card-label">FINBERT MODEL</div><div class="sig-card-val" style="font-size:12px;">Downloading…</div><div class="sig-card-sub">${d.note || 'first run only'}</div></div>`;
+      setTimeout(loadFinbert, 60_000);
+      return;
+    }
+    if (d.status !== 'ok' || !d.scored) {
+      g.innerHTML = `<div class="sig-card"><div class="sig-card-label">FINBERT</div><div class="sig-card-val">—</div><div class="sig-card-sub">${d.note || 'unavailable'}</div></div>`;
+      return;
+    }
+    const netCls = d.label === 'BULLISH' ? 'bull' : d.label === 'BEARISH' ? 'bear' : 'neu';
+    const netCol = d.net > 0 ? '#00d26a' : d.net < 0 ? '#ff3b5c' : '#7a8a9a';
+    g.innerHTML = `
+      <div class="sig-card">
+        <div class="sig-card-label">NET TONE (${d.scored} HEADLINES)</div>
+        <div class="sig-card-val" style="color:${netCol};">${d.net > 0 ? '+' : ''}${d.net}</div>
+        <div class="sig-card-sub"><span class="sig-badge ${netCls}">${d.label}</span> bull−bear balance</div>
+      </div>
+      <div class="sig-card">
+        <div class="sig-card-label">TONE SPLIT</div>
+        <div class="sig-card-val" style="font-size:13px;"><span style="color:#00d26a;">${d.bullish_pct}%</span> · <span style="color:#7a8a9a;">${d.neutral_pct}%</span> · <span style="color:#ff3b5c;">${d.bearish_pct}%</span></div>
+        <div class="sig-card-sub">bullish · neutral · bearish</div>
+      </div>
+      <div class="sig-card" style="grid-column:span 2;">
+        <div class="sig-card-label">STRONGEST BULL SIGNAL</div>
+        <div class="sig-card-sub" style="color:#9fe8c0;">${(d.top_bullish || '—').slice(0, 110)}</div>
+        <div class="sig-card-label" style="margin-top:5px;">STRONGEST BEAR SIGNAL</div>
+        <div class="sig-card-sub" style="color:#f5a6b0;">${(d.top_bearish || '—').slice(0, 110)}</div>
+      </div>`;
+    document.getElementById('sig-finbert-ts').textContent = 'rescores every 15 min';
+  } catch (e) { console.warn('[finbert]', e); }
+}
+setTimeout(loadFinbert, 12_000);
+setInterval(loadFinbert, 15 * 60_000);
+
+function showSupplyMap(tab) {
+  _hideAllSpecialPanels();
+  document.querySelectorAll('.ctab').forEach(t => t.classList.remove('active'));
+  tab.classList.add('active');
+  document.getElementById('news-feed').style.display     = 'none';
+  document.getElementById('asset-filters').style.display = 'none';
+  document.getElementById('supplymap-panel').style.display = 'block';
+  if (!_smDeck) _smInit().catch(e => console.warn('[supplymap]', e));
+}
 function closeSources() {
   document.getElementById('src-modal').style.display = 'none';
 }
@@ -7675,7 +7844,7 @@ function _hideAllSpecialPanels() {
   ['ai-research-panel','signals-panel','hni-insights-panel','hni-comments-panel',
    'morning-note-panel','global-report-panel','catalyst-panel','sector-panel','risktools-panel',
    'aiperformance-panel','regime-panel','analyst-panel','whymove-panel','charts-panel',
-   'indicators-panel','cockpit-panel'].forEach(function(id) {
+   'indicators-panel','cockpit-panel','supplymap-panel'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.style.display = 'none';
   });

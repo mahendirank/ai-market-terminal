@@ -2209,6 +2209,20 @@ def api_physical():
         return {}
 
 
+@app.get("/api/sentiment/local")
+def api_sentiment_local():
+    """FinBERT local tone scoring over the live headline cache (no API cost)."""
+    try:
+        from finbert_sentiment import analyze
+        def _build():
+            texts = [n.get("headline") or n.get("text") or "" for n in _get_news_cache()]
+            return analyze(texts)
+        return _cached("finbert", 900, _build)
+    except Exception as e:
+        print(f"[/api/sentiment/local] {type(e).__name__}: {e}", flush=True)
+        return {"status": "failed"}
+
+
 @app.get("/api/chokepoints")
 def api_chokepoints():
     """Live chokepoint monitor — ADS-B airspace density + Hormuz tanker count."""
