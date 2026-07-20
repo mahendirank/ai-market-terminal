@@ -2198,6 +2198,17 @@ def api_earnings_social():
         return []
 
 
+@app.get("/api/physical")
+def api_physical():
+    """Physical metals ETF vault flows (GLD/SLV tonnes-in-trust) — daily data."""
+    try:
+        from physical_metals import get_physical_metals
+        return _cached("physical", 3600, get_physical_metals)
+    except Exception as e:
+        print(f"[/api/physical] {type(e).__name__}: {e}", flush=True)
+        return {}
+
+
 @app.get("/api/feeds/health")
 def api_feeds_health():
     """Per-source RSS feed health from the in-process tracker (news.get_feed_health).

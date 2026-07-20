@@ -34,6 +34,8 @@ SLOW_CADENCE_SOURCES: set = {
     "Calculated Risk", "SemiEngineering",
     # Market-hours wires: quiet on weekends, 8h cutoff empties them Sat/Sun
     "Kobeissi Letter", "CN Wire",
+    # Monthly-release event wires: only fire around data dates, need wide window
+    "SGE Withdrawals", "Korea Chip Exports", "TSMC Revenue", "SIA Billings",
 }
 
 SOURCE_CATEGORY = {
@@ -131,9 +133,14 @@ SOURCE_CATEGORY = {
     "SCMP Economy":     "GLOBAL",
     "Yicai Global":     "GLOBAL",
     "CN Wire":          "GLOBAL",
+    "China Macro":      "GLOBAL",
     "Japan Macro":      "GLOBAL",
     "Politico Europe":  "GEOPOLITICS",
     "Kobeissi Letter":  "MACRO",
+    "SGE Withdrawals":  "COMMODITIES",
+    "Korea Chip Exports": "TECH",
+    "TSMC Revenue":     "TECH",
+    "SIA Billings":     "TECH",
     # India fast
     "NDTV Business":    "INDIA",
     "Mint Opinion":     "INDIA",
@@ -269,11 +276,20 @@ RSS_SOURCES = {
     "Yicai Global":     "https://news.google.com/rss/search?q=site:yicaiglobal.com+when:2d&hl=en-US&gl=US&ceid=US:en",
     # Real-time China markets wire (@Sino_Market) — quiet on weekends, fine.
     "CN Wire":          "https://nitter.net/Sino_Market/rss",
+    # Always-on China coverage (works weekends/holidays, no nitter dependency)
+    "China Macro":      "https://news.google.com/rss/search?q=(China+economy+OR+PBOC+OR+yuan+OR+%22China+stimulus%22+OR+%22China+markets%22)+when:1d&hl=en-US&gl=US&ceid=US:en",
     "Japan Macro":      "https://news.google.com/rss/search?q=(BOJ+OR+%22Bank+of+Japan%22+OR+yen+OR+Nikkei)+when:1d&hl=en-US&gl=US&ceid=US:en",
     "Politico Europe":  "https://www.politico.eu/feed/",
     # US macro commentary wire — t.me channel is abandoned (last post May 2024),
     # the live outlet is their X account.
     "Kobeissi Letter":  "https://nitter.net/KobeissiLetter/rss",
+
+    # ── Physical / supply-chain event wires added 2026-07-20 (monthly data
+    #    releases: SGE offtake, Korea 20-day exports, TSMC revenue, SIA billings) ──
+    "SGE Withdrawals":  "https://news.google.com/rss/search?q=%22Shanghai+Gold+Exchange%22+(withdrawals+OR+deliveries+OR+premium)+when:30d&hl=en-US&gl=US&ceid=US:en",
+    "Korea Chip Exports": "https://news.google.com/rss/search?q=Korea+exports+(semiconductor+OR+chips)+(%22first+20+days%22+OR+monthly)+when:30d&hl=en-US&gl=US&ceid=US:en",
+    "TSMC Revenue":     "https://news.google.com/rss/search?q=TSMC+(%22monthly+revenue%22+OR+%22monthly+sales%22)+when:45d&hl=en-US&gl=US&ceid=US:en",
+    "SIA Billings":     "https://news.google.com/rss/search?q=%22Semiconductor+Industry+Association%22+(billings+OR+sales)+when:60d&hl=en-US&gl=US&ceid=US:en",
 
     # ── India Fast (verified working) ────────────────────────
     "NDTV Business":    "https://feeds.feedburner.com/ndtvprofit-latest",

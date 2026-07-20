@@ -59,8 +59,14 @@ ALL_SOURCES = {
     "SCMP Economy":     {"type": "rss", "url": "https://www.scmp.com/rss/318421/feed", "category": "GLOBAL"},
     "Yicai Global":     {"type": "rss", "url": "https://news.google.com/rss/search?q=site:yicaiglobal.com+when:2d&hl=en-US&gl=US&ceid=US:en", "category": "GLOBAL"},
     "CN Wire":          {"type": "rss", "url": "https://nitter.net/Sino_Market/rss", "category": "GLOBAL"},
+    "China Macro":      {"type": "rss", "url": "https://news.google.com/rss/search?q=(China+economy+OR+PBOC+OR+yuan+OR+%22China+stimulus%22+OR+%22China+markets%22)+when:1d&hl=en-US&gl=US&ceid=US:en", "category": "GLOBAL"},
     "Japan Macro":      {"type": "rss", "url": "https://news.google.com/rss/search?q=(BOJ+OR+%22Bank+of+Japan%22+OR+yen+OR+Nikkei)+when:1d&hl=en-US&gl=US&ceid=US:en", "category": "GLOBAL"},
     "Politico Europe":  {"type": "rss", "url": "https://www.politico.eu/feed/", "category": "GEOPOLITICS"},
+    # Physical / supply-chain event wires added 2026-07-20
+    "SGE Withdrawals":  {"type": "rss", "url": "https://news.google.com/rss/search?q=%22Shanghai+Gold+Exchange%22+(withdrawals+OR+deliveries+OR+premium)+when:30d&hl=en-US&gl=US&ceid=US:en", "category": "COMMODITIES"},
+    "Korea Chip Exports": {"type": "rss", "url": "https://news.google.com/rss/search?q=Korea+exports+(semiconductor+OR+chips)+(%22first+20+days%22+OR+monthly)+when:30d&hl=en-US&gl=US&ceid=US:en", "category": "TECH"},
+    "TSMC Revenue":     {"type": "rss", "url": "https://news.google.com/rss/search?q=TSMC+(%22monthly+revenue%22+OR+%22monthly+sales%22)+when:45d&hl=en-US&gl=US&ceid=US:en", "category": "TECH"},
+    "SIA Billings":     {"type": "rss", "url": "https://news.google.com/rss/search?q=%22Semiconductor+Industry+Association%22+(billings+OR+sales)+when:60d&hl=en-US&gl=US&ceid=US:en", "category": "TECH"},
     # Primary-source feeds added 2026-05-27 — Treasury / SEC / central banks
     "TreasuryDirect Auctions": {"type": "rss", "url": "https://www.treasurydirect.gov/TA_WS/securities/announced?format=rss", "category": "BONDS"},
     "TreasuryDirect Results":  {"type": "rss", "url": "https://www.treasurydirect.gov/TA_WS/securities/auctioned?format=rss", "category": "BONDS"},

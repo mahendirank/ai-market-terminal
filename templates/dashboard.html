@@ -1875,6 +1875,17 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
         </div>
       </div>
 
+      <!-- Row 1b: Physical metals ETF vault flows (GLD/SLV) -->
+      <div class="sig-section">
+        <div class="sig-section-title">
+          <span>PHYSICAL METALS — ETF VAULT FLOWS (GLD / SLV TONNES IN TRUST)</span>
+          <span id="sig-physical-ts" style="font-size:8px;color:#2a3a4a;font-weight:normal;"></span>
+        </div>
+        <div class="sig-grid" id="sig-physical-grid">
+          <div class="sig-card"><div class="sig-card-label">LOADING…</div></div>
+        </div>
+      </div>
+
       <!-- Row 2: Nifty + BankNifty PCR + Max Pain -->
       <div class="sig-section">
         <div class="sig-section-title">
@@ -5862,6 +5873,44 @@ function renderFeedHealthStrip() {
 }
 setTimeout(loadFeedHealth, 5000);          // first news fetch cycle warms the tracker
 setInterval(loadFeedHealth, 300000);       // then every 5 min
+
+// ── Physical metals ETF vault flows (GLD/SLV) ─────────────
+function _sparkSVG(series, color) {
+  if (!series || series.length < 2) return '';
+  const w = 150, h = 26, min = Math.min(...series), max = Math.max(...series);
+  const rng = (max - min) || 1;
+  const pts = series.map((v, i) =>
+    `${(i / (series.length - 1) * w).toFixed(1)},${(h - 2 - (v - min) / rng * (h - 4)).toFixed(1)}`).join(' ');
+  return `<svg width="${w}" height="${h}" style="display:block;margin-top:4px;"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.3"/></svg>`;
+}
+function _physCard(m, name) {
+  if (!m || m.status !== 'ok') {
+    return `<div class="sig-card"><div class="sig-card-label">${name}</div><div class="sig-card-val">—</div><div class="sig-card-sub">source warming up</div></div>`;
+  }
+  const lblCls = m.label === 'ACCUMULATION' ? 'bull' : m.label === 'DISTRIBUTION' ? 'bear' : 'neu';
+  const col    = m.label === 'ACCUMULATION' ? '#00d26a' : m.label === 'DISTRIBUTION' ? '#ff3b5c' : '#7a8a9a';
+  const chg    = m.chg_1d == null ? '—' : `${m.chg_1d >= 0 ? '+' : ''}${m.chg_1d}t`;
+  const f20    = m.flow_20d == null ? `${m.points}d of history` : `20d net ${m.flow_20d >= 0 ? '+' : ''}${m.flow_20d}t`;
+  return `
+    <div class="sig-card">
+      <div class="sig-card-label">${name} · TONNES IN TRUST</div>
+      <div class="sig-card-val">${m.tonnes.toLocaleString('en-US')} <span style="font-size:10px;color:${m.chg_1d >= 0 ? '#00d26a' : '#ff3b5c'};">${chg}</span></div>
+      <div class="sig-card-sub"><span class="sig-badge ${lblCls}">${m.label}</span> ${f20}</div>
+      ${_sparkSVG(m.series, col)}
+    </div>`;
+}
+async function loadPhysical() {
+  try {
+    const d = await fetch(`${BASE}/api/physical`).then(r => r.json());
+    if (!d.gold && !d.silver) return;
+    document.getElementById('sig-physical-grid').innerHTML =
+      _physCard(d.gold, 'GOLD (GLD)') + _physCard(d.silver, 'SILVER (SLV)');
+    const asOf = d.gold?.as_of || d.silver?.as_of || '';
+    document.getElementById('sig-physical-ts').textContent = asOf ? `data as of ${asOf}` : '';
+  } catch (e) { console.warn('[physical]', e); }
+}
+setTimeout(loadPhysical, 6000);
+setInterval(loadPhysical, 30 * 60_000);    // daily data — poll every 30 min
 function closeSources() {
   document.getElementById('src-modal').style.display = 'none';
 }
