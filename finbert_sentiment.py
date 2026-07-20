@@ -6,6 +6,12 @@ positive / negative / neutral) fully locally on CPU — no API keys, no cost,
 unlike the Groq-backed sentiment panel. Complements it: FinBERT scores every
 headline deterministically, Groq narrates.
 
+OFF BY DEFAULT — set ENABLE_FINBERT=1 to switch it on. Loading a BERT model
+inside the terminal container is memory-hungry enough to thrash Docker
+Desktop's VM and take the whole terminal offline (observed 2026-07-20), so
+the panel must never load it unless the operator explicitly opts in and has
+headroom (~2GB free container RAM).
+
 Model weights (~440MB) download once on first use into /app/db/hf-cache,
 which lives on the persistent volume — surviving container recreation.
 torch + transformers are installed in the container but intentionally NOT in
@@ -40,8 +46,14 @@ def _load():
         print(f"[finbert] load failed: {_error}", flush=True)
 
 
+def _enabled() -> bool:
+    return os.environ.get("ENABLE_FINBERT", "").lower() in ("1", "true", "yes")
+
+
 def _ensure_loading():
     global _state
+    if not _enabled():
+        return
     with _lock:
         if _state == "cold":
             _state = "loading"
@@ -51,6 +63,9 @@ def _ensure_loading():
 def analyze(texts: list[str]) -> dict:
     """Score headlines → aggregate tone. Non-blocking: returns a status dict
     until the model is ready."""
+    if not _enabled():
+        return {"status": "disabled",
+                "note": "set ENABLE_FINBERT=1 (needs ~2GB free RAM in the container)"}
     _ensure_loading()
     if _state in ("cold", "loading"):
         return {"status": "loading", "note": "FinBERT downloading/loading (first run ~440MB)"}
