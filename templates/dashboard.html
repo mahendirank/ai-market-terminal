@@ -6084,6 +6084,10 @@ async function loadFinbert() {
       setTimeout(loadFinbert, 60_000);
       return;
     }
+    if (d.status === 'disabled') {
+      g.innerHTML = `<div class="sig-card"><div class="sig-card-label">LOCAL AI SENTIMENT</div><div class="sig-card-val" style="color:#4a5a6a;">OFF</div><div class="sig-card-sub">${d.note || 'set ENABLE_FINBERT=1'}</div></div>`;
+      return;
+    }
     if (d.status !== 'ok' || !d.scored) {
       g.innerHTML = `<div class="sig-card"><div class="sig-card-label">FINBERT</div><div class="sig-card-val">—</div><div class="sig-card-sub">${d.note || 'unavailable'}</div></div>`;
       return;
