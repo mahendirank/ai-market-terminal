@@ -1905,6 +1905,17 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
         </div>
       </div>
 
+      <!-- Row 1b2: Mine production by country (USGS) -->
+      <div class="sig-section">
+        <div class="sig-section-title">
+          <span>MINE SUPPLY — GOLD &amp; SILVER PRODUCTION BY COUNTRY</span>
+          <span id="sig-prod-ts" style="font-size:8px;color:#2a3a4a;font-weight:normal;"></span>
+        </div>
+        <div id="sig-prod-body" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:10px;">
+          <div class="loading" style="padding:8px 12px;"><span class="spinner">◌</span> Loading USGS mine production…</div>
+        </div>
+      </div>
+
       <!-- Row 1c: Chokepoint monitor — airspace density + Hormuz tankers -->
       <div class="sig-section">
         <div class="sig-section-title">
@@ -5952,6 +5963,45 @@ async function loadPhysical() {
 }
 setTimeout(loadPhysical, 6000);
 setInterval(loadPhysical, 30 * 60_000);    // daily data — poll every 30 min
+
+// ── Mine production by country (USGS annual) ──────────────
+function _prodBlock(b, metal, accent) {
+  if (!b || b.status !== 'ok') {
+    return `<div class="sig-card"><div class="sig-card-label">${metal} MINE SUPPLY</div><div class="sig-card-sub">USGS source unavailable — retrying</div></div>`;
+  }
+  const max = b.top[0]?.tonnes || 1;
+  const concCls = b.concentration === 'CONCENTRATED' ? 'bear' : b.concentration === 'MODERATE' ? 'alert' : 'bull';
+  const rows = b.top.map(c => `
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
+      <span style="width:88px;color:#8a9aaa;font-size:9.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.country}</span>
+      <span style="flex:1;background:#0d1520;height:9px;border-radius:2px;overflow:hidden;">
+        <span style="display:block;height:100%;width:${(c.tonnes / max * 100).toFixed(1)}%;background:${accent};"></span>
+      </span>
+      <span style="width:62px;text-align:right;color:#c9d1d9;font-size:9.5px;">${c.tonnes.toLocaleString()}t</span>
+      <span style="width:36px;text-align:right;color:#5a6a7a;font-size:9px;">${c.share != null ? c.share + '%' : ''}</span>
+    </div>`).join('');
+  return `
+    <div class="sig-card">
+      <div class="sig-card-label">${metal} · WORLD ${b.world_total ? b.world_total.toLocaleString() + 't' : '—'} (${b.year})</div>
+      <div class="sig-card-sub" style="margin-bottom:6px;">
+        <span class="sig-badge ${concCls}">${b.concentration}</span>
+        top-3 = ${b.top3_share}% of supply
+      </div>
+      ${rows}
+    </div>`;
+}
+async function loadProduction() {
+  try {
+    const d = await fetch(`${BASE}/api/production`).then(r => r.json());
+    if (!d.gold && !d.silver) return;
+    document.getElementById('sig-prod-body').innerHTML =
+      _prodBlock(d.gold, 'GOLD', '#f5a623') + _prodBlock(d.silver, 'SILVER', '#9fb4c7');
+    document.getElementById('sig-prod-ts').textContent =
+      `${d.gold?.source || 'USGS'} · annual mine supply · live shocks in the Mine Supply Wire feed`;
+  } catch (e) { console.warn('[production]', e); }
+}
+setTimeout(loadProduction, 7000);
+setInterval(loadProduction, 6 * 3600_000);
 
 // ── Chokepoint monitor (airspace density + Hormuz tankers) ─
 function _chokeCard(name, b) {
