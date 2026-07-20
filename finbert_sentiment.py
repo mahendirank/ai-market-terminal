@@ -1,8 +1,8 @@
 """
 finbert_sentiment.py — Local financial-tone scoring with FinBERT (Phase 3b).
 
-Runs yiyanghkust/finbert-tone (BERT fine-tuned on analyst reports; labels
-Positive / Negative / Neutral) fully locally on CPU — no API keys, no cost,
+Runs ProsusAI/finbert (BERT fine-tuned on financial text; labels
+positive / negative / neutral) fully locally on CPU — no API keys, no cost,
 unlike the Groq-backed sentiment panel. Complements it: FinBERT scores every
 headline deterministically, Groq narrates.
 
@@ -20,7 +20,9 @@ import os, threading
 os.environ.setdefault("HF_HOME", os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "db", "hf-cache"))
 
-MODEL = "yiyanghkust/finbert-tone"
+# ProsusAI/finbert (not yiyanghkust/finbert-tone: its config predates the
+# `model_type` key and current transformers refuses to load it)
+MODEL = "ProsusAI/finbert"
 _lock = threading.Lock()
 _pipeline = None
 _state = "cold"          # cold → loading → ready | failed
