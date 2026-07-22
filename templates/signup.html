@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zyvora Global Academy — Request Access</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: #030912; color: #e8eaf0;
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    background-image:
+      radial-gradient(ellipse at 20% 50%, rgba(0,60,120,0.15) 0%, transparent 60%),
+      radial-gradient(ellipse at 80% 20%, rgba(0,120,80,0.08) 0%, transparent 50%);
+  }
+  .login-wrap { width: 100%; max-width: 420px; padding: 20px; }
+  .logo { text-align: center; margin-bottom: 36px; font-family: 'Inter', system-ui, sans-serif; }
+  .logo-icon { display: block; margin: 0 auto 20px; width: 64px; height: 64px; animation: glow 4s ease-in-out infinite; }
+  .logo-title { font-size: 28px; font-weight: 900; color: #D4A574; letter-spacing: 10px; margin-left: 10px; }
+  .logo-sub { font-size: 10px; color: #5F7595; letter-spacing: 8px; margin-top: 8px; font-weight: 500; }
+  .card { background: #0a1520; border: 1px solid #1a2e45; border-radius: 12px; padding: 32px 28px; box-shadow: 0 24px 48px rgba(0,0,0,0.5); }
+  .card-title { font-size: 11px; color: #4b6a8a; letter-spacing: 2px; margin-bottom: 8px; text-align: center; }
+  .card-note { font-size: 10px; color: #3a5570; text-align: center; margin-bottom: 22px; line-height: 1.6; }
+  .field { margin-bottom: 16px; }
+  .field label { display: block; font-size: 9px; color: #4b6a8a; letter-spacing: 1.5px; margin-bottom: 6px; }
+  .field input {
+    width: 100%; background: #060d14; border: 1px solid #1a2e45; border-radius: 6px;
+    color: #e8eaf0; font-family: inherit; font-size: 13px; padding: 10px 14px; outline: none; transition: border-color 0.15s;
+  }
+  .field input:focus { border-color: #00c087; box-shadow: 0 0 0 2px rgba(0,192,135,0.1); }
+  .field input::placeholder { color: #2a3a4a; }
+  .field .hint { font-size: 8.5px; color: #2f4a63; margin-top: 5px; letter-spacing: 0.5px; }
+  .btn-login {
+    width: 100%; background: linear-gradient(135deg, #00914f, #007a42); border: none; border-radius: 6px;
+    color: #fff; font-family: inherit; font-size: 12px; font-weight: 700; letter-spacing: 2px;
+    padding: 12px; cursor: pointer; margin-top: 6px; transition: all 0.15s;
+  }
+  .btn-login:hover { background: linear-gradient(135deg, #00c087, #009a6e); transform: translateY(-1px); }
+  .btn-login:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+  .msg-box { border-radius: 6px; font-size: 11px; padding: 10px 14px; margin-bottom: 18px; display: none; line-height: 1.5; }
+  .msg-box.show { display: block; }
+  .msg-box.err { background: #1a0008; border: 1px solid #7f1d1d; color: #fca5a5; }
+  .msg-box.ok  { background: #04140c; border: 1px solid #14532d; color: #86efac; }
+  .footer { text-align: center; margin-top: 24px; font-size: 10px; color: #35506e; letter-spacing: 1px; }
+  .footer a { color: #00a875; text-decoration: none; }
+  .footer a:hover { text-decoration: underline; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner { display: inline-block; animation: spin 1s linear infinite; }
+  @keyframes glow { 0%,100% { filter: drop-shadow(0 0 6px rgba(212,165,116,0.20)); } 50% { filter: drop-shadow(0 0 16px rgba(212,165,116,0.40)); } }
+</style>
+</head>
+<body>
+<div class="login-wrap">
+  <div class="logo">
+    <svg class="logo-icon" viewBox="0 0 280 280" xmlns="http://www.w3.org/2000/svg">
+      <rect width="280" height="280" rx="34" fill="#0A1E3D"/>
+      <rect x="62" y="68" width="156" height="24" fill="#D4A574"/>
+      <polygon points="62,184 100,98 218,98 180,184" fill="#D4A574"/>
+      <rect x="62" y="190" width="156" height="24" fill="#D4A574"/>
+    </svg>
+    <div class="logo-title">ZYVORA</div>
+    <div class="logo-sub">GLOBAL ACADEMY · INSTITUTIONAL TERMINAL</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">REQUEST ACCESS</div>
+    <div class="card-note">Create an account below. Access is granted after an admin approves your request.</div>
+
+    <div class="msg-box err" id="err-box"></div>
+    <div class="msg-box ok"  id="ok-box"></div>
+
+    <form id="signup-form" onsubmit="doSignup(event)">
+      <div class="field">
+        <label>USERNAME</label>
+        <input type="text" id="username" placeholder="choose a username" autocomplete="username" autofocus required>
+        <div class="hint">3–20 characters · lowercase letters, numbers, underscore</div>
+      </div>
+      <div class="field">
+        <label>EMAIL <span style="color:#2f4a63;">(optional)</span></label>
+        <input type="email" id="email" placeholder="you@example.com" autocomplete="email">
+      </div>
+      <div class="field">
+        <label>PASSWORD</label>
+        <input type="password" id="password" placeholder="at least 8 characters" autocomplete="new-password" required>
+      </div>
+      <button class="btn-login" type="submit" id="signup-btn">REQUEST ACCESS</button>
+    </form>
+  </div>
+
+  <div class="footer">
+    Already have an account? <a href="/login">Sign in</a>
+  </div>
+</div>
+
+<script>
+async function doSignup(e) {
+  e.preventDefault();
+  var btn = document.getElementById('signup-btn');
+  var err = document.getElementById('err-box');
+  var ok  = document.getElementById('ok-box');
+  err.classList.remove('show'); ok.classList.remove('show');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner">◌</span> SUBMITTING...';
+
+  var payload = {
+    username: document.getElementById('username').value.trim().toLowerCase(),
+    email:    document.getElementById('email').value.trim(),
+    password: document.getElementById('password').value,
+  };
+
+  try {
+    var resp = await fetch('/api/signup', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    var data = await resp.json();
+    if (data.ok) {
+      document.getElementById('signup-form').style.display = 'none';
+      ok.textContent = '✓ ' + data.message;
+      ok.classList.add('show');
+    } else {
+      err.textContent = '⚠ ' + (data.message || 'Signup failed. Please try again.');
+      err.classList.add('show');
+      btn.disabled = false;
+      btn.innerHTML = 'REQUEST ACCESS';
+    }
+  } catch (e2) {
+    err.textContent = '⚠ Connection error. Please try again.';
+    err.classList.add('show');
+    btn.disabled = false;
+    btn.innerHTML = 'REQUEST ACCESS';
+  }
+}
+</script>
+</body>
+</html>
