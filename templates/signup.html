@@ -12,51 +12,72 @@
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   body {
-    background: #030912; color: #e8eaf0;
-    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    background:#030912; color:#e8eaf0;
+    font-family:'SF Mono','Fira Code','Consolas',monospace;
+    min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px 16px;
     background-image:
-      radial-gradient(ellipse at 20% 50%, rgba(0,60,120,0.15) 0%, transparent 60%),
-      radial-gradient(ellipse at 80% 20%, rgba(0,120,80,0.08) 0%, transparent 50%);
+      radial-gradient(ellipse at 15% 40%, rgba(0,60,120,0.16) 0%, transparent 55%),
+      radial-gradient(ellipse at 85% 15%, rgba(0,120,80,0.09) 0%, transparent 50%);
   }
-  .login-wrap { width: 100%; max-width: 420px; padding: 20px; }
-  .logo { text-align: center; margin-bottom: 36px; font-family: 'Inter', system-ui, sans-serif; }
-  .logo-icon { display: block; margin: 0 auto 20px; width: 64px; height: 64px; animation: glow 4s ease-in-out infinite; }
-  .logo-title { font-size: 28px; font-weight: 900; color: #D4A574; letter-spacing: 10px; margin-left: 10px; }
-  .logo-sub { font-size: 10px; color: #5F7595; letter-spacing: 8px; margin-top: 8px; font-weight: 500; }
-  .card { background: #0a1520; border: 1px solid #1a2e45; border-radius: 12px; padding: 32px 28px; box-shadow: 0 24px 48px rgba(0,0,0,0.5); }
-  .card-title { font-size: 11px; color: #4b6a8a; letter-spacing: 2px; margin-bottom: 8px; text-align: center; }
-  .card-note { font-size: 10px; color: #3a5570; text-align: center; margin-bottom: 22px; line-height: 1.6; }
-  .field { margin-bottom: 16px; }
-  .field label { display: block; font-size: 9px; color: #4b6a8a; letter-spacing: 1.5px; margin-bottom: 6px; }
-  .field input {
-    width: 100%; background: #060d14; border: 1px solid #1a2e45; border-radius: 6px;
-    color: #e8eaf0; font-family: inherit; font-size: 13px; padding: 10px 14px; outline: none; transition: border-color 0.15s;
-  }
-  .field input:focus { border-color: #00c087; box-shadow: 0 0 0 2px rgba(0,192,135,0.1); }
-  .field input::placeholder { color: #2a3a4a; }
-  .field .hint { font-size: 8.5px; color: #2f4a63; margin-top: 5px; letter-spacing: 0.5px; }
-  .btn-login {
-    width: 100%; background: linear-gradient(135deg, #00914f, #007a42); border: none; border-radius: 6px;
-    color: #fff; font-family: inherit; font-size: 12px; font-weight: 700; letter-spacing: 2px;
-    padding: 12px; cursor: pointer; margin-top: 6px; transition: all 0.15s;
-  }
-  .btn-login:hover { background: linear-gradient(135deg, #00c087, #009a6e); transform: translateY(-1px); }
-  .btn-login:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-  .msg-box { border-radius: 6px; font-size: 11px; padding: 10px 14px; margin-bottom: 18px; display: none; line-height: 1.5; }
-  .msg-box.show { display: block; }
-  .msg-box.err { background: #1a0008; border: 1px solid #7f1d1d; color: #fca5a5; }
-  .msg-box.ok  { background: #04140c; border: 1px solid #14532d; color: #86efac; }
-  .footer { text-align: center; margin-top: 24px; font-size: 10px; color: #35506e; letter-spacing: 1px; }
-  .footer a { color: #00a875; text-decoration: none; }
-  .footer a:hover { text-decoration: underline; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .spinner { display: inline-block; animation: spin 1s linear infinite; }
-  @keyframes glow { 0%,100% { filter: drop-shadow(0 0 6px rgba(212,165,116,0.20)); } 50% { filter: drop-shadow(0 0 16px rgba(212,165,116,0.40)); } }
+  .wrap { width:100%; max-width:1000px; }
+  .logo { text-align:center; margin-bottom:26px; font-family:'Inter',system-ui,sans-serif; }
+  .logo-icon { display:block; margin:0 auto 14px; width:56px; height:56px; animation:glow 4s ease-in-out infinite; }
+  .logo-title { font-size:26px; font-weight:900; color:#D4A574; letter-spacing:10px; margin-left:10px; }
+  .logo-sub { font-size:10px; color:#5F7595; letter-spacing:8px; margin-top:7px; font-weight:500; }
+
+  .split { display:grid; grid-template-columns:1.15fr 0.85fr; gap:22px; align-items:start; }
+  @media (max-width:860px){ .split { grid-template-columns:1fr; } }
+
+  /* Preview column */
+  .pv-intro { font-size:11px; color:#4b6a8a; letter-spacing:2px; margin-bottom:12px; }
+  .pv-intro b { color:#c9d6e2; }
+  .pv-cards { display:flex; flex-direction:column; gap:12px; }
+  .pv-card { background:#070d15; border:1px solid #16283c; border-radius:9px; overflow:hidden; }
+  .pv-head { display:flex; align-items:center; gap:8px; padding:7px 12px; background:#0a1420; border-bottom:1px solid #12233420; font-size:10px; font-weight:700; letter-spacing:1.5px; color:#5eead4; font-family:'Inter',system-ui,sans-serif; }
+  .pv-head .dot { width:7px; height:7px; border-radius:50%; background:#00d26a; box-shadow:0 0 6px #00d26a; }
+  .pv-ticker { display:flex; gap:14px; padding:6px 12px; font-size:9.5px; border-bottom:1px solid #0d1a28; overflow:hidden; white-space:nowrap; }
+  .pv-ticker b { color:#4b6a8a; }
+  .t-up { color:#00c087; } .t-dn { color:#f43f5e; }
+  .pv-rows { padding:6px 0; }
+  .pv-row { display:flex; align-items:center; gap:8px; padding:3px 12px; font-size:9.5px; }
+  .pv-row .src { color:#f5a623; width:74px; flex-shrink:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pv-row .hl { color:#c3ccd6; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pv-row .brk { background:#3a0d16; color:#ff5b6e; font-size:7.5px; padding:1px 4px; border-radius:2px; letter-spacing:1px; }
+  .pv-map { padding:0; background:radial-gradient(ellipse at 60% 40%, #08131f, #050b12); }
+  .features { list-style:none; margin:16px 2px 0; display:grid; grid-template-columns:1fr 1fr; gap:8px 16px; }
+  @media (max-width:520px){ .features { grid-template-columns:1fr; } }
+  .features li { font-size:10.5px; color:#7f97ac; letter-spacing:0.3px; padding-left:16px; position:relative; line-height:1.5; }
+  .features li::before { content:'▸'; position:absolute; left:0; color:#00a875; }
+
+  /* Form card */
+  .card { background:#0a1520; border:1px solid #1a2e45; border-radius:12px; padding:26px 24px; box-shadow:0 24px 48px rgba(0,0,0,0.5); }
+  .card-title { font-size:11px; color:#4b6a8a; letter-spacing:2px; margin-bottom:6px; text-align:center; }
+  .card-note { font-size:10px; color:#3a5570; text-align:center; margin-bottom:20px; line-height:1.6; }
+  .field { margin-bottom:15px; }
+  .field label { display:block; font-size:9px; color:#4b6a8a; letter-spacing:1.5px; margin-bottom:6px; }
+  .field input { width:100%; background:#060d14; border:1px solid #1a2e45; border-radius:6px; color:#e8eaf0; font-family:inherit; font-size:13px; padding:10px 14px; outline:none; transition:border-color 0.15s; }
+  .field input:focus { border-color:#00c087; box-shadow:0 0 0 2px rgba(0,192,135,0.1); }
+  .field input::placeholder { color:#2a3a4a; }
+  .field .hint { font-size:8.5px; color:#2f4a63; margin-top:5px; letter-spacing:0.5px; }
+  .btn-login { width:100%; background:linear-gradient(135deg,#00914f,#007a42); border:none; border-radius:6px; color:#fff; font-family:inherit; font-size:12px; font-weight:700; letter-spacing:2px; padding:12px; cursor:pointer; margin-top:6px; transition:all 0.15s; }
+  .btn-login:hover { background:linear-gradient(135deg,#00c087,#009a6e); transform:translateY(-1px); }
+  .btn-login:disabled { opacity:0.5; cursor:not-allowed; transform:none; }
+  .msg-box { border-radius:6px; font-size:11px; padding:10px 14px; margin-bottom:16px; display:none; line-height:1.5; }
+  .msg-box.show { display:block; }
+  .msg-box.err { background:#1a0008; border:1px solid #7f1d1d; color:#fca5a5; }
+  .msg-box.ok { background:#04140c; border:1px solid #14532d; color:#86efac; }
+  .form-foot { text-align:center; margin-top:16px; font-size:10px; color:#35506e; letter-spacing:1px; }
+  .form-foot a { color:#00a875; text-decoration:none; }
+  .form-foot a:hover { text-decoration:underline; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .spinner { display:inline-block; animation:spin 1s linear infinite; }
+  @keyframes glow { 0%,100%{ filter:drop-shadow(0 0 6px rgba(212,165,116,0.20)); } 50%{ filter:drop-shadow(0 0 16px rgba(212,165,116,0.40)); } }
+  @keyframes dash { to { stroke-dashoffset:-40; } }
+  .flow { stroke-dasharray:6 6; animation:dash 2.2s linear infinite; }
 </style>
 </head>
 <body>
-<div class="login-wrap">
+<div class="wrap">
   <div class="logo">
     <svg class="logo-icon" viewBox="0 0 280 280" xmlns="http://www.w3.org/2000/svg">
       <rect width="280" height="280" rx="34" fill="#0A1E3D"/>
@@ -68,33 +89,96 @@
     <div class="logo-sub">GLOBAL ACADEMY · INSTITUTIONAL TERMINAL</div>
   </div>
 
-  <div class="card">
-    <div class="card-title">REQUEST ACCESS</div>
-    <div class="card-note">Create an account below. Access is granted after an admin approves your request.</div>
+  <div class="split">
+    <!-- Preview column -->
+    <div class="preview">
+      <div class="pv-intro">TWO TERMINALS IN ONE · <b>see what you're joining</b></div>
+      <div class="pv-cards">
 
-    <div class="msg-box err" id="err-box"></div>
-    <div class="msg-box ok"  id="ok-box"></div>
+        <!-- News terminal preview -->
+        <div class="pv-card">
+          <div class="pv-head"><span class="dot"></span>📰 NEWS TERMINAL &nbsp;·&nbsp; <span style="color:#4b6a8a;">100+ LIVE SOURCES</span></div>
+          <div class="pv-ticker" id="pv-ticker"><span><b>GOLD</b> <span class="t-up">—</span></span></div>
+          <div class="pv-rows">
+            <div class="pv-row"><span class="brk">BREAKING</span><span class="src">MACRO</span><span class="hl">Fed holds rates; gold extends record run to fresh high</span></div>
+            <div class="pv-row"><span class="src">CHIPS</span><span class="hl">Semiconductor demand surges as AI data-center buildout accelerates</span></div>
+            <div class="pv-row"><span class="src">INDIA</span><span class="hl">FII flows turn positive; Nifty reclaims key level in late trade</span></div>
+            <div class="pv-row"><span class="src">ENERGY</span><span class="hl">Oil jumps as Strait of Hormuz tensions escalate overnight</span></div>
+            <div class="pv-row"><span class="src">FX</span><span class="hl">Dollar softens as yields lead risk-off rotation across assets</span></div>
+          </div>
+        </div>
 
-    <form id="signup-form" onsubmit="doSignup(event)">
-      <div class="field">
-        <label>USERNAME</label>
-        <input type="text" id="username" placeholder="choose a username" autocomplete="username" autofocus required>
-        <div class="hint">3–20 characters · lowercase letters, numbers, underscore</div>
+        <!-- Global trade map preview -->
+        <div class="pv-card">
+          <div class="pv-head"><span class="dot"></span>🌍 GLOBAL TRADE MAP &nbsp;·&nbsp; <span style="color:#4b6a8a;">CRUDE · LNG · GOLD · CHIPS · SHIPPING</span></div>
+          <div class="pv-map">
+            <svg viewBox="0 0 560 200" width="100%" style="display:block;">
+              <defs>
+                <radialGradient id="sea" cx="55%" cy="40%" r="80%">
+                  <stop offset="0%" stop-color="#0b1b2b"/><stop offset="100%" stop-color="#050b12"/>
+                </radialGradient>
+              </defs>
+              <rect width="560" height="200" fill="url(#sea)"/>
+              <!-- abstract landmasses -->
+              <g fill="#0f1c28" stroke="#1c3247" stroke-width="0.6">
+                <path d="M40,70 q30,-24 78,-14 q40,8 40,42 q-6,40 -54,44 q-52,2 -66,-30 q-8,-30 2,-42 Z"/>
+                <path d="M150,120 q10,40 40,54 q26,10 20,-24 q-6,-34 -30,-44 q-24,-8 -30,14 Z"/>
+                <path d="M250,58 q40,-20 70,-6 q22,12 8,40 q-16,30 -12,54 q4,26 -26,20 q-44,-10 -50,-52 q-6,-40 10,-56 Z"/>
+                <path d="M360,64 q60,-24 132,-8 q46,14 40,50 q-8,36 -70,40 q-80,4 -108,-30 q-18,-32 6,-52 Z"/>
+                <path d="M430,150 q30,-14 50,-2 q14,12 -6,26 q-30,18 -50,4 q-14,-16 6,-28 Z"/>
+              </g>
+              <!-- flow arcs -->
+              <path class="flow" d="M300,120 C360,40 440,60 470,96" fill="none" stroke="#ff5a3c" stroke-width="2.4" opacity="0.95"/>
+              <path class="flow" d="M300,120 C260,150 210,150 190,132" fill="none" stroke="#ff5a3c" stroke-width="2" opacity="0.9"/>
+              <path class="flow" d="M470,96 C420,150 360,150 320,132" fill="none" stroke="#a878ff" stroke-width="1.8" opacity="0.9"/>
+              <path class="flow" d="M420,110 C300,20 160,40 120,84" fill="none" stroke="#22d3ee" stroke-width="2.2" opacity="0.9"/>
+              <path class="flow" d="M120,84 C220,60 300,80 300,120" fill="none" stroke="#f5a623" stroke-width="1.8" opacity="0.9"/>
+              <!-- chokepoint dots -->
+              <g font-family="'SF Mono',monospace" font-size="7" fill="#c9d6e2">
+                <circle cx="300" cy="120" r="7" fill="#00d26a" opacity="0.85"/><text x="300" y="106" text-anchor="middle">HORMUZ</text>
+                <circle cx="420" cy="110" r="6" fill="#00d26a" opacity="0.85"/><text x="420" y="96" text-anchor="middle">TAIWAN</text>
+                <circle cx="265" cy="118" r="4.5" fill="#f5a623" opacity="0.85"/>
+                <circle cx="380" cy="150" r="5" fill="#00d26a" opacity="0.85"/><text x="380" y="170" text-anchor="middle">MALACCA</text>
+              </g>
+            </svg>
+          </div>
+        </div>
       </div>
-      <div class="field">
-        <label>EMAIL <span style="color:#2f4a63;">(optional)</span></label>
-        <input type="email" id="email" placeholder="you@example.com" autocomplete="email">
-      </div>
-      <div class="field">
-        <label>PASSWORD</label>
-        <input type="password" id="password" placeholder="at least 8 characters" autocomplete="new-password" required>
-      </div>
-      <button class="btn-login" type="submit" id="signup-btn">REQUEST ACCESS</button>
-    </form>
-  </div>
 
-  <div class="footer">
-    Already have an account? <a href="/login">Sign in</a>
+      <ul class="features">
+        <li>Breaking news scored &amp; classified from 100+ global sources</li>
+        <li>Live gold, oil, DXY, yields, FX &amp; India (NIFTY/SENSEX)</li>
+        <li>Crude, LNG, gold &amp; semiconductor trade flows on a live map</li>
+        <li>AI market-regime engine, signals &amp; chokepoint monitoring</li>
+      </ul>
+    </div>
+
+    <!-- Signup form -->
+    <div class="card">
+      <div class="card-title">REQUEST ACCESS</div>
+      <div class="card-note">Create an account below. Access is granted after an admin approves your request.</div>
+
+      <div class="msg-box err" id="err-box"></div>
+      <div class="msg-box ok" id="ok-box"></div>
+
+      <form id="signup-form" onsubmit="doSignup(event)">
+        <div class="field">
+          <label>USERNAME</label>
+          <input type="text" id="username" placeholder="choose a username" autocomplete="username" autofocus required>
+          <div class="hint">3–20 characters · lowercase letters, numbers, underscore</div>
+        </div>
+        <div class="field">
+          <label>EMAIL <span style="color:#2f4a63;">(optional)</span></label>
+          <input type="email" id="email" placeholder="you@example.com" autocomplete="email">
+        </div>
+        <div class="field">
+          <label>PASSWORD</label>
+          <input type="password" id="password" placeholder="at least 8 characters" autocomplete="new-password" required>
+        </div>
+        <button class="btn-login" type="submit" id="signup-btn">REQUEST ACCESS</button>
+      </form>
+      <div class="form-foot">Already have an account? <a href="/login">Sign in</a></div>
+    </div>
   </div>
 </div>
 
@@ -105,38 +189,41 @@ async function doSignup(e) {
   var err = document.getElementById('err-box');
   var ok  = document.getElementById('ok-box');
   err.classList.remove('show'); ok.classList.remove('show');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner">◌</span> SUBMITTING...';
-
+  btn.disabled = true; btn.innerHTML = '<span class="spinner">◌</span> SUBMITTING...';
   var payload = {
     username: document.getElementById('username').value.trim().toLowerCase(),
     email:    document.getElementById('email').value.trim(),
     password: document.getElementById('password').value,
   };
-
   try {
-    var resp = await fetch('/api/signup', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(payload),
-    });
+    var resp = await fetch('/api/signup', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) });
     var data = await resp.json();
     if (data.ok) {
       document.getElementById('signup-form').style.display = 'none';
-      ok.textContent = '✓ ' + data.message;
-      ok.classList.add('show');
+      ok.textContent = '✓ ' + data.message; ok.classList.add('show');
     } else {
-      err.textContent = '⚠ ' + (data.message || 'Signup failed. Please try again.');
-      err.classList.add('show');
-      btn.disabled = false;
-      btn.innerHTML = 'REQUEST ACCESS';
+      err.textContent = '⚠ ' + (data.message || 'Signup failed. Please try again.'); err.classList.add('show');
+      btn.disabled = false; btn.innerHTML = 'REQUEST ACCESS';
     }
   } catch (e2) {
-    err.textContent = '⚠ Connection error. Please try again.';
-    err.classList.add('show');
-    btn.disabled = false;
-    btn.innerHTML = 'REQUEST ACCESS';
+    err.textContent = '⚠ Connection error. Please try again.'; err.classList.add('show');
+    btn.disabled = false; btn.innerHTML = 'REQUEST ACCESS';
   }
 }
+
+// Live ticker in the news preview (public endpoint, no auth)
+async function loadPvTicker() {
+  try {
+    var d = await fetch('/api/live-ticker').then(r => r.json());
+    var items = Object.entries(d).slice(0, 6).map(function([k, v]) {
+      var chg = v.change_pct || 0, cls = chg >= 0 ? 't-up' : 't-dn', arr = chg >= 0 ? '▲' : '▼';
+      return '<span><b>' + k + '</b> <span class="' + cls + '">' + (v.price || '—') + ' ' + arr + Math.abs(chg).toFixed(2) + '%</span></span>';
+    }).join('');
+    if (items) document.getElementById('pv-ticker').innerHTML = items;
+  } catch (e) {}
+}
+loadPvTicker();
+setInterval(loadPvTicker, 30000);
 </script>
 </body>
 </html>
