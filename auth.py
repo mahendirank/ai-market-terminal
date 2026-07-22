@@ -342,6 +342,7 @@ def verify_session(token: str) -> dict | None:
             "user_id":  row["user_id"],
             "username": row["username"],
             "role":     row["role"],
+            "access":   ("both" if user["role"] == "admin" else (user.get("access") or "both")),
         }
     except Exception as e:
         print(f"[auth] verify_session error: {e}", flush=True)

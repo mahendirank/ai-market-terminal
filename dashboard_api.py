@@ -378,7 +378,22 @@ class AuthMiddleware(BaseHTTPMiddleware):
             if path.startswith("/api/") or path.startswith("/admin/api/"):
                 return JSONResponse({"error": "unauthorized"}, status_code=401)
             return _StarletteRedirect(f"/login")
+        # Per-account terminal entitlement: a MAP-only user may only reach the
+        # map's own data endpoints — every other /api/ (news, markets, signals,
+        # AI, earnings…) is walled off server-side, not just hidden in the UI.
+        if user.get("access") == "map" and path.startswith("/api/") \
+                and path not in _MAP_ONLY_API_OK:
+            return JSONResponse({"error": "forbidden", "reason": "map-only account"}, status_code=403)
         return await call_next(request)
+
+
+# Endpoints a MAP-only account is allowed to call (the trade map + a minimal
+# header). Everything else under /api/ is denied for them (fail-closed).
+# /api/health, /api/live-ticker, /api/tenant/* already bypass auth entirely.
+_MAP_ONLY_API_OK = {
+    "/api/me", "/api/chokepoints", "/api/physical", "/api/production",
+    "/api/live-prices",
+}
 
 app.add_middleware(AuthMiddleware)
 
