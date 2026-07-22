@@ -1164,12 +1164,17 @@ async def login_post(request: Request, response: Response):
     user = _auth.get_user(username)
     redirect = "/admin" if user and user.get("role") == "admin" else "/"
 
+    # Secure flag auto-detects HTTPS: set when the request reached us over TLS
+    # (public tunnel/Caddy sets X-Forwarded-Proto=https) so the cookie is never
+    # sent in the clear, while plain-HTTP localhost dev still works.
+    xfp = request.headers.get("x-forwarded-proto", "").lower()
+    is_https = xfp == "https" or request.url.scheme == "https"
     resp = JSONResponse({"ok": True, "redirect": redirect})
     resp.set_cookie(
         key=COOKIE_NAME, value=token,
         max_age=86400 * 30,
         httponly=True, samesite="lax",
-        secure=False,   # set True in production (Railway has HTTPS)
+        secure=is_https,
     )
     return resp
 
