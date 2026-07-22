@@ -3550,10 +3550,13 @@ function updateCounts() {
 
 // ── Load news ─────────────────────────────────────────────
 async function loadNews() {
+  if (window._mapOnly) return;   // map-only accounts have no news access
   try {
     const data  = await fetch(`${BASE}/api/news`).then(r=>r.json());
+    // Non-array = an error object (e.g. 403 for a map-only account) — do NOT
+    // retry-loop; only a genuine empty array means "still warming up".
+    if (!Array.isArray(data)) return;
     if (!data.length) {
-      // Server still warming up — retry fast until data arrives
       if (!allNews.length) setTimeout(loadNews, 3000);
       return;
     }
@@ -6245,9 +6248,15 @@ async function applyAccess() {
     if (sw) sw.style.display = 'none';           // nothing to switch to
     if (mapTab) mapTab.style.display = 'none';   // hide the map tab entirely
   } else if (_userAccess === 'map') {
+    window._mapOnly = true;
     if (sw) sw.style.display = 'none';
     var ct = document.getElementById('cat-tabs');       if (ct) ct.style.display = 'none';
     var af = document.getElementById('asset-filters');  if (af) af.style.display = 'none';
+    // Strip all news/intelligence panels so the map product shows no news
+    ['mstate-card', 'hniw-panel', 'earnings-hub', 'earnings-launcher'].forEach(function(id) {
+      var e = document.getElementById(id); if (e) e.style.display = 'none';
+    });
+    var sb = document.querySelector('.sidebar'); if (sb) sb.style.display = 'none';
     showSupplyMap(document.getElementById('supplymap-tab'));  // land on the map only
   }
   // 'both' → leave the switcher + all tabs visible
