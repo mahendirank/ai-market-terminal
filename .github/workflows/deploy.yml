@@ -78,9 +78,9 @@ jobs:
           # layer when requirements.txt changes.
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          # linux/amd64 only — the VPS is x86. Multi-arch costs build time
-          # for no benefit until we have ARM hosts.
-          platforms: linux/amd64
+          # Multi-arch: amd64 for x86 hosts + arm64 for Oracle Cloud Always Free
+          # (ARM Ampere) — the free-forever target host is aarch64.
+          platforms: linux/amd64,linux/arm64
 
       - name: Publish summary
         run: |
