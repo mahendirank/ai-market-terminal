@@ -55,6 +55,12 @@ def init_auth_db():
         """)
         conn.commit()
 
+        # Migration: per-account terminal access ('both' | 'news' | 'map').
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+        if "access" not in cols:
+            conn.execute("ALTER TABLE users ADD COLUMN access TEXT DEFAULT 'both'")
+            conn.commit()
+
         # Create default admin if no users exist
         count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         if count == 0:
@@ -151,11 +157,23 @@ def account_status(username: str) -> str:
     return "active" if u["active"] else "pending"
 
 
-def approve_user(username: str, days: int = 365) -> bool:
-    """Admin action: activate a pending account and set its expiry window."""
+def approve_user(username: str, days: int = 365, access: str = "both") -> bool:
+    """Admin action: activate a pending account, set its expiry + terminal access."""
+    if access not in ("both", "news", "map"):
+        access = "both"
     now = datetime.now(timezone.utc)
     exp = (now + timedelta(days=days)).isoformat()
-    return update_user(username, active=1, expires_at=exp, notes="approved")
+    return update_user(username, active=1, expires_at=exp, access=access, notes="approved")
+
+
+def get_access(username: str) -> str:
+    """Terminal entitlement for a user: 'both' | 'news' | 'map'. Admins get 'both'."""
+    u = get_user(username)
+    if not u:
+        return "both"
+    if u.get("role") == "admin":
+        return "both"
+    return u.get("access") or "both"
 
 
 def list_pending() -> list:
@@ -189,7 +207,7 @@ def list_users() -> list:
         with _db_lock:
             conn  = _get_conn()
             rows  = conn.execute(
-                "SELECT id,username,email,role,active,plan,created_at,expires_at,last_login,notes FROM users ORDER BY id"
+                "SELECT id,username,email,role,active,plan,access,created_at,expires_at,last_login,notes FROM users ORDER BY id"
             ).fetchall()
             conn.close()
         return [dict(r) for r in rows]
@@ -198,8 +216,8 @@ def list_users() -> list:
 
 
 def update_user(username: str, **kwargs) -> bool:
-    """Update any user field. Allowed keys: active, email, plan, expires_at, notes, role."""
-    allowed = {"active", "email", "plan", "expires_at", "notes", "role"}
+    """Update any user field. Allowed keys: active, email, plan, expires_at, notes, role, access."""
+    allowed = {"active", "email", "plan", "expires_at", "notes", "role", "access"}
     fields  = {k: v for k, v in kwargs.items() if k in allowed}
     if not fields:
         return False

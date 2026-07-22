@@ -207,6 +207,7 @@
             <th>USERNAME</th>
             <th>EMAIL</th>
             <th>ROLE</th>
+            <th>ACCESS</th>
             <th>STATUS</th>
             <th>EXPIRES</th>
             <th>LAST LOGIN</th>
@@ -215,7 +216,7 @@
           </tr>
         </thead>
         <tbody id="user-table-body">
-          <tr><td colspan="9" style="text-align:center;color:#4b6a8a;padding:20px;">Loading...</td></tr>
+          <tr><td colspan="10" style="text-align:center;color:#4b6a8a;padding:20px;">Loading...</td></tr>
         </tbody>
       </table>
     </div>
@@ -293,7 +294,7 @@ async function loadUsers() {
   var users = await api('/admin/api/users');
   var tbody = document.getElementById('user-table-body');
   if (!users || !users.length) {
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#4b6a8a;padding:20px;">No users found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#4b6a8a;padding:20px;">No users found</td></tr>';
     return;
   }
   tbody.innerHTML = users.map(function(u) {
@@ -324,6 +325,12 @@ async function loadUsers() {
       '<td style="font-weight:700;color:#e8eaf0;">' + u.username + '</td>' +
       '<td style="color:#60a5fa;">' + (u.email || '—') + '</td>' +
       '<td>' + roleBadge + '</td>' +
+      '<td>' + (u.role === 'admin' ? '<span class="badge badge-admin">ALL</span>' :
+        '<select class="btn-sm" onchange="setAccess(\'' + u.username + '\',this.value)">' +
+          '<option value="both"' + ((u.access||'both')==='both'?' selected':'') + '>Both</option>' +
+          '<option value="news"' + ((u.access||'both')==='news'?' selected':'') + '>News</option>' +
+          '<option value="map"' + ((u.access||'both')==='map'?' selected':'') + '>Map</option>' +
+        '</select>') + '</td>' +
       '<td>' + statusBadge + '</td>' +
       '<td>' + expLabel + expiredTag + '</td>' +
       '<td style="color:#4b6a8a;font-size:10px;">' + (u.last_login || 'Never') + '</td>' +
@@ -459,16 +466,29 @@ async function loadPending() {
       '<td>' + (u.email || '—') + '</td>' +
       '<td style="color:#4b6a8a;">' + (u.created_at || '—') + '</td>' +
       '<td>' +
-        '<button class="btn-sm btn-primary" onclick="approveUser(\'' + u.username + '\')">✓ APPROVE</button> ' +
+        '<select id="acc-' + u.id + '" class="btn-sm" style="margin-right:6px;">' +
+          '<option value="both">Both terminals</option>' +
+          '<option value="news">News only</option>' +
+          '<option value="map">Trade Map only</option>' +
+        '</select>' +
+        '<button class="btn-sm btn-primary" onclick="approveUser(\'' + u.username + '\',' + u.id + ')">✓ APPROVE</button> ' +
         '<button class="btn-sm" style="border-color:#7f1d1d;color:#fca5a5;" onclick="rejectUser(\'' + u.username + '\')">✕ REJECT</button>' +
       '</td></tr>';
   }).join('');
 }
 
-async function approveUser(username) {
-  var d = await api('/admin/api/users/approve', 'POST', {username: username, days: 365});
-  if (d.ok) { showAlert('Approved ' + username + ' (365-day access)', true); loadPending(); loadUsers(); loadStats(); }
+async function approveUser(username, id) {
+  var sel = document.getElementById('acc-' + id);
+  var access = sel ? sel.value : 'both';
+  var d = await api('/admin/api/users/approve', 'POST', {username: username, days: 365, access: access});
+  if (d.ok) { showAlert('Approved ' + username + ' — ' + access + ' access (365d)', true); loadPending(); loadUsers(); loadStats(); }
   else showAlert('Could not approve ' + username, false);
+}
+
+async function setAccess(username, access) {
+  var d = await api('/admin/api/users/update', 'POST', {username: username, access: access});
+  if (d.ok) showAlert('Set ' + username + ' → ' + access + ' access', true);
+  else showAlert('Could not update ' + username, false);
 }
 
 async function rejectUser(username) {
