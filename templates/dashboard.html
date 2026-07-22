@@ -34,6 +34,11 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
 /* ── HEADER ── */
 .header { background: #000; border-bottom: 2px solid var(--accent); padding: 0 12px; height: 36px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; z-index: 100; }
 .h-left  { display: flex; align-items: center; gap: 14px; }
+.term-switch { display:inline-flex; background:#0a121c; border:1px solid #1c3048; border-radius:7px; padding:2px; gap:2px; }
+.ts-btn { background:transparent; border:none; color:#5f7a96; font-family:'Inter',system-ui,sans-serif; font-size:10px; font-weight:700; letter-spacing:1px; padding:5px 12px; border-radius:5px; cursor:pointer; white-space:nowrap; transition:all 0.15s; }
+.ts-btn:hover { color:#c9d6e2; }
+.ts-btn.active { background:linear-gradient(135deg,#0f2d1e,#123a4a); color:#5eead4; box-shadow:0 0 0 1px rgba(94,234,212,0.25) inset; }
+@media (max-width:920px){ .term-switch .ts-btn { font-size:9px; padding:4px 8px; } }
 .h-right { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 10px; }
 .brand { display:inline-flex; align-items:center; gap:9px; text-decoration:none; }
 .brand-icon { width:22px; height:22px; flex-shrink:0; }
@@ -481,6 +486,10 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
         <span class="brand-sub">GLOBAL ACADEMY</span>
       </span>
     </a>
+    <div class="term-switch" id="term-switch">
+      <button class="ts-btn active" id="ts-news" onclick="switchTerminal('news')">📰 NEWS TERMINAL</button>
+      <button class="ts-btn" id="ts-map" onclick="switchTerminal('map')">🌍 GLOBAL TRADE MAP</button>
+    </div>
     <span><span class="live-dot"></span><span style="color:#4a5568;font-size:9px;margin-left:3px;">LIVE</span></span>
     <span class="gold-px" id="hdr-gold">GOLD $—</span>
     <span id="hdr-sig" class="sig-badge s-wait">—</span>
@@ -6216,11 +6225,25 @@ setInterval(loadFinbert, 15 * 60_000);
 function showSupplyMap(tab) {
   _hideAllSpecialPanels();
   document.querySelectorAll('.ctab').forEach(t => t.classList.remove('active'));
-  tab.classList.add('active');
+  if (tab) tab.classList.add('active');
   document.getElementById('news-feed').style.display     = 'none';
   document.getElementById('asset-filters').style.display = 'none';
   document.getElementById('supplymap-panel').style.display = 'block';
   if (!_smDeck) _smInit().catch(e => console.warn('[supplymap]', e));
+}
+
+// ── Two-terminal switcher (header) ────────────────────────
+function switchTerminal(which) {
+  var news = document.getElementById('ts-news'), map = document.getElementById('ts-map');
+  if (which === 'map') {
+    news.classList.remove('active'); map.classList.add('active');
+    showSupplyMap(document.getElementById('supplymap-tab'));
+  } else {
+    map.classList.remove('active'); news.classList.add('active');
+    // Return to the news terminal: activate the ALL tab and restore the feed
+    var allTab = document.querySelector('.ctab[data-cat="ALL"]');
+    if (allTab) setCat(allTab);
+  }
 }
 function closeSources() {
   document.getElementById('src-modal').style.display = 'none';
