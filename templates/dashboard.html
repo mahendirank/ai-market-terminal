@@ -6232,6 +6232,28 @@ function showSupplyMap(tab) {
   if (!_smDeck) _smInit().catch(e => console.warn('[supplymap]', e));
 }
 
+// ── Per-account terminal access ('both' | 'news' | 'map') ─
+let _userAccess = 'both';
+async function applyAccess() {
+  try {
+    var m = await fetch(BASE + '/api/me').then(r => r.json());
+    _userAccess = (m && m.access) || 'both';
+  } catch (e) { return; }
+  var sw = document.getElementById('term-switch');
+  var mapTab = document.getElementById('supplymap-tab');
+  if (_userAccess === 'news') {
+    if (sw) sw.style.display = 'none';           // nothing to switch to
+    if (mapTab) mapTab.style.display = 'none';   // hide the map tab entirely
+  } else if (_userAccess === 'map') {
+    if (sw) sw.style.display = 'none';
+    var ct = document.getElementById('cat-tabs');       if (ct) ct.style.display = 'none';
+    var af = document.getElementById('asset-filters');  if (af) af.style.display = 'none';
+    showSupplyMap(document.getElementById('supplymap-tab'));  // land on the map only
+  }
+  // 'both' → leave the switcher + all tabs visible
+}
+applyAccess();
+
 // ── Two-terminal switcher (header) ────────────────────────
 function switchTerminal(which) {
   var news = document.getElementById('ts-news'), map = document.getElementById('ts-map');

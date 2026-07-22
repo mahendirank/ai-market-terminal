@@ -1242,8 +1242,20 @@ async def admin_approve_user(request: Request):
         return JSONResponse({"ok": False, "message": "Invalid request"})
     username = str(b.get("username", "")).strip().lower()
     days     = int(b.get("days", 365))
-    ok = _auth.approve_user(username, days)
-    return JSONResponse({"ok": ok, "username": username})
+    access   = str(b.get("access", "both")).strip().lower()
+    ok = _auth.approve_user(username, days, access)
+    return JSONResponse({"ok": ok, "username": username, "access": access})
+
+
+@app.get("/api/me")
+def api_me(request: Request):
+    """Current user's identity + terminal entitlement, for the frontend to
+    show/hide terminals. 'both' | 'news' | 'map'."""
+    user = _get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    return {"username": user.get("username"), "role": user.get("role"),
+            "access": _auth.get_access(user.get("username"))}
 
 
 @app.post("/admin/api/users/add")
