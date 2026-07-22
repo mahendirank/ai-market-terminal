@@ -1,12 +1,16 @@
 # Caddy reverse proxy with automatic HTTPS via Let's Encrypt.
-# Edit the domain on first deploy if you use something other than zyvoratech.co.
+#
+# Serves the terminal on its OWN subdomain, so the zyvoratech.co root + www
+# (GitHub Pages) and email (GoDaddy MX) are untouched — only a single
+# `terminal.zyvoratech.co` A-record at GoDaddy points here.
 #
 # WebSockets ARE handled automatically by reverse_proxy.
 
-zyvoratech.co, www.zyvoratech.co {
+terminal.zyvoratech.co {
     encode gzip zstd
 
-    # Forward client IP info so rate-limit middleware sees the real visitor
+    # Forward client IP + scheme so rate-limit middleware sees the real
+    # visitor and the app's Secure-cookie auto-detect knows it's HTTPS.
     reverse_proxy market-terminal:8001 {
         header_up X-Real-IP        {remote_host}
         header_up X-Forwarded-For  {remote_host}
