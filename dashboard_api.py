@@ -361,7 +361,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import RedirectResponse as _StarletteRedirect
 
-_NO_AUTH_PATHS    = {"/health", "/login", "/logout", "/favicon.ico"}
+_NO_AUTH_PATHS    = {"/health", "/login", "/logout", "/favicon.ico", "/signup", "/api/signup"}
 _NO_AUTH_PREFIXES = ("/static/", "/api/live-ticker", "/ws", "/api/tenant/active", "/api/tenant/list", "/api/health")
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -1096,6 +1096,53 @@ def login_page(request: Request):
         return f.read()
 
 
+@app.get("/signup", response_class=HTMLResponse)
+def signup_page(request: Request):
+    if _get_session_user(request):
+        return RedirectResponse("/", status_code=302)
+    path = os.path.join(os.path.dirname(__file__), "templates", "signup.html")
+    with open(path) as f:
+        return f.read()
+
+
+import re as _re
+_USERNAME_RE = _re.compile(r"^[a-z0-9_]{3,20}$")
+_EMAIL_RE    = _re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_signup_hits: dict = {}   # ip -> [timestamps]  (in-process abuse throttle)
+
+
+@app.post("/api/signup")
+async def signup_post(request: Request):
+    # Per-IP throttle: max 5 signups / hour, independent of the global limiter
+    ip = request.headers.get("X-Real-IP") or (request.client.host if request.client else "?")
+    now = _time.time()
+    hits = [t for t in _signup_hits.get(ip, []) if now - t < 3600]
+    if len(hits) >= 5:
+        return JSONResponse({"ok": False, "message": "Too many signup attempts. Try again later."}, status_code=429)
+
+    try:
+        body     = await request.json()
+        username = str(body.get("username", "")).strip().lower()
+        password = str(body.get("password", ""))
+        email    = str(body.get("email", "")).strip().lower()
+    except Exception:
+        return JSONResponse({"ok": False, "message": "Invalid request"}, status_code=400)
+
+    if not _USERNAME_RE.match(username):
+        return JSONResponse({"ok": False, "message": "Username must be 3–20 chars: lowercase letters, numbers, underscore."})
+    if len(password) < 8:
+        return JSONResponse({"ok": False, "message": "Password must be at least 8 characters."})
+    if email and not _EMAIL_RE.match(email):
+        return JSONResponse({"ok": False, "message": "Enter a valid email address."})
+
+    ok = _auth.create_pending_user(username, password, email)
+    if not ok:
+        return JSONResponse({"ok": False, "message": "That username is already taken."})
+
+    _signup_hits[ip] = hits + [now]
+    return JSONResponse({"ok": True, "message": "Account requested. An admin will approve it shortly — you'll be able to sign in once approved."})
+
+
 @app.post("/login")
 async def login_post(request: Request, response: Response):
     try:
@@ -1107,6 +1154,11 @@ async def login_post(request: Request, response: Response):
 
     token = _auth.login(username, password)
     if not token:
+        # Distinguish a pending self-signup from bad credentials so the user
+        # knows to wait for approval rather than re-trying their password.
+        if _auth.account_status(username) == "pending":
+            return JSONResponse({"ok": False, "pending": True,
+                "message": "Your account is awaiting admin approval. You'll be able to sign in once it's approved."})
         return JSONResponse({"ok": False, "message": "Invalid username or password"})
 
     user = _auth.get_user(username)
@@ -1166,6 +1218,27 @@ def admin_list_users(request: Request):
     if not _require_admin(request):
         return JSONResponse({"error": "forbidden"}, status_code=403)
     return _auth.list_users()
+
+
+@app.get("/admin/api/pending")
+def admin_list_pending(request: Request):
+    if not _require_admin(request):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    return _auth.list_pending()
+
+
+@app.post("/admin/api/users/approve")
+async def admin_approve_user(request: Request):
+    if not _require_admin(request):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    try:
+        b = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "message": "Invalid request"})
+    username = str(b.get("username", "")).strip().lower()
+    days     = int(b.get("days", 365))
+    ok = _auth.approve_user(username, days)
+    return JSONResponse({"ok": ok, "username": username})
 
 
 @app.post("/admin/api/users/add")

@@ -119,6 +119,58 @@ def create_user(username: str, password: str, email: str = "",
         return False
 
 
+def create_pending_user(username: str, password: str, email: str = "") -> bool:
+    """Public self-signup: create a subscriber that is INACTIVE (active=0) until
+    an admin approves it. login() already rejects inactive users, so a pending
+    account cannot sign in. Returns True on success, False if the name is taken."""
+    try:
+        with _db_lock:
+            conn = _get_conn()
+            # days=0 → expiry in the past; approval sets a real expiry. Harmless
+            # while inactive since login checks active before anything else.
+            _create_user_internal(conn, username, password, email, "subscriber", days=0)
+            conn.execute("UPDATE users SET active=0, notes='pending self-signup' "
+                         "WHERE username=?", (username.lower().strip(),))
+            conn.commit()
+            conn.close()
+        print(f"[auth] Pending signup: {username}", flush=True)
+        return True
+    except sqlite3.IntegrityError:
+        return False
+    except Exception as e:
+        print(f"[auth] create_pending_user error: {e}", flush=True)
+        return False
+
+
+def account_status(username: str) -> str:
+    """'active' | 'pending' | 'none' — lets the login page tell a pending user
+    to wait for approval instead of showing a generic credentials error."""
+    u = get_user(username)
+    if not u:
+        return "none"
+    return "active" if u["active"] else "pending"
+
+
+def approve_user(username: str, days: int = 365) -> bool:
+    """Admin action: activate a pending account and set its expiry window."""
+    now = datetime.now(timezone.utc)
+    exp = (now + timedelta(days=days)).isoformat()
+    return update_user(username, active=1, expires_at=exp, notes="approved")
+
+
+def list_pending() -> list:
+    try:
+        with _db_lock:
+            conn = _get_conn()
+            rows = conn.execute(
+                "SELECT id,username,email,created_at,notes FROM users "
+                "WHERE active=0 ORDER BY id DESC").fetchall()
+            conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
 def get_user(username: str) -> dict | None:
     try:
         with _db_lock:
