@@ -43,6 +43,7 @@ NOTES = {
 REFRESH_SECS = 45 * 60
 _lock = threading.Lock()
 _last_refresh = 0.0
+_positions: dict = {}     # box -> [[lon, lat, heading], ...] live aircraft
 
 
 def _conn():
@@ -75,6 +76,12 @@ def _sample_airspace(conn):
             r.raise_for_status()
             states = r.json().get("states") or []
             airborne = sum(1 for s in states if not s[8])   # s[8] = on_ground
+            # Capture live positions [lon, lat, heading] for the map — reuses
+            # this same request, so no extra OpenSky calls. s[5]=lon s[6]=lat
+            # s[10]=true_track. Cap per box to keep the payload small.
+            _positions[box] = [
+                [s[5], s[6], s[10] or 0] for s in states
+                if not s[8] and s[5] is not None and s[6] is not None][:18]
             conn.execute("INSERT OR REPLACE INTO air_samples VALUES (?,?,?,?)",
                          (box, now, hour, airborne))
             conn.commit()
@@ -170,6 +177,7 @@ def get_chokepoints() -> dict:
     conn = _conn()
     try:
         out = {"boxes": {b: _box_block(conn, b) for b in BOXES},
+               "aircraft": [pt for pts in _positions.values() for pt in pts],
                "updated": datetime.now(timezone.utc).isoformat()}
         t = conn.execute(
             "SELECT ts, count FROM tanker_samples ORDER BY ts DESC LIMIT 1").fetchone()

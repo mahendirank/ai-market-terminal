@@ -152,6 +152,32 @@ const CHOKE_NOTE={'HORMUZ':'20% of world oil','TAIWAN STRAIT':'chip supply arter
 
 const EARTH_R=6371000, GV=deck._GlobeView, CS=deck.COORDINATE_SYSTEM;
 
+/* great-circle sampler → array of [lng,lat] */
+function gc(a,b,n){ const R=Math.PI/180, D=180/Math.PI;
+  const la1=a[1]*R,lo1=a[0]*R,la2=b[1]*R,lo2=b[0]*R;
+  const d=2*Math.asin(Math.min(1,Math.sqrt(Math.sin((la2-la1)/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin((lo2-lo1)/2)**2)));
+  if(d<1e-6) return [a,b]; const out=[];
+  for(let i=0;i<=n;i++){ const f=i/n, A=Math.sin((1-f)*d)/Math.sin(d), B=Math.sin(f*d)/Math.sin(d);
+    const x=A*Math.cos(la1)*Math.cos(lo1)+B*Math.cos(la2)*Math.cos(lo2);
+    const y=A*Math.cos(la1)*Math.sin(lo1)+B*Math.cos(la2)*Math.sin(lo2);
+    const z=A*Math.sin(la1)+B*Math.sin(la2);
+    out.push([Math.atan2(y,x)*D, Math.atan2(z,Math.hypot(x,y))*D]); }
+  return out; }
+
+/* graticule (lat/long grid lines) */
+function graticule(){ const lines=[];
+  for(let lon=-180;lon<180;lon+=30){ const p=[]; for(let lat=-80;lat<=80;lat+=5)p.push([lon,lat]); lines.push({path:p}); }
+  for(let lat=-60;lat<=60;lat+=30){ const p=[]; for(let lon=-180;lon<=180;lon+=5)p.push([lon,lat]); lines.push({path:p}); }
+  return lines; }
+const GRATICULE=graticule();
+
+/* animated trips built from the flow routes (great-circle sampled) */
+const TRIP_LEN=48, TRIP_SPAN=100;
+function tripsFrom(arcs,color){ return arcs.map(a=>({path:gc(a.s,a.t,TRIP_LEN),
+  timestamps:Array.from({length:TRIP_LEN+1},(_,i)=>i/TRIP_LEN*TRIP_SPAN), color})); }
+let TRIPS=[];
+const PLANE_ICON='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#fff" d="M12 2l2.6 10.4L22 15.5l-7.4.2L12 22l-2.6-6.3L2 15.5l7.4-3.1z"/></svg>');
+
 /* Build a UV-sphere mesh for the ocean globe (SphereGeometry isn't exported) */
 function makeSphere(radius, nlat, nlong){
   const positions=[], normals=[], indices=[];
@@ -164,7 +190,7 @@ function makeSphere(radius, nlat, nlong){
 }
 
 let deckgl=null, countries=null, chokeCache={}, physCache={};
-let viewState={longitude:30,latitude:18,zoom:0,minZoom:-0.5,maxZoom:5}, spinning=true, lastInteract=0;
+let viewState={longitude:30,latitude:18,zoom:0,minZoom:-0.5,maxZoom:5}, spinning=true, lastInteract=0, tripTime=0;
 
 function chokeColor(l){ return l==='AVOIDANCE'?[255,59,92]:l==='REDUCED'||l==='ELEVATED'?[245,166,35]:l==='NORMAL'?[0,210,106]:[122,138,154]; }
 
@@ -174,9 +200,11 @@ function buildLayers(){
   const goldLbl=physCache.gold&&physCache.gold.label;
   const goldCol=goldLbl==='ACCUMULATION'?[0,210,106]:goldLbl==='DISTRIBUTION'?[255,120,90]:[245,166,35];
   const arc=(id,data,src,tgt,w)=>new deck.ArcLayer({id,data,getSourcePosition:d=>d.s,getTargetPosition:d=>d.t,getSourceColor:src,getTargetColor:tgt,getWidth:w,greatCircle:true,widthMinPixels:1,pickable:true});
+  const air=(chokeCache.aircraft)||[];
   return [
     new deck.SimpleMeshLayer({id:'ocean',data:[{}],mesh:makeSphere(EARTH_R*0.999,48,96),coordinateSystem:CS.CARTESIAN,
       getPosition:d=>[0,0,0],getColor:[8,20,36],material:false}),
+    new deck.PathLayer({id:'grid',data:GRATICULE,getPath:d=>d.path,getColor:[60,90,120,55],getWidth:1,widthUnits:'pixels'}),
     new deck.GeoJsonLayer({id:'land',data:countries,stroked:true,filled:true,
       getFillColor:[20,32,48,255],getLineColor:[54,86,120,255],getLineWidth:1,lineWidthUnits:'pixels',material:false}),
     new deck.ArcLayer({id:'ship',data:SHIP_LANES,getSourcePosition:d=>d.s,getTargetPosition:d=>d.t,getSourceColor:[90,120,150,90],getTargetColor:[90,120,150,90],getWidth:1,greatCircle:true}),
@@ -194,8 +222,18 @@ function buildLayers(){
     new deck.TextLayer({id:'choke-lbl',data:chokePts,getPosition:d=>d.pos,getText:d=>`${d.name} ${d.b.aircraft}`,
       getSize:11,getColor:[236,242,248,255],getPixelOffset:[0,-16],fontFamily:'Menlo, monospace',getTextAnchor:'middle',
       background:true,getBackgroundColor:[7,11,16,210],backgroundPadding:[4,2]}),
+    // live aircraft (yellow markers rotated to heading) in the chokepoint zones
+    new deck.IconLayer({id:'aircraft',data:air,getPosition:d=>[d[0],d[1]],getAngle:d=>-(d[2]||0),
+      getIcon:()=>({url:PLANE_ICON,width:24,height:24,mask:true}),getSize:14,sizeUnits:'pixels',
+      getColor:[255,214,90,240],billboard:false}),
   ];
 }
+function tripsLayer(){
+  return new deck.TripsLayer({id:'trips',data:TRIPS,getPath:d=>d.path,getTimestamps:d=>d.timestamps,getColor:d=>d.color,
+    currentTime:tripTime,trailLength:16,widthMinPixels:2.6,capRounded:true,jointRounded:true,fadeTrail:true,opacity:0.9});
+}
+let _static=[];
+function allLayers(){ return [..._static, tripsLayer()]; }
 
 async function refreshData(){
   const [c,p]=await Promise.all([
@@ -203,26 +241,31 @@ async function refreshData(){
     fetch(BASE+'/api/physical').then(r=>r.json()).catch(()=>({})),
   ]);
   chokeCache=c||{}; physCache=p||{};
-  if(deckgl) deckgl.setProps({layers:buildLayers()});
+  _static=buildLayers();
+  if(deckgl) deckgl.setProps({layers:allLayers()});
   renderPanel();
 }
 
 async function initGlobe(){
   countries=await fetch('/static/world-countries.geo.json').then(r=>r.json());
+  TRIPS=[].concat(tripsFrom(OIL_ARCS,[255,140,60]),tripsFrom(LNG_ARCS,[196,150,255]),
+    tripsFrom(GOLD_ARCS,[247,205,95]),tripsFrom(SEMI_ARCS,[70,230,250]));
   await refreshData();
   deckgl=new deck.DeckGL({
     container:'tm-map', views:new GV({resolution:12}), viewState, controller:true,
-    onViewStateChange:({viewState:vs})=>{ viewState=vs; lastInteract=Date.now(); deckgl.setProps({viewState}); },
-    layers:buildLayers(),
+    onViewStateChange:({viewState:vs})=>{ viewState=vs; lastInteract=Date.now(); },
+    layers:allLayers(),
     getTooltip:({object})=>object&&(object.tip||object.n)&&{text:object.tip||object.n,style:{backgroundColor:'#0d1117',color:'#e8eef5',fontSize:'11px',border:'1px solid #1c2a3a'}},
     parameters:{cull:true},
   });
-  requestAnimationFrame(spin);
+  requestAnimationFrame(animate);
   setInterval(refreshData, 60000);
 }
-function spin(){
-  if(spinning && Date.now()-lastInteract>3500){ viewState={...viewState,longitude:(viewState.longitude+0.08)}; if(deckgl) deckgl.setProps({viewState}); }
-  requestAnimationFrame(spin);
+function animate(){
+  tripTime=(tripTime+0.5)%TRIP_SPAN;   // particles always flow
+  if(spinning && Date.now()-lastInteract>3500) viewState={...viewState,longitude:viewState.longitude+0.06};
+  if(deckgl) deckgl.setProps({layers:allLayers(), viewState});
+  requestAnimationFrame(animate);
 }
 initGlobe().catch(e=>console.warn('[globe]',e));
 
