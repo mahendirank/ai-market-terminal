@@ -487,8 +487,8 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
       </span>
     </a>
     <div class="term-switch" id="term-switch">
-      <button class="ts-btn active" id="ts-news" onclick="switchTerminal('news')">📰 NEWS TERMINAL</button>
-      <button class="ts-btn" id="ts-map" onclick="switchTerminal('map')">🌍 GLOBAL TRADE MAP</button>
+      <span class="ts-btn active" id="ts-news">📰 NEWS TERMINAL</span>
+      <a class="ts-btn" id="ts-map" href="/map" style="text-decoration:none;">🌍 GLOBAL TRADE MAP →</a>
     </div>
     <span><span class="live-dot"></span><span style="color:#4a5568;font-size:9px;margin-left:3px;">LIVE</span></span>
     <span class="gold-px" id="hdr-gold">GOLD $—</span>
@@ -827,7 +827,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
       <div class="ctab" data-cat="CHARTS" data-module="charts" onclick="showCharts(this)" id="charts-tab" style="color:#22d3ee;border-left:2px solid #0891b2;">📈 CHARTS</div>
       <div class="ctab" data-cat="INDICATORS" data-module="indicators" onclick="showIndicators(this)" id="indicators-tab" style="color:#f5a623;border-left:2px solid #b45309;">📊 INDICATORS</div>
       <div class="ctab" data-cat="COCKPIT" data-module="cockpit" onclick="showCockpit(this)" id="cockpit-tab" style="color:#00d26a;border-left:2px solid #059669;">🎯 COCKPIT</div>
-      <div class="ctab" data-cat="SUPPLYMAP" data-module="supply_map" onclick="showSupplyMap(this)" id="supplymap-tab" style="color:#f5a623;border-left:2px solid #b45309;">🌍 GLOBAL TRADE MAP</div>
+      <div class="ctab" data-cat="SUPPLYMAP" data-module="supply_map" onclick="showSupplyMap(this)" id="supplymap-tab" style="display:none;color:#f5a623;border-left:2px solid #b45309;">🌍 GLOBAL TRADE MAP</div>
     </div>
     <!-- ASSET QUICK FILTERS -->
     <div class="asset-filters" id="asset-filters">
