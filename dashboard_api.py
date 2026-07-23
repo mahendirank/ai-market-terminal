@@ -1177,7 +1177,12 @@ async def login_post(request: Request, response: Response):
         return JSONResponse({"ok": False, "message": "Invalid username or password"})
 
     user = _auth.get_user(username)
-    redirect = "/admin" if user and user.get("role") == "admin" else "/"
+    if user and user.get("role") == "admin":
+        redirect = "/admin"
+    elif _auth.get_access(username) == "map":
+        redirect = "/map"          # map-only accounts land on the map page
+    else:
+        redirect = "/"
 
     # Secure flag auto-detects HTTPS: set when the request reached us over TLS
     # (public tunnel/Caddy sets X-Forwarded-Proto=https) so the cookie is never
@@ -3803,7 +3808,23 @@ def api_ai_health():
 
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
-    # Middleware already checks auth — this is just the page serve
+    # Middleware already checks auth. A map-only account has no news terminal —
+    # send it to its own page instead of the news dashboard.
+    user = _get_session_user(request)
+    if user and _auth.get_access(user.get("username")) == "map":
+        return RedirectResponse("/map", status_code=302)
     path = os.path.join(os.path.dirname(__file__), "templates", "dashboard.html")
+    with open(path) as f:
+        return f.read()
+
+
+@app.get("/map", response_class=HTMLResponse)
+def trade_map(request: Request):
+    # The Global Trade Map as its own page/entity. A news-only account has no
+    # map access — send it back to the news terminal.
+    user = _get_session_user(request)
+    if user and _auth.get_access(user.get("username")) == "news":
+        return RedirectResponse("/", status_code=302)
+    path = os.path.join(os.path.dirname(__file__), "templates", "trademap.html")
     with open(path) as f:
         return f.read()
