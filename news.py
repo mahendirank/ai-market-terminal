@@ -31,7 +31,7 @@ SLOW_CADENCE_SOURCES: set = {
     # Fed Reserve was already in the list — same cadence
     "Fed Reserve", "IMF News",
     # Blogs / trade press posting ~daily, not hourly — 8h cutoff leaves them empty
-    "Calculated Risk", "SemiEngineering",
+    "Calculated Risk", "SemiEngineering", "Rigzone",
     # Market-hours wires: quiet on weekends, 8h cutoff empties them Sat/Sun
     "Kobeissi Letter", "CN Wire",
     # Monthly-release event wires: only fire around data dates, need wide window
@@ -231,7 +231,7 @@ RSS_SOURCES = {
     "Kitco News":       "https://news.google.com/rss/search?q=site:kitco.com+gold+silver&hl=en-US&gl=US&ceid=US:en",
     "Hellenic Ship":    "https://www.hellenicshippingnews.com/feed/",
     "OilPrice.com":     "https://oilprice.com/rss/main",
-    "Rigzone":          "https://www.rigzone.com/news/rss/rigzone_latest.aspx",
+    "Rigzone":          "https://news.google.com/rss/search?q=site:rigzone.com+when:3d&hl=en-US&gl=US&ceid=US:en",
     "Mining.com":       "https://www.mining.com/feed/",
     "Natural Gas Intel":"https://naturalgasintel.com/feed/",
     # goldseek.com is low-volume (recent items age out) — fresh gold/silver via Google News
@@ -250,7 +250,7 @@ RSS_SOURCES = {
     "NDTV Profit":      "https://news.google.com/rss/search?q=site:ndtvprofit.com+when:1d&hl=en-US&gl=US&ceid=US:en",
     "Hindu Business":   "https://www.thehindubusinessline.com/markets/feeder/default.rss",
     "The Hindu Biz":    "https://www.thehindu.com/business/feeder/default.rss",
-    "Finshots":         "https://finshots.in/feed",
+    "Finshots":         "https://news.google.com/rss/search?q=site:finshots.in+when:7d&hl=en-US&gl=US&ceid=US:en",
 
     # ── Tech / AI / Semiconductors ───────────────────────────
     "The Register":     "https://www.theregister.com/headlines.atom",
@@ -260,7 +260,7 @@ RSS_SOURCES = {
     "SemiEngineering":  "https://news.google.com/rss/search?q=site:semiengineering.com+when:7d&hl=en-US&gl=US&ceid=US:en",
     "EE Times":         "https://news.google.com/rss/search?q=site:eetimes.com+when:3d&hl=en-US&gl=US&ceid=US:en",
     "TechCrunch":       "https://techcrunch.com/feed/",
-    "VentureBeat AI":   "https://venturebeat.com/category/ai/feed/",
+    "VentureBeat AI":   "https://news.google.com/rss/search?q=site:venturebeat.com+(AI+OR+%22artificial+intelligence%22)+when:2d&hl=en-US&gl=US&ceid=US:en",
     "MIT Tech Rev":     "https://www.technologyreview.com/feed/",
     "Tom's Hardware":   "https://www.tomshardware.com/feeds/all",
 
@@ -318,7 +318,7 @@ RSS_SOURCES = {
     "TreasuryDirect Auctions":  "https://www.treasurydirect.gov/TA_WS/securities/announced?format=rss",
     "TreasuryDirect Results":   "https://www.treasurydirect.gov/TA_WS/securities/auctioned?format=rss",
     "SEC EDGAR Latest":         "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&output=atom",
-    "FRB San Francisco":        "https://www.frbsf.org/feed/",
+    "FRB San Francisco":        "https://news.google.com/rss/search?q=(site:frbsf.org+OR+%22San+Francisco+Fed%22)+when:14d&hl=en-US&gl=US&ceid=US:en",
     "ECB Press":                "https://www.ecb.europa.eu/rss/press.html",
     "Bank of England":          "https://www.bankofengland.co.uk/rss/news",
     "BoE Publications":         "https://www.bankofengland.co.uk/rss/publications",
