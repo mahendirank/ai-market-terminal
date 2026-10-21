@@ -552,6 +552,27 @@ body { background: var(--bg); color: var(--text); font-family: 'Courier New', mo
   <div style="overflow:hidden;flex:1;"><div class="p-track" id="price-strip"><span class="live-ts" id="ticker-ts">─</span></div></div>
 </div>
 
+<!-- BREAKING NEWS CRAWL — Bloomberg-style scrolling headline tape -->
+<style>
+  .crawl-strip { background:#050708; border-bottom:1px solid var(--border); height:24px; display:flex; align-items:center; overflow:hidden; flex-shrink:0; }
+  .crawl-tag { background:var(--red); color:#1a0005; font-weight:900; font-size:9px; letter-spacing:1px; padding:0 10px; height:24px; display:flex; align-items:center; flex-shrink:0; white-space:nowrap; }
+  .crawl-view { overflow:hidden; flex:1; height:24px; position:relative; }
+  .crawl-track { position:absolute; white-space:nowrap; display:flex; align-items:center; height:24px; animation: crawl-scroll 55s linear infinite; will-change: transform; }
+  .crawl-strip:hover .crawl-track { animation-play-state: paused; }
+  @keyframes crawl-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+  .crawl-item { display:inline-flex; align-items:center; gap:6px; padding:0 20px; font-size:10.5px; cursor:pointer; white-space:nowrap; }
+  .crawl-item:hover .crawl-hl { text-decoration:underline; }
+  .crawl-time { color:#4a5568; font-size:9px; }
+  .crawl-src { color:#5f7a96; font-size:9px; }
+  .crawl-hl { color:var(--text); }
+  .crawl-item.hi .crawl-hl { color:var(--accent); font-weight:700; }
+  .crawl-dot { color:#2a3444; }
+</style>
+<div class="crawl-strip" id="crawl-strip" style="display:none;">
+  <div class="crawl-tag">🔴 BREAKING</div>
+  <div class="crawl-view"><div class="crawl-track" id="crawl-track"></div></div>
+</div>
+
 <!-- ═══ COLLAPSIBLE MARKET DATA STRIP (macro overview + FX majors) ═══ -->
 <style>
   #market-strip-toggle {
@@ -3383,6 +3404,46 @@ function _matchesAsset(n) {
   return (_assetWords[activeAsset]||[]).some(w => txt.includes(w));
 }
 
+// ── Breaking-news crawl (Bloomberg-style scrolling headline tape) ──
+function renderNewsCrawl() {
+  const strip = document.getElementById('crawl-strip');
+  const track = document.getElementById('crawl-track');
+  if (!strip || !track || !allNews.length) return;
+
+  const now = Date.now();
+  // Rank: HIGH priority + still "breaking" (<30min) first, then most recent overall.
+  const picks = [...allNews]
+    .filter(n => n.headline && n.pub_utc)
+    .sort((a, b) => {
+      const aHi = a.priority === 'high' ? 1 : 0;
+      const bHi = b.priority === 'high' ? 1 : 0;
+      if (aHi !== bHi) return bHi - aHi;
+      return (b.pub_utc || '').localeCompare(a.pub_utc || '');
+    })
+    .slice(0, 14);
+
+  if (!picks.length) { strip.style.display = 'none'; return; }
+  strip.style.display = 'flex';
+
+  const row = picks.map(n => {
+    const hi = n.priority === 'high';
+    const ageSec = (now - new Date(n.pub_utc).getTime()) / 1000;
+    const brk = ageSec < 300 ? '<span class="brk" style="margin-right:4px;">BREAKING</span>' : '';
+    const hasUrl = n.url && n.url.startsWith('http');
+    const click = hasUrl
+      ? `onclick="openStory(${JSON.stringify(n.url)},${JSON.stringify(n.headline||'')},${JSON.stringify(n.source||'')})"`
+      : '';
+    return `<span class="crawl-item ${hi?'hi':''}" ${click}>` +
+      `<span class="crawl-time">${n.time||timeAgo(n.pub_utc)}</span>` +
+      `<span class="crawl-src">${_hnicEsc((n.source||'').split(' +')[0])}</span>` +
+      `<span class="crawl-hl">${brk}${_hnicEsc(n.headline)}</span>` +
+      `</span><span class="crawl-dot">●</span>`;
+  }).join('');
+
+  // Duplicate the row so the 0%→-50% translateX loop is seamless.
+  track.innerHTML = row + row;
+}
+
 function renderFeed(freshSet) {
   const feed = document.getElementById('news-feed');
   // Match on source-based `category` OR content-based `tags` (BONDS).
@@ -3566,6 +3627,7 @@ async function loadNews() {
     updateCounts();
     renderFeed(fresh.size ? fresh : null);
     renderEarningsNews();
+    renderNewsCrawl();
     document.getElementById('hdr-cnt').textContent = `${allNews.length} stories`;
     if (fresh.size) { document.title=`⚡ ${fresh.size} NEW — Zyvora`; setTimeout(()=>{document.title='Zyvora Global Academy — Institutional Terminal'},5000); }
   } catch(e) { console.error('news',e); if (!allNews.length) setTimeout(loadNews, 3000); }
